@@ -1,0 +1,12 @@
+  Determinando los proyectos que se van a restaurar...
+  Todos los proyectos están actualizados para la restauración.
+  DualSenseClient.Logging -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Logging\bin\Release\net10.0\DualSenseClient.Logging.dll
+  DualSenseClient.Emulation -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Emulation\bin\Release\net10.0\DualSenseClient.Emulation.dll
+  DualSenseClient.Bluetooth -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Bluetooth\bin\Release\net10.0\DualSenseClient.Bluetooth.dll
+  DualSenseClient.HidHide -> <MadSense>\vendor\DualSenseClient\DualSenseClient.HidHide\bin\Release\net10.0\DualSenseClient.HidHide.dll
+  DualSenseClient.Core -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Core\bin\Release\net10.0\DualSenseClient.Core.dll
+  DualSenseClient.Hid -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Hid\bin\Release\net10.0\DualSenseClient.Hid.dll
+  DualSenseClient.Settings -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Settings\bin\Release\net10.0\DualSenseClient.Settings.dll
+  DualSenseClient.Controllers -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Controllers\bin\Release\net10.0\DualSenseClient.Controllers.dll
+  MadSense -> <MadSense>\src\bin\Release\net10.0-windows\win-x64\MadSense.dll
+  MadSense -> <MadSense>\app\

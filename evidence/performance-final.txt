@@ -1,0 +1,15 @@
+{
+  "Timestamp": "2026-10-31T01:41:10.7915675+01:00",
+  "ProcessId": 48732,
+  "ElapsedSeconds": 15.0144279,
+  "CpuSeconds": 0.390625,
+  "OneCorePercent": 2.6016642299104853,
+  "MachinePercent": 0.13008321149552426,
+  "LogicalProcessors": 20,
+  "WorkingSetMiB": 88.69140625,
+  "PrivateMemoryMiB": 29.73828125,
+  "MainWindowHandle": {
+    "value": 0
+  },
+  "Conditions": "Final MadSense0.2 after removal of unused MiniAudioEngine; two UI modes; recommended DualSense/native; physical Bluetooth DualSense and virtual USB ready; tray hidden; no game/audio workload; input device continuous. Approx500Hz established earlier, not newly measured here. Process CPU only, excludes driver kernel cost. Single15s sample, not latency benchmark."
+}

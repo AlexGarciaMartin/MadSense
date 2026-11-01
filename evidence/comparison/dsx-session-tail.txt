@@ -1,0 +1,100 @@
+2026-10-31 01:51:30 [INF] [MainWindow] CheckResults checkpoint: SetupDebugData done
+2026-10-31 01:51:30 [INF] [MainWindow] Checking DSX/DLC ownership results...
+2026-10-31 01:51:30 [INF] [MainWindow] HandleOwnershipCheck START. BaseFailure=None DlcFailure=None BaseOwns=True DlcOwns=True
+2026-10-31 01:51:30 [INF] [MainWindow] Checking for required updates...
+2026-10-31 01:51:30 [INF] [] QueryVersionInfoCached.CachedEntry.NotExpired - 10/27/2026 19:33:00 | 11/24/2026 19:33:00
+2026-10-31 01:51:30 [INF] [] QueryVersionInfoCached.CachedEntry.VerificationResult verified=True createdAt=2026-10-27T18:33:00.9530000+00:00 expiresAt=2026-11-24T18:33:00.9530000+00:00
+2026-10-31 01:51:30 [INF] [] QueryVersionInfoCached.CachedEntry.NotExpired.Verified - MinSupported="3.1.7.0", Stable="3.1.7.0", Preview="3.2.0.0"
+2026-10-31 01:51:30 [INF] [MainWindow] App version "3.2.0.0" is supported (minimum: "3.1.7.0").
+2026-10-31 01:51:30 [INF] [MainWindow] Checking VirtualPad Driver by Nefarius for updates...
+2026-10-31 01:51:30 [INF] [SteamAPI] Found 3 backups in Steam Cloud
+2026-10-31 01:51:31 [INF] [] VirtualPad update check: Installed="2.258.0", Latest="2.258.0", UpdateAvailable=False
+2026-10-31 01:51:31 [INF] [MainWindow] VirtualPad Driver by Nefarius is running the latest version...
+2026-10-31 01:51:31 [INF] [MainWindow] VirtualPad service status: Running=True, Reachable=True, StartMode=Automatic, DelayedAutoStart=True, StartTime="N/A". Scheduling health check in 00:00:30
+2026-10-31 01:51:31 [INF] [MainWindow] Preparing Home Page...
+2026-10-31 01:51:31 [INF] [Core] Navigated to Home Page
+2026-10-31 01:51:31 [INF] [] GetLicenseInfo called - checking driver status...
+2026-10-31 01:51:31 [INF] [] Driver status: IsCompatibleDriverPresent=True, IsRuntimeAvailable=True
+2026-10-31 01:51:31 [INF] [Core] Performing settings write.
+2026-10-31 01:51:31 [INF] [Core] Saved settings: "app_settings.json" (4107 bytes)
+2026-10-31 01:51:31 [INF] [] VirtualPad driver version: "2.63.0.0"
+2026-10-31 01:51:31 [INF] [] VirtualPad runtime version: "2.63.0.0"
+2026-10-31 01:51:31 [INF] [] Attempting to access VirtualPadDriver.License...
+2026-10-31 01:51:31 [INF] [] GetLicenseInfo completed. IsValid=True, ErrorMessage="none"
+2026-10-31 01:51:31 [INF] [] Installed-game runtime monitoring started after Home readiness.
+2026-10-31 01:51:31 [INF] [MainWindow] Initializing Steam Cloud services...
+2026-10-31 01:51:31 [INF] [SteamAPI] "GetCloudStatus": Sending command to DSX.Steam...
+2026-10-31 01:51:31 [INF] [SteamAPI] Starting DSX.SteamApi with message: "GetCloudStatus"
+2026-10-31 01:51:31 [INF] [MainWindow] HandleBothAppsOwned END. IsInitializing=False
+2026-10-31 01:51:31 [INF] [MainWindow] HandleSuccessfulOwnershipCheck END
+2026-10-31 01:51:31 [INF] [MainWindow] HandleOwnershipCheck END
+2026-10-31 01:51:31 [INF] [MainWindow] CheckResults END
+2026-10-31 01:51:31 [INF] [MainWindow] ShowInternetSuccessAndContinueAsync checkpoint: CheckResults finished
+2026-10-31 01:51:31 [INF] [MainWindow] InvokeSplashScreen END
+2026-10-31 01:51:32 [INF] [SteamAPI] Received Steam Cloud status: 3 backups, "53,99 KB" used
+2026-10-31 01:51:32 [INF] [SteamAPI] "GetBackupList": Sending command to DSX.Steam...
+2026-10-31 01:51:32 [INF] [SteamAPI] Starting DSX.SteamApi with message: "GetBackupList"
+2026-10-31 01:51:32 [INF] [SteamAPI] Found 3 backups in Steam Cloud
+2026-10-31 01:51:32 [INF] [SteamAPI] "GetBackupList": Sending command to DSX.Steam...
+2026-10-31 01:51:32 [INF] [SteamAPI] Starting DSX.SteamApi with message: "GetBackupList"
+2026-10-31 01:51:33 [INF] [SteamAPI] Found 3 backups in Steam Cloud
+2026-10-31 01:51:33 [INF] [] Steam Cloud startup state: LocalData=True (12 files), CloudBackups=3, Action=None
+2026-10-31 01:51:33 [INF] [MainWindow] Steam Cloud services initialized successfully
+2026-10-31 01:51:33 [INF] [ControllerCommunication] Trying to open handle for "DUALSENSE"
+2026-10-31 01:51:33 [INF] [ControllerCommunication] Opened handle for "DUALSENSE"
+2026-10-31 01:51:33 [INF] [ControllerCommunication] Get DualSense Revision Version "DUALSENSE"
+2026-10-31 01:51:33 [INF] [ControllerCommunication] NEW HARDWARE CHANGE detected for "DUALSENSE"
+2026-10-31 01:51:33 [INF] [ControllerCommunication] Get Version Info for "DUALSENSE"
+2026-10-31 01:51:33 [INF] [ControllerCommunication] [HWINFO] Build Date: "Mar 17 2026"
+2026-10-31 01:51:33 [INF] [ControllerCommunication] [HWINFO] Build Time: "16:18:15"
+2026-10-31 01:51:33 [INF] [ControllerCommunication] [HWINFO] Controller Firmware Version: "0641"
+2026-10-31 01:51:33 [INF] [ControllerCommunication] [HWINFO] Hardware Info: "0x00000916"
+2026-10-31 01:51:33 [INF] [ControllerCommunication] [HWINFO] DualSense Revision Variation: "PRODUCTION"
+2026-10-31 01:51:33 [INF] [ControllerCommunication] Connection is OK for "DUALSENSE"
+2026-10-31 01:51:34 [INF] [] [LEDModes] Handle: Switching LED mode from null to BATTERY
+2026-10-31 01:51:34 [INF] [] [LEDModes] Starting BATTERY mode - resetting BatteryBrightness to max for smooth start
+2026-10-31 01:51:34 [INF] [DeviceAdded] Preparing to add Device "DualSense™️ Wireless Controller" ("D42F4Bxxxxxx")
+2026-10-31 01:51:34 [INF] [DeviceAdded] Added "DualSense™️ Wireless Controller" ("D42F4Bxxxxxx") Device
+2026-10-31 01:51:34 [INF] [] Thread 'ReadControllerInput' started.
+2026-10-31 01:51:34 [INF] [] Thread 'ReadControllerFeature' started.
+2026-10-31 01:51:34 [INF] [] Thread 'WriteControllerOutput' started.
+2026-10-31 01:51:34 [INF] [ControllerCommunication] Started Communications with: "DualSense™️ Wireless Controller | D42F4Bxxxxxx | BLUETOOTH"
+2026-10-31 01:51:34 [INF] [] [Emulation] Starting emulation switch. MAC="D42F4Bxxxxxx", TargetType=DUALSENSE, CurrentType=NATIVE_MODE, DeviceType=DUALSENSE
+2026-10-31 01:51:34 [INF] [] [AudioStream] StopStreaming requested. MAC="D42F4Bxxxxxx", State=Stopped, Connection=BLUETOOTH, Source=None, GameFeedbackPassthrough=True, IsEmulationSwitching=True, IsDisposed=False, DisconnectRequested=False
+2026-10-31 01:51:34 [INF] [] [AudioStream] StopStreaming skipped - already Stopped. MAC="D42F4Bxxxxxx", Source=None
+2026-10-31 01:51:34 [INF] [ControllerCommunication] Creating Virtual DualSense for "DualSense™️ Wireless Controller | D42F4Bxxxxxx | BLUETOOTH"
+2026-10-31 01:51:35 [INF] [] Started continuous vDS audio tap (event-driven).
+2026-10-31 01:51:35 [INF] [ControllerCommunication] Connected Virtual DualSense (Audio Device) for "DualSense™️ Wireless Controller | D42F4Bxxxxxx | BLUETOOTH"
+2026-10-31 01:51:35 [INF] [] [DualSenseFeedback] Register complete. MAC="D42F4Bxxxxxx", GamepadHash=22322180, DelegateNull=False, IsRegistered=True
+2026-10-31 01:51:35 [INF] [] [Emulation] Emulation activated successfully. MAC="D42F4Bxxxxxx", Type=DUALSENSE, HasVirtualGamepad=True
+2026-10-31 01:51:35 [INF] [] [Haptics] ApplyHapticsState requested. Caller="PerformEmulationSwitch" at "Emulation.cs":537, MAC="D42F4Bxxxxxx", StreamingState=Stopped, Connection=BLUETOOTH, Source=None, GameFeedbackPassthrough=True, IsEmulationSwitching=False, IsDisposed=False, DisconnectRequested=False
+2026-10-31 01:51:35 [INF] [] [Emulation] Emulation switch completed successfully. MAC="D42F4Bxxxxxx", NewType=DUALSENSE, ElapsedMs=1274.0
+2026-10-31 01:51:35 [INF] [] [Haptics] ApplyHapticsState decision. MAC="D42F4Bxxxxxx", Decision=StartOrRestartStreaming, StreamingState=Stopped, Connection=BLUETOOTH, Source=None, ProfileRequestsStreaming=True, GameFeedbackPassthrough=True, RequiresDualSenseDlc=True, OwnsDualSenseDlc=True, DlcAccessReason=Allowed, RumbleToHaptics=False, ButtonToHaptics=False, TriggerToHaptics=False, JoystickToHaptics=False, TouchpadToHaptics=False, MotionToHaptics=False, FileOnEvent=False, FileToSpeaker=False
+2026-10-31 01:51:35 [INF] [] [Haptics] ApplyHapticsState executing RestartStreaming. MAC="D42F4Bxxxxxx", StreamingStateBefore=Stopped
+2026-10-31 01:51:35 [INF] [] [AudioStream] RestartStreaming requested. MAC="D42F4Bxxxxxx", State=Stopped, Connection=BLUETOOTH, Source=None, GameFeedbackPassthrough=True, IsEmulationSwitching=False
+2026-10-31 01:51:35 [INF] [] [AudioStream] StopStreaming requested. MAC="D42F4Bxxxxxx", State=Stopped, Connection=BLUETOOTH, Source=None, GameFeedbackPassthrough=True, IsEmulationSwitching=False, IsDisposed=False, DisconnectRequested=False
+2026-10-31 01:51:35 [INF] [] [AudioStream] StopStreaming skipped - already Stopped. MAC="D42F4Bxxxxxx", Source=None
+2026-10-31 01:51:35 [INF] [] [AudioStream] StartStreaming requested. MAC="D42F4Bxxxxxx", State=Stopped, Connection=BLUETOOTH, Source=None, GameFeedbackPassthrough=True, RequiresDualSenseDlc=True, OwnsDualSenseDlc=True, DlcAccessReason=Allowed, Allowed=True, IsEmulationSwitching=False, IsDisposed=False, DisconnectRequested=False
+2026-10-31 01:51:35 [INF] [] [AudioStream] StartStreaming - transitioning from Stopped to Starting. MAC="D42F4Bxxxxxx", Source=None
+2026-10-31 01:51:35 [INF] [] [AudioStream] StartStreaming - transitioned to Running. MAC="D42F4Bxxxxxx"
+2026-10-31 01:51:35 [INF] [] [AudioStream] StartStreaming - invoking audio engine startup. MAC="D42F4Bxxxxxx", Engine=Graph, Source=None, Connection=BLUETOOTH
+2026-10-31 01:51:35 [INF] [] [GraphAudioEngine] OnStreamingStarted begin. MAC="D42F4Bxxxxxx", Connection=BLUETOOTH, Source=None, GameFeedbackPassthrough=True, AudioOutputMode=1, HapticsChannelsEnabled=True, ActiveSinkExists=False, AudioThreadAlive=False
+2026-10-31 01:51:35 [INF] [] [GraphAudioEngine] building sink. MAC="D42F4Bxxxxxx", Connection=BLUETOOTH, Source=None
+2026-10-31 01:51:35 [INF] [] [GraphAudioEngine] BT sink constructed for "D42F4Bxxxxxx" (audio=800B, haptics=256B, depth=5, capture="9216 bytes", haptics chunk=64B)
+2026-10-31 01:51:35 [INF] [] [GraphAudioEngine] OnStreamingStarted sink ready. MAC="D42F4Bxxxxxx", Sink="BluetoothSink", Connection=BLUETOOTH
+2026-10-31 01:51:35 [INF] [] [GraphAudioEngine] VirtualDualSense source attached (speaker+haptics, MAC="D42F4Bxxxxxx")
+2026-10-31 01:51:35 [INF] [] [GraphAudioEngine] OnStreamingStarted sources wired. MAC="D42F4Bxxxxxx", Source=None, VdsSource=True, WasapiSource=False, FileSource=False, Sink="BluetoothSink"
+2026-10-31 01:51:35 [INF] [] [GraphAudioEngine] audio thread started for "D42F4Bxxxxxx"
+2026-10-31 01:51:35 [INF] [] [AudioStream] StartStreaming - audio engine startup returned. MAC="D42F4Bxxxxxx", State=Running
+2026-10-31 01:51:35 [INF] [] [AudioStream] RestartStreaming completed calls. MAC="D42F4Bxxxxxx", StateAfter=Running
+2026-10-31 01:51:35 [INF] [] [Haptics] ApplyHapticsState completed for "DualSense™️ Wireless Controller | D42F4Bxxxxxx | BLUETOOTH", ProfileRequestsStreaming=True, StreamingStateAfter=Running
+2026-10-31 01:51:36 [INF] [] [DualSenseControlRequest] First control request received. MAC="D42F4Bxxxxxx"
+2026-10-31 01:51:36 [INF] [] Found a VirtualPad "DualSense™?" or reWASD Device
+2026-10-31 01:51:37 [INF] [] [DualSenseFeedback] First callback fired. MAC="D42F4Bxxxxxx", IsRegistered=True, ReportLength=48
+2026-10-31 01:51:39 [INF] [] Found a VirtualPad "DualSense™?" or reWASD Device
+2026-10-31 01:51:48 [INF] [] [HardwareInfo] Successfully fetched hardware info for "DualSense™️ Wireless Controller | D42F4Bxxxxxx | BLUETOOTH"
+2026-10-31 01:51:48 [INF] [] Fetching latest firmware versions from Sony servers...
+2026-10-31 01:51:48 [INF] [] Firmware versions fetched successfully - DualSense: "0x0630", DualSense Edge: "0x0217", FwType000B: "0x0630", FwType000E: "0x0641"
+2026-10-31 01:52:01 [INF] [MainWindow] Running delayed VirtualPad service health check...
+2026-10-31 01:52:01 [INF] [] VirtualPad update check: Installed="2.258.0", Latest="2.258.0", UpdateAvailable=False
+2026-10-31 01:52:01 [INF] [MainWindow] Delayed VirtualPad service health check completed successfully

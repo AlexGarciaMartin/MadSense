@@ -1,0 +1,20 @@
+MadSense 0.3 comic UI — visual audit, 2026-10-31
+
+Observed final running app with sky at current desktop DPI and default window size.
+Paper/ink/orange/acid palette, heavy masthead, illustrated controller, diagonal
+printing plate and halftone are visible and correctly aligned. Native/ Xbox mode
+buttons, Steam Input helper, connection/battery status and footer all fit without
+clipping. The state badge reads LISTO PARA JUGAR; native mode selected.
+
+Explicit visible helper: Steam Input se configura en Steam; MadSense no lo cambia.
+The app remains native WinForms; artwork is vector paint; pulse at4fps only while
+visible and no decorative drawing when hidden. Keyboard-accessible native buttons
+and accessibility tree preserved.
+
+No mode changed, no pause, no game input during this UI audit. Minimized app to
+bandeja for15-second CPU sample with Stellar Blade left running in background.
+performance-v03.txt gives precise workload caveats. App then restored via existing
+instance signal, bridge kept active throughout.
+
+Default-size inspected; minimum-size resize not attempted to avoid disturbing game.
+No screenshot saved; visual evidence inspected directly through the tool.

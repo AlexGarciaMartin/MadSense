@@ -1,0 +1,497 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using DualSenseClient.Controllers;
+using DualSenseClient.Controllers.Devices;
+using DualSenseClient.Controllers.DualSense.Triggers;
+using DualSenseClient.Controllers.Emulation;
+using DualSenseClient.Core.Foreground;
+using DualSenseClient.HidHide;
+using DualSenseClient.Logging;
+using DualSenseClient.Settings;
+using DualSenseClient.Settings.Sections;
+
+namespace DualSenseClient.GUI.Services;
+
+/// <summary>
+/// Polls the focused program and temporarily applies the matching auto profile rule
+/// (profile + emulation mode and variant + trigger effects + forwarded-audio source + hiding) to every tracked controller. Stored bindings are never
+/// modified: when no rule matches, the controller's bound profile and stored emulation
+/// settings are re-applied and the pre-rule hidden state is restored. Resolved eagerly at startup (see
+/// <see cref="Controls.AppSplashScreen"/>) so it runs for the app's lifetime.
+/// </summary>
+public sealed class AutoProfileCoordinator : IDisposable
+{
+    /// <summary>
+    /// How often the focused program is re-evaluated (same cadence as DS4Windows).
+    /// </summary>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Logger instance.
+    /// </summary>
+    private static readonly DualSenseClientLogger _log = DualSenseClientLogger.For("AutoProfiles");
+
+    /// <summary>
+    /// Tracks the connected controllers.
+    /// </summary>
+    private readonly IControllerTracker _tracker;
+
+    /// <summary>
+    /// Stores the foreground-app auto profile rules.
+    /// </summary>
+    private readonly AutoProfileService _rules;
+
+    /// <summary>
+    /// Resolves the profile bound to a controller for reverting.
+    /// </summary>
+    private readonly ControllerInfoService _controllers;
+
+    /// <summary>
+    /// Stores the controller profiles.
+    /// </summary>
+    private readonly ProfileService _profiles;
+
+    /// <summary>
+    /// Applies temporary emulation mode overrides.
+    /// </summary>
+    private readonly IEmulationService _emulation;
+
+    /// <summary>
+    /// Hides or unhides physical controllers per rule.
+    /// </summary>
+    private readonly IControllerHidingService _hiding;
+
+    /// <summary>
+    /// Shows a popup when the applied profile changes.
+    /// </summary>
+    private readonly INotificationPopupService _popups;
+
+    /// <summary>
+    /// Resolves the program currently in focus.
+    /// </summary>
+    private readonly IForegroundAppProvider _foreground;
+
+    /// <summary>
+    /// Polls the focused program, or <c>null</c> on unsupported platforms.
+    /// </summary>
+    private readonly Timer? _timer;
+
+    /// <summary>
+    /// Guards <see cref="_applied"/> and serializes ticks.
+    /// </summary>
+    private readonly Lock _sync = new Lock();
+
+    /// <summary>
+    /// The effective auto state per controller: applied profile name, emulation mode and
+    /// variant overrides (<c>null</c> mode means no override), trigger effect snapshots
+    /// (<c>null</c> means no override), hiding override (<c>null</c>
+    /// means no override), and the effective forwarded-audio source (the rule's override,
+    /// or the controller's stored setting when the rule leaves it unchanged). Compared
+    /// every tick so rule edits apply while focus is unchanged.
+    /// </summary>
+    private readonly Dictionary<DualSenseDevice, (string ProfileName, EmulationMode? Mode, DualSenseVariant? DsVariant,
+        DualShock4Variant? Ds4Variant, (int Mode, int Start, int End, int Force, int Frequency, int SnapForce, int FirstFoot, int SecondFoot, int AmplitudeB,
+        int Period, int EndStrength)? LeftTrigger,
+        (int Mode, int Start, int End, int Force, int Frequency, int SnapForce, int FirstFoot, int SecondFoot, int AmplitudeB, int Period, int EndStrength)?
+        RightTrigger, bool? Hide,
+        EmulationAudioSource AudioSource, string AudioApp)> _applied =
+        new Dictionary<DualSenseDevice, (string, EmulationMode?, DualSenseVariant?, DualShock4Variant?,
+            (int, int, int, int, int, int, int, int, int, int, int)?, (int, int, int, int, int, int, int, int, int, int, int)?, bool?, EmulationAudioSource,
+            string)>();
+
+    /// <summary>
+    /// The hidden state per controller before the hiding override was applied,
+    /// restored when no hiding rule matches anymore. Only present while overridden.
+    /// </summary>
+    private readonly Dictionary<DualSenseDevice, bool> _hideBaseline = new Dictionary<DualSenseDevice, bool>();
+
+    /// <summary>
+    /// Whether the coordinator was disposed.
+    /// </summary>
+    private bool _disposed;
+
+    /// <summary>
+    /// Creates the coordinator and starts polling the focused program on supported platforms.
+    /// </summary>
+    public AutoProfileCoordinator(IControllerTracker tracker, AutoProfileService rules, ControllerInfoService controllers,
+        ProfileService profiles, IEmulationService emulation, IForegroundAppProvider foreground, INotificationPopupService popups,
+        IControllerHidingService hiding)
+    {
+        _tracker = tracker;
+        _rules = rules;
+        _controllers = controllers;
+        _profiles = profiles;
+        _emulation = emulation;
+        _foreground = foreground;
+        _popups = popups;
+        _hiding = hiding;
+
+        if (_foreground.IsSupported)
+        {
+            // One-shot rescheduling (not periodic): a slow tick from USB stalls
+            // must never pile overlapping polls onto the thread pool.
+            _timer = new Timer(OnTick, null, PollInterval, Timeout.InfiniteTimeSpan);
+        }
+        else
+        {
+            _log.Debug("Foreground-app switching is not supported on this platform; auto profiles stay idle");
+        }
+    }
+
+    /// <summary>
+    /// Evaluates the focused program against the rules and applies the match per
+    /// controller. Never throws: timer callbacks must not take down the process.
+    /// Reschedules the next poll so ticks never overlap.
+    /// </summary>
+    private void OnTick(object? state)
+    {
+        try
+        {
+            Poll();
+        }
+        catch (Exception ex)
+        {
+            _log.Error("Auto profile poll failed");
+            _log.LogExceptionDetails(ex);
+        }
+        finally
+        {
+            try
+            {
+                _timer?.Change(PollInterval, Timeout.InfiniteTimeSpan);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Shut down while polling; nothing left to schedule.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Runs one poll: resolves the foreground app once, then applies or reverts the
+    /// matching rule per tracked controller. Runs on a timer thread.
+    /// </summary>
+    private void Poll()
+    {
+        if (_disposed || !_foreground.IsSupported)
+        {
+            return;
+        }
+
+        ForegroundApp? app = _rules.Settings.Enabled ? _foreground.GetForegroundApp() : null;
+        List<DualSenseDevice> devices = _tracker.Controllers.OfType<DualSenseDevice>().ToList();
+        HashSet<DualSenseDevice> current = devices.ToHashSet();
+
+        bool emulationChanged = false;
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            foreach (DualSenseDevice stale in _applied.Keys.Where(device => !current.Contains(device)).ToList())
+            {
+                RestoreHiding(stale);
+                _applied.Remove(stale);
+            }
+
+            foreach (DualSenseDevice device in devices)
+            {
+                string? mac = device.PairingInfo?.ClientMac;
+                string? path = device.Info.Path;
+                AutoProfileRule? rule = app is { } foreground
+                    ? _rules.FindMatch(foreground.ExePath, foreground.WindowTitle, mac, path)
+                    : null;
+
+                string profileName = !string.IsNullOrEmpty(rule?.ProfileName)
+                    ? rule.ProfileName
+                    : _controllers.GetBoundProfileName(mac, path) ?? ProfileService.DefaultProfileName;
+                EmulationMode? mode = rule?.EmulationMode;
+                DualSenseVariant? dsVariant = mode == EmulationMode.DualSense ? rule?.DualSenseVariant : null;
+                DualShock4Variant? ds4Variant = mode == EmulationMode.DualShock4 ? rule?.DualShock4Variant : null;
+                (int Mode, int Start, int End, int Force, int Frequency, int SnapForce, int FirstFoot, int SecondFoot, int AmplitudeB, int Period, int
+                    EndStrength)? leftTrigger = SnapshotTrigger(rule?.LeftTrigger);
+                (int Mode, int Start, int End, int Force, int Frequency, int SnapForce, int FirstFoot, int SecondFoot, int AmplitudeB, int Period, int
+                    EndStrength)? rightTrigger = SnapshotTrigger(rule?.RightTrigger);
+                bool? hide = rule?.HideController;
+                EmulationAudioSource? ruleAudioSource = rule?.AudioSource;
+                string? ruleAudioApp = rule?.AudioApp;
+                EmulationSettings storedEmulation = _controllers.GetEmulationSettings(mac, path);
+                EmulationAudioSource effectiveAudioSource = ruleAudioSource ?? storedEmulation.Forward.AudioSource;
+                string effectiveAudioApp = ruleAudioApp ?? storedEmulation.Forward.AudioApp;
+
+                if (_applied.TryGetValue(device,
+                        out (string ProfileName, EmulationMode? Mode, DualSenseVariant? DsVariant, DualShock4Variant? Ds4Variant,
+                        (int Mode, int Start, int End, int Force, int Frequency, int SnapForce, int FirstFoot, int SecondFoot, int AmplitudeB, int Period, int
+                        EndStrength)? LeftTrigger,
+                        (int Mode, int Start, int End, int Force, int Frequency, int SnapForce, int FirstFoot, int SecondFoot, int AmplitudeB, int Period, int
+                        EndStrength)? RightTrigger, bool? Hide,
+                        EmulationAudioSource AudioSource, string AudioApp) applied)
+                    && string.Equals(applied.ProfileName, profileName, StringComparison.OrdinalIgnoreCase)
+                    && applied.Mode == mode
+                    && applied.DsVariant == dsVariant
+                    && applied.Ds4Variant == ds4Variant
+                    && applied.LeftTrigger == leftTrigger
+                    && applied.RightTrigger == rightTrigger
+                    && applied.Hide == hide
+                    && applied.AudioSource == effectiveAudioSource
+                    && string.Equals(applied.AudioApp, effectiveAudioApp, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                bool hadPrevious = _applied.TryGetValue(device,
+                    out (string ProfileName, EmulationMode? Mode, DualSenseVariant? DsVariant, DualShock4Variant? Ds4Variant,
+                    (int Mode, int Start, int End, int Force, int Frequency, int SnapForce, int FirstFoot, int SecondFoot, int AmplitudeB, int Period, int
+                    EndStrength)? LeftTrigger,
+                    (int Mode, int Start, int End, int Force, int Frequency, int SnapForce, int FirstFoot, int SecondFoot, int AmplitudeB, int Period, int
+                    EndStrength)? RightTrigger, bool? Hide,
+                    EmulationAudioSource AudioSource, string AudioApp) previous);
+                EmulationMode? previousMode = hadPrevious ? previous.Mode : null;
+                DualSenseVariant? previousDsVariant = hadPrevious ? previous.DsVariant : null;
+                DualShock4Variant? previousDs4Variant = hadPrevious ? previous.Ds4Variant : null;
+                bool profileChanged = hadPrevious
+                                      && !string.Equals(previous.ProfileName, profileName, StringComparison.OrdinalIgnoreCase);
+                ApplyRule(device, profileName, mode, dsVariant, ds4Variant, ruleAudioSource, ruleAudioApp, profileChanged);
+                bool hadTrigger = hadPrevious && (previous.LeftTrigger is not null || previous.RightTrigger is not null);
+                if (rule?.LeftTrigger is not null || rule?.RightTrigger is not null || hadTrigger)
+                {
+                    ApplyTriggers(device, rule?.LeftTrigger, rule?.RightTrigger);
+                }
+
+                _emulation.SetForwardingAudioSource(device, effectiveAudioSource, effectiveAudioApp);
+                ApplyHiding(device, hide);
+                _applied[device] = (profileName, mode, dsVariant, ds4Variant, leftTrigger, rightTrigger, hide, effectiveAudioSource, effectiveAudioApp);
+                if (mode != previousMode || dsVariant != previousDsVariant || ds4Variant != previousDs4Variant)
+                {
+                    emulationChanged = true;
+                }
+            }
+        }
+
+        if (emulationChanged)
+        {
+            _emulation.Refresh();
+        }
+    }
+
+    /// <summary>
+    /// Applies a profile and a temporary emulation mode, variant and forwarded-audio source
+    /// override to a controller. Unknown profile names are skipped (the previous lights stay).
+    /// Shows a popup when the profile changed. Caller must hold <see cref="_sync"/>.
+    /// </summary>
+    private void ApplyRule(DualSenseDevice device, string profileName, EmulationMode? mode, DualSenseVariant? dsVariant,
+        DualShock4Variant? ds4Variant, EmulationAudioSource? audioSource, string? audioApp, bool notify)
+    {
+        Profile? profile = _profiles.GetProfile(profileName);
+        if (profile is not null)
+        {
+            _log.Info($"Applying auto profile '{profile.Name}' to {device.Info.ProductName}");
+            device.ApplyProfile(profile);
+            if (notify)
+            {
+                string displayName = _controllers.GetDisplayName(device.PairingInfo?.ClientMac, device.Info.Path,
+                    device.Info.ProductName);
+                string title = LocalizationService.GetText("Notification.AutoProfile.Title");
+                string message = string.Format(LocalizationService.GetText("Notification.AutoProfile.Message"),
+                    displayName, profile.Name);
+                _popups.ShowMessage(title, message);
+            }
+        }
+        else
+        {
+            _log.Warning($"Auto profile '{profileName}' not found; leaving lights unchanged");
+        }
+
+        _emulation.SetTemporaryEmulationMode(device, mode, dsVariant, ds4Variant, audioSource, audioApp);
+    }
+
+    /// <summary>
+    /// Captures a trigger setting as a comparable value snapshot (<c>null</c> stays <c>null</c>).
+    /// Snapshots (not the live objects) are compared every tick so in-place slider edits
+    /// apply while focus is unchanged.
+    /// </summary>
+    private static (int Mode, int Start, int End, int Force, int Frequency, int SnapForce, int FirstFoot, int SecondFoot, int AmplitudeB, int Period, int
+        EndStrength)? SnapshotTrigger(TriggerEffectSettings? settings)
+        => settings is null
+            ? null
+            : ((int)settings.Mode, settings.Start, settings.End, settings.Force, settings.Frequency, settings.SnapForce, settings.FirstFoot,
+                settings.SecondFoot, settings.AmplitudeB, settings.Period, settings.EndStrength);
+
+    /// <summary>
+    /// Builds the effect block for a trigger setting (<see cref="TriggerEffectBuilder.Off"/>
+    /// when unchanged or off), clamping hand-edited values into range. Invalid combinations
+    /// (e.g. end before start) fall back to Off so a bad slider never throws on the watcher thread.
+    /// </summary>
+    private static TriggerEffectBlock BuildTriggerEffect(TriggerEffectSettings? settings)
+    {
+        if (settings is null)
+        {
+            return TriggerEffectBuilder.Off();
+        }
+
+        try
+        {
+            byte start = (byte)Math.Clamp(settings.Start, 0, 9);
+            byte end = (byte)Math.Clamp(settings.End, 0, 9);
+            byte force = (byte)Math.Clamp(settings.Force, 0, 8);
+            byte frequency = (byte)Math.Clamp(settings.Frequency, 0, 255);
+            byte snapForce = (byte)Math.Clamp(settings.SnapForce, 0, 8);
+            byte firstFoot = (byte)Math.Clamp(settings.FirstFoot, 0, 6);
+            byte secondFoot = (byte)Math.Clamp(settings.SecondFoot, 0, 7);
+            byte amplitudeB = (byte)Math.Clamp(settings.AmplitudeB, 0, 7);
+            byte period = (byte)Math.Clamp(settings.Period, 0, 255);
+            byte endStrength = (byte)Math.Clamp(settings.EndStrength, 0, 8);
+            return settings.Mode switch
+            {
+                AutoProfileTriggerMode.Feedback => TriggerEffectBuilder.Feedback(start, force),
+                AutoProfileTriggerMode.Weapon => TriggerEffectBuilder.Weapon(
+                    (byte)Math.Clamp((int)start, 2, 7),
+                    (byte)Math.Clamp((int)end, Math.Min((int)start + 1, 8), 8),
+                    force),
+                AutoProfileTriggerMode.Vibration => TriggerEffectBuilder.Vibration(start, force, frequency),
+                AutoProfileTriggerMode.Bow => TriggerEffectBuilder.Bow(
+                    start,
+                    (byte)Math.Clamp((int)end, Math.Min((int)start + 1, 8), 8),
+                    force,
+                    snapForce),
+                AutoProfileTriggerMode.Galloping => TriggerEffectBuilder.Galloping(
+                    start,
+                    (byte)Math.Clamp((int)end, Math.Min((int)start + 1, 9), 9),
+                    firstFoot,
+                    (byte)Math.Clamp((int)secondFoot, Math.Min((int)firstFoot + 1, 7), 7),
+                    frequency),
+                AutoProfileTriggerMode.Machine => TriggerEffectBuilder.Machine(
+                    start,
+                    (byte)Math.Clamp((int)end, Math.Min((int)start + 1, 9), 9),
+                    (byte)Math.Clamp((int)force, 0, 7),
+                    amplitudeB,
+                    frequency,
+                    period),
+                AutoProfileTriggerMode.SlopeFeedback => TriggerEffectBuilder.SlopeFeedback(
+                    start,
+                    (byte)Math.Clamp((int)end, Math.Min((int)start + 1, 9), 9),
+                    force,
+                    endStrength),
+                _ => TriggerEffectBuilder.Off()
+            };
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return TriggerEffectBuilder.Off();
+        }
+    }
+
+    /// <summary>
+    /// Applies custom trigger effects to a controller. Unset sides are cleared to
+    /// <see cref="TriggerEffectBuilder.Off"/>, so a stale effect never sticks after
+    /// its rule stops matching. Caller must hold <see cref="_sync"/>.
+    /// </summary>
+    private void ApplyTriggers(DualSenseDevice device, TriggerEffectSettings? left, TriggerEffectSettings? right)
+        => device.SetTriggerEffects(BuildTriggerEffect(left), BuildTriggerEffect(right));
+
+    /// <summary>
+    /// Applies a hiding override to a controller, capturing the pre-rule hidden state
+    /// for later restore. A <c>null</c> override restores the captured state.
+    /// Unavailable backends and unresolvable devices are no-ops. Caller must hold <see cref="_sync"/>.
+    /// </summary>
+    private void ApplyHiding(DualSenseDevice device, bool? hide)
+    {
+        if (!hide.HasValue)
+        {
+            RestoreHiding(device);
+            return;
+        }
+
+        if (!TryGetInstanceId(device, out string instanceId))
+        {
+            return;
+        }
+
+        if (!_hideBaseline.ContainsKey(device))
+        {
+            _hideBaseline[device] = _hiding.IsControllerHidden(instanceId);
+        }
+
+        if (_hiding.IsControllerHidden(instanceId) != hide.Value)
+        {
+            _log.Info($"{(hide.Value ? "Hiding" : "Unhiding")} {device.Info.ProductName} via auto profile");
+            _hiding.SetControllerHidden(instanceId, hide.Value);
+        }
+    }
+
+    /// <summary>
+    /// Restores the pre-rule hidden state captured by <see cref="ApplyHiding"/>.
+    /// No-op when the controller was never overridden. Caller must hold <see cref="_sync"/>.
+    /// </summary>
+    private void RestoreHiding(DualSenseDevice device)
+    {
+        if (!_hideBaseline.TryGetValue(device, out bool baseline))
+        {
+            return;
+        }
+
+        _hideBaseline.Remove(device);
+        if (TryGetInstanceId(device, out string instanceId) && _hiding.IsControllerHidden(instanceId) != baseline)
+        {
+            _log.Info($"Restoring hidden state for {device.Info.ProductName} via auto profile");
+            _hiding.SetControllerHidden(instanceId, baseline);
+        }
+    }
+
+    /// <summary>
+    /// Resolves the controller's HID path to the hiding backend identifier.
+    /// Returns <c>false</c> when hiding is unavailable or the path cannot be resolved.
+    /// </summary>
+    private bool TryGetInstanceId(DualSenseDevice device, out string instanceId)
+    {
+        instanceId = string.Empty;
+        if (!_hiding.IsAvailable)
+        {
+            return false;
+        }
+
+        string? path = device.Info.Path;
+        return !string.IsNullOrEmpty(path) && _hiding.TryGetInstanceId(path, out instanceId);
+    }
+
+    /// <summary>
+    /// Stops polling. Temporary emulation overrides die with the emulation service;
+    /// stored settings were never modified. Outstanding hiding overrides are restored.
+    /// </summary>
+    public void Dispose()
+    {
+        List<(DualSenseDevice Device, bool Baseline)> toRestore;
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            toRestore = _hideBaseline.Select(pair => (pair.Key, pair.Value)).ToList();
+            _hideBaseline.Clear();
+        }
+
+        foreach ((DualSenseDevice device, bool baseline) in toRestore)
+        {
+            try
+            {
+                if (TryGetInstanceId(device, out string instanceId) && _hiding.IsControllerHidden(instanceId) != baseline)
+                {
+                    _hiding.SetControllerHidden(instanceId, baseline);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Debug($"Failed to restore hidden state on dispose: {ex.Message}");
+            }
+        }
+
+        _timer?.Dispose();
+    }
+}

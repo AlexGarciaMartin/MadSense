@@ -1,0 +1,246 @@
+  Determinando los proyectos que se van a restaurar...
+  Todos los proyectos están actualizados para la restauración.
+  DualSenseClient.Logging -> C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\vendor\DualSenseClient\DualSenseClient.Logging\bin\Release\net10.0\DualSenseClient.Logging.dll
+  DualSenseClient.Emulation -> C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\vendor\DualSenseClient\DualSenseClient.Emulation\bin\Release\net10.0\DualSenseClient.Emulation.dll
+  DualSenseClient.Bluetooth -> C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\vendor\DualSenseClient\DualSenseClient.Bluetooth\bin\Release\net10.0\DualSenseClient.Bluetooth.dll
+  DualSenseClient.Core -> C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\vendor\DualSenseClient\DualSenseClient.Core\bin\Release\net10.0\DualSenseClient.Core.dll
+  DualSenseClient.Hid -> C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\vendor\DualSenseClient\DualSenseClient.Hid\bin\Release\net10.0\DualSenseClient.Hid.dll
+  DualSenseClient.Settings -> C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\vendor\DualSenseClient\DualSenseClient.Settings\bin\Release\net10.0\DualSenseClient.Settings.dll
+  DualSenseClient.Controllers -> C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\vendor\DualSenseClient\DualSenseClient.Controllers\bin\Release\net10.0\DualSenseClient.Controllers.dll
+  DualSenseClient.Tests -> C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\tests\DualSenseClient.Tests\bin\Release\net10.0\DualSenseClient.Tests.dll
+Serie de pruebas para C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\tests\DualSenseClient.Tests\bin\Release\net10.0\DualSenseClient.Tests.dll (.NETCoreApp,Version=v10.0)
+1 archivos de prueba en total coincidieron con el patrón especificado.
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] ===== Exception Report Start =====
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] Timestamp (local): 2026-10-31T01:20:24.3481580+01:00
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] Exception Level: 0
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] Type: System.Net.Sockets.SocketException
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] Message: Solo se permite un uso de cada dirección de socket (protocolo/dirección de red/puerto)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] Source: System.Net.Sockets
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] HResult: -2147467259
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] StackTrace:
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621]      at System.Net.Sockets.Socket.UpdateStatusAfterSocketErrorAndThrowException(SocketError error, Boolean disconnectOnFailure, String callerName)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621]      at System.Net.Sockets.Socket.DoBind(EndPoint endPointSnapshot, SocketAddress socketAddress)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621]      at System.Net.Sockets.Socket.Bind(EndPoint localEP)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621]      at System.Net.Sockets.TcpListener.Start(Int32 backlog)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621]      at DualSenseClient.Emulation.UsbIp.UsbIpServer.Start() in C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\vendor\DualSenseClient\DualSenseClient.Emulation\UsbIp\UsbIpServer.cs:line 206
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621]      at DualSenseClient.Emulation.EmulationServer.Start() in C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\vendor\DualSenseClient\DualSenseClient.Emulation\EmulationServer.cs:line 96
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621]      at DualSenseClient.Controllers.Emulation.EmulationService.EnsureEmulationServerLocked() in C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\vendor\DualSenseClient\DualSenseClient.Controllers\Emulation\EmulationService.cs:line 1617
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] TargetSite: Void UpdateStatusAfterSocketErrorAndThrowException(System.Net.Sockets.SocketError, Boolean, System.String)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] === System Information ===
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] Machine Name: PC
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] OS Version: Microsoft Windows NT 10.0.26200.0
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] .NET Runtime: .NET 10.0.14
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] Process Architecture: X64
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] Current Directory: C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\tests\DualSenseClient.Tests\bin\Release\net10.0
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1621
+[EmulationService.EnsureEmulationServerLocked:1621] ===== Exception Report End =====
+ADVERTENCIA: Se sobrescribirá el archivo de resultados: C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\test-results\validation.trx
+Archivo de resultados: C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\test-results\validation.trx
+
+Correctas! - Con error:     0, Superado:   228, Omitido:     0, Total:   228, Duración: 1 m 4 s - DualSenseClient.Tests.dll (net10.0)

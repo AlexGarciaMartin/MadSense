@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <AssemblyName>MadSense</AssemblyName><Version>0.4.0</Version>
+    <ApplicationIcon>assets/madsense.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../vendor/DualSenseClient/DualSenseClient.Controllers/DualSenseClient.Controllers.csproj" />
+    <ProjectReference Include="../vendor/DualSenseClient/DualSenseClient.HidHide/DualSenseClient.HidHide.csproj" />
+  </ItemGroup>
+</Project>
+
+

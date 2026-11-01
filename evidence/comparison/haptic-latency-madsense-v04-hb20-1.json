@@ -1,0 +1,184 @@
+{
+  "Label": "MadSense-0.4-hapticbuffer0x20-run1",
+  "Timestamp": "2026-10-31T03:45:45.1179578+01:00",
+  "Details": {
+    "Mode": "virtual",
+    "Endpoint": "Altavoces (5- DualSense Wireless Controller)",
+    "ShareMode": "Shared",
+    "Format": "4 ch float 32-bit 48000 Hz",
+    "BufferFrames": 1056,
+    "TargetAheadFrames": 480,
+    "Metric": "Host timestamp of the WASAPI write that begins the impulse \u2192 first physical accelerometer sample (Bluetooth input report) deviating \u003E max(8\u03C3, 250) from the pre-impulse baseline. Includes Windows audio engine, bridge, Bluetooth output, firmware, actuator rise, Bluetooth input and observer scheduling."
+  },
+  "Impulse": {
+    "Frequency": 100,
+    "ImpulseMs": 60,
+    "Amplitude": 0.9,
+    "Channels": "haptic (rear) pair only"
+  },
+  "Trials": 15,
+  "Detected": 15,
+  "WriteToSpikeMs": {
+    "Count": 15,
+    "Min": 65.1035,
+    "Median": 71.8674,
+    "P95": 83.3054,
+    "Max": 87.398,
+    "Mean": 72.73098666666667
+  },
+  "QueuedAheadMs": {
+    "Count": 15,
+    "Min": 0,
+    "Median": 0,
+    "P95": 0,
+    "Max": 0,
+    "Mean": 0
+  },
+  "PeakDeviation": {
+    "Count": 15,
+    "Min": 4269.780967976818,
+    "Median": 6936.517036174196,
+    "P95": 7962.07323311842,
+    "Max": 7979.774717667662,
+    "Mean": 6789.695276998015
+  },
+  "PerTrial": [
+    {
+      "Index": 0,
+      "WriteTick": 1185396623675,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 65.1035,
+      "Peak": 7505.286099028404,
+      "BaselineSigma": 16.020160938844025,
+      "BaselineSamples": 149
+    },
+    {
+      "Index": 1,
+      "WriteTick": 1185421543162,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 71.8674,
+      "Peak": 6069.318113744698,
+      "BaselineSigma": 16.72956799538005,
+      "BaselineSamples": 131
+    },
+    {
+      "Index": 2,
+      "WriteTick": 1185446432927,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 71.7519,
+      "Peak": 7979.774717667662,
+      "BaselineSigma": 16.49936346101832,
+      "BaselineSamples": 137
+    },
+    {
+      "Index": 3,
+      "WriteTick": 1185471308154,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 65.3647,
+      "Peak": 6936.517036174196,
+      "BaselineSigma": 17.40042997466148,
+      "BaselineSamples": 163
+    },
+    {
+      "Index": 4,
+      "WriteTick": 1185496238088,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 87.398,
+      "Peak": 5527.344490995682,
+      "BaselineSigma": 17.293867690335905,
+      "BaselineSamples": 145
+    },
+    {
+      "Index": 5,
+      "WriteTick": 1185521052442,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 72.0783,
+      "Peak": 6785.610856411521,
+      "BaselineSigma": 16.519342705808622,
+      "BaselineSamples": 156
+    },
+    {
+      "Index": 6,
+      "WriteTick": 1185545967756,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 74.2515,
+      "Peak": 4269.780967976818,
+      "BaselineSigma": 17.666582704538843,
+      "BaselineSamples": 159
+    },
+    {
+      "Index": 7,
+      "WriteTick": 1185570856264,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 72.8492,
+      "Peak": 6426.182445406479,
+      "BaselineSigma": 18.093222073595314,
+      "BaselineSamples": 161
+    },
+    {
+      "Index": 8,
+      "WriteTick": 1185595708957,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 72.5632,
+      "Peak": 5204.835546346797,
+      "BaselineSigma": 17.89580008462883,
+      "BaselineSamples": 182
+    },
+    {
+      "Index": 9,
+      "WriteTick": 1185620590669,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 70.5939,
+      "Peak": 6546.6191266198,
+      "BaselineSigma": 17.07610184691378,
+      "BaselineSamples": 158
+    },
+    {
+      "Index": 10,
+      "WriteTick": 1185645505938,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 67.797,
+      "Peak": 7713.678387180506,
+      "BaselineSigma": 16.151712926656693,
+      "BaselineSamples": 137
+    },
+    {
+      "Index": 11,
+      "WriteTick": 1185670406928,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 68.9051,
+      "Peak": 7248.063748640643,
+      "BaselineSigma": 16.79109151130419,
+      "BaselineSamples": 133
+    },
+    {
+      "Index": 12,
+      "WriteTick": 1185695277930,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 75.5068,
+      "Peak": 7871.747975936906,
+      "BaselineSigma": 16.88943567318446,
+      "BaselineSamples": 169
+    },
+    {
+      "Index": 13,
+      "WriteTick": 1185720149832,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 83.3054,
+      "Peak": 7962.07323311842,
+      "BaselineSigma": 16.34128520162402,
+      "BaselineSamples": 140
+    },
+    {
+      "Index": 14,
+      "WriteTick": 1185745004471,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 71.6289,
+      "Peak": 7798.596409721696,
+      "BaselineSigma": 15.95824949225922,
+      "BaselineSamples": 153
+    }
+  ],
+  "Errors": [],
+  "Caveats": "Pad must rest untouched. Compare only runs made with this same tool and settings. Not a PS5 measurement."
+}

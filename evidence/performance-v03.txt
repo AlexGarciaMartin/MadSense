@@ -1,0 +1,13 @@
+{
+  "Timestamp": "2026-10-31T02:12:52.2548382+01:00",
+  "ProcessId": 46832,
+  "ElapsedSeconds": 15.0263574,
+  "CpuSeconds": 3.640625,
+  "OneCorePercent": 24.2282604032831,
+  "MachinePercent": 1.211413020164155,
+  "LogicalProcessors": 20,
+  "WorkingSetMiB": 96.75,
+  "PrivateMemoryMiB": 34.62890625,
+  "MainWindowHandle": 0,
+  "Conditions": "MadSense 0.3 comic UI minimized to tray; DualSense physical Bluetooth and native USB virtual ready. Stellar Blade left running in background, no game input or state changed during sample; game activity not controlled. CPU belongs to MadSense process only, excludes driver kernel cost. One 15-second sample; not comparable to earlier no-game idle samples and not a latency measurement."
+}

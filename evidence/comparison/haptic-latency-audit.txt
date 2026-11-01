@@ -1,0 +1,83 @@
+LATENCIA HÁPTICA REAL HASTA EL ACTUADOR — ESTUDIO 31-10-2026 (03:20-03:47)
+
+MÉTODO (tools/HapticLatencyProbe)
+Sin equipo externo. La sonda escribe un impulso háptico (seno 100 Hz, 60 ms,
+amplitud 0,9, solo canales traseros 3-4, frontales en silencio) y lee el
+acelerómetro del mando físico (informe Bluetooth 0x31, 8192 LSB/g) desde su
+propio handle (autorizado temporalmente en HidHide y retirado después).
+Latencia = instante del hid_write/WASAPI que inicia el impulso → primera
+muestra que se desvía más de max(8σ, 250 LSB) de la línea base de 300 ms.
+Incluye motor de audio de Windows (modo compartido, como un juego), puente,
+Bluetooth de salida, firmware, subida del actuador, Bluetooth de entrada y
+planificación del observador. Mando en reposo sobre la mesa. Stellar Blade
+abierto en segundo plano en todas las tandas. 15 impulsos por tanda, 2 s entre
+impulsos, 15/15 detectados en todas las tandas salvo donde se indica.
+
+Dos modos:
+- virtual: impulso al endpoint de render "DualSense Wireless Controller" del
+  puente (MadSense o DSX), modo compartido 4 canales float 48 kHz, búfer 22 ms,
+  el feeder mantiene ~10 ms por delante como un bucle de juego.
+- --direct: impulso directo al mando físico en informes 0x36 (o 0x32 con
+  --lane 32), cadencia 10,667 ms, sin capa virtual: el suelo del mando en
+  este PC.
+
+RESULTADOS (ms, escritura → acelerómetro)
+                                        mediana   min    p95
+DSX 3.2 Beta02 (VirtualPad, DLC) tanda 1  120,3   111,5  127,9
+DSX 3.2 Beta02 tanda 2                    116,5   112,1  122,5
+MadSense 0.4 (byte 0x40, igual que DSX) 1 109,1   103,1  114,6
+MadSense 0.4 (0x40) tanda 2               114,0   108,1  127,2
+Suelo directo 0x36, tanda 1                74,8    72,4   79,3
+Suelo directo 0x36, tanda 2                74,8    72,3   81,1
+Suelo directo 0x32 (solo hápticos)         72,9    70,0   79,8
+
+Lectura: con la misma configuración de protocolo que DSX, MadSense va 5-10 ms
+por delante (dentro del ruido entre tandas, ±5 ms). El suelo del mando es
+~74 ms: el software de cada puente (motor de audio + cola USB/IP o tap +
+cola nativa + tick Bluetooth) añade ~35-40 ms en MadSense y ~43-46 en DSX.
+El eco de timestamp por 0x31 (sondas anteriores) da 7,8 ms de ida y vuelta
+por radio: casi todo el suelo es búfer interno del firmware, no la radio.
+
+BLOQUE DE SESIÓN: LOS CINCO BYTES "0x40"
+Todas las implementaciones conocidas (vDS, DS4Windows, DSX, MadSense 0.3) envían
+0x91 0x07 0xFE 0x40 0x40 0x40 0x40 0x40 en el paquete 0x11. Se varió cada byte
+con --direct --session-bytes (10 impulsos por combinación):
+  10,40,40,40,40   74,1    40,10,40,40,40   72,4    40,40,10,40,40   79,9
+  40,40,40,10,40   72,9    40,40,40,40,10   29,5  ← solo el quinto byte importa
+Barrido del quinto byte (impulsos, 10-15 por valor):
+  0x40 → 74-80 ms   0x20 → 42-44 ms   0x18 → 39,6 ms   0x10 → 29,5-30 ms
+  0x08 → 34-43 ms con dispersión alta (min 20, p95 66) y 8/10 detecciones.
+Continuidad (tono 100 Hz 3 s, amplitud 0,6, con tono de altavoz 440 Hz a la
+vez; ventanas de 20 ms, "corte" = RMS < 25 % de la mediana; 3 tandas × 143
+ventanas):
+  0x40: cortes 0/2/0, RMS ~2800        0x20: 2/0/0, RMS ~2880
+  0x18: 2/0/0, RMS ~2790               0x10: 7/7/7 y 6/6/5 (≈4 %), RMS ~2770
+  0x08: 0/0/0 pero RMS ~1950 (−30 %): el firmware recorta señal por dentro.
+Una tanda inicial de 0x08 coincidió con un movimiento accidental del mando y
+se descartó (archivos *-byte4-08.json sin sufijo -b).
+
+DECISIÓN
+MadSense 0.4 envía 0x40,0x40,0x40,0x40,0x20: el altavoz conserva sus bytes y
+los hápticos ganan ~30 ms de suelo con la misma continuidad que antes.
+MADSENSE_BT_HAPTIC_BUFFER=0x10 (variable de entorno, hex 0x08-0x40) permite el
+valor agresivo para pruebas A/B; no es el valor por defecto por los cortes.
+
+RESULTADO FINAL, CAMINO COMPLETO POR EL DUALSENSE VIRTUAL
+MadSense 0.4 con 0x20, tanda 1   71,9    65,1   83,3
+MadSense 0.4 con 0x20, tanda 2   78,5    71,2   84,3
+MadSense 0.4 con 0x10, tanda 1   67,4    62,3   81,2
+Frente a DSX (117-120): unos 40 ms menos de mediana con la misma continuidad.
+
+LO QUE ESTO NO ES
+No es una medida de PS5 (no hay forma de instrumentar la consola con esta
+sonda). No es latencia botón→pantalla. La amplitud del acelerómetro no mide
+calidad táctil. El umbral de detección añade unos pocos ms iguales en todas
+las tandas. El altavoz no se ha escuchado: sus cuatro bytes no han cambiado,
+pero una escucha humana sigue pendiente.
+
+ARCHIVOS
+haptic-latency-madsense-v04-{1,2}.json, haptic-latency-dsx-{1,2}.json,
+haptic-latency-direct-{1,2}.json, haptic-latency-direct-lane32-1.json,
+haptic-latency-direct-sb{20,10,08,40}.json, haptic-latency-direct-byte{0..4}.json,
+haptic-latency-direct-byte4-{20,08,18}.json, haptic-latency-sustain-*.json,
+haptic-latency-madsense-v04-hb20-{1,2}.json, haptic-latency-madsense-v04-hb10-1.json.

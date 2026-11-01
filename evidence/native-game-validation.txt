@@ -1,0 +1,24 @@
+Resident Evil Requiem / MadSense native path — 2026-10-31
+
+Build: MadSense 0.2, final native haptics queue, before subsequent root cleanup of
+unused MiniAudioEngine construction. Profile Auto / Steam (native USB identity).
+No source edits were made for this game test.
+
+01:37:58 started --soak and Steam app3764200. Physical DualSense Bluetooth.
+01:38:02 output began; no nonzero haptics yet.
+01:38:34 menu reached; native nonzero-haptics counter362.
+Loaded Continue from main story. Observed loading screen La batalla final and a
+real scene with Leon receiving a boss hit/falling; no manual player actions or save.
+
+Baseline during load 01:38:56.8926984+01:00:
+TX31:8958, TX32:1, TX35:0, TX36:5117, errors0, nonzero haptics362, active triggers0.
+After scene 01:39:22.0789940+01:00:
+TX31:10527, TX32:1, TX35:0, TX36:7478, errors0, nonzero haptics692, active triggers0.
+Delta: 330 nonzero-haptic packets, 2361 combined audio/state/haptic packets,
+zero Bluetooth write errors. Signals are native haptic channels, not inferred
+from speaker audio in this strict path. Physical sensation and end-to-end latency
+were not measured. No active in-game trigger effect confirmed during this sample.
+
+re9 CloseMainWindow returned true and process exited normally. --stop then cleaned
+up bridge and exited. No re9 or MadSense process left for root's next build.
+Logs: native-game-session.log and native-game-engine.log.

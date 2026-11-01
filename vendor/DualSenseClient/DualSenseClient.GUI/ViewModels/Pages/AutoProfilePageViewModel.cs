@@ -1,0 +1,1942 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.DependencyInjection;
+using DualSenseClient.GUI.Services;
+using DualSenseClient.HidHide;
+using DualSenseClient.Logging;
+using DualSenseClient.Settings;
+using DualSenseClient.Settings.Sections;
+
+namespace DualSenseClient.GUI.ViewModels.Pages;
+
+/// <summary>
+/// ViewModel for the foreground-app auto profiles page. Lists the rules mapping a
+/// focused program to a profile, emulation mode, and hiding, and edits the selected rule.
+/// Rules are stored by <see cref="AutoProfileService"/> and applied temporarily by
+/// <see cref="AutoProfileCoordinator"/>; this page only edits and persists them.
+/// </summary>
+/// <remarks>
+/// The rules collection holds the live service objects, so text edits apply to the
+/// service state directly; every mutation path saves to disk. <see cref="Refresh"/>
+/// is called from the page's <c>OnLoaded</c> to resynchronize on every navigation.
+/// </remarks>
+public partial class AutoProfilePageViewModel : ObservableObject
+{
+    /// <summary>
+    /// Logger instance.
+    /// </summary>
+    private static readonly DualSenseClientLogger _log = DualSenseClientLogger.For("AutoProfilesPage");
+
+    /// <summary>
+    /// Service storing the auto profile rules edited on this page.
+    /// </summary>
+    private readonly AutoProfileService _rules;
+
+    /// <summary>
+    /// Service providing the profile names offered for rules.
+    /// </summary>
+    private readonly ProfileService _profiles;
+
+    /// <summary>
+    /// Service providing the known controllers offered as rule targets.
+    /// </summary>
+    private readonly ControllerInfoService _controllers;
+
+    /// <summary>
+    /// Service reporting whether the hiding backend is installed and operational.
+    /// </summary>
+    private readonly IControllerHidingService _hiding;
+
+    /// <summary>
+    /// Whether foreground-app switching is available on this platform (Windows only).
+    /// </summary>
+    public bool IsSupported
+    {
+        get
+        {
+            return OperatingSystem.IsWindows();
+        }
+    }
+
+    /// <summary>
+    /// Whether the hiding backend is installed and operational. The hiding
+    /// option is hidden while this is <c>false</c>. Re-evaluated on every
+    /// <see cref="Refresh"/>.
+    /// </summary>
+    public bool HidingAvailable
+    {
+        get
+        {
+            return _hiding.IsAvailable;
+        }
+    }
+
+    /// <summary>
+    /// Whether foreground-app switching is active. Setting it persists immediately.
+    /// </summary>
+    public bool Enabled
+    {
+        get
+        {
+            return _rules.Settings.Enabled;
+        }
+        set
+        {
+            if (_rules.Settings.Enabled == value)
+            {
+                return;
+            }
+
+            _rules.Settings.Enabled = value;
+            _rules.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// The auto profile rules in priority order (first match wins).
+    /// </summary>
+    public ObservableCollection<AutoProfileRule> Rules { get; } = [];
+
+    /// <summary>
+    /// The rule currently edited, or <c>null</c> when none is selected.
+    /// Changing the selection persists pending text edits of the previous rule.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelectedRule))]
+    [NotifyPropertyChangedFor(nameof(IsRuleActionless))]
+    [NotifyPropertyChangedFor(nameof(SelectedRuleName))]
+    [NotifyPropertyChangedFor(nameof(SelectedExePattern))]
+    [NotifyPropertyChangedFor(nameof(SelectedWindowTitle))]
+    [NotifyPropertyChangedFor(nameof(SelectedProfileIndex))]
+    [NotifyPropertyChangedFor(nameof(SelectedEmulationIndex))]
+    [NotifyPropertyChangedFor(nameof(SelectedDualSenseVariantIndex))]
+    [NotifyPropertyChangedFor(nameof(SelectedDualShock4VariantIndex))]
+    [NotifyPropertyChangedFor(nameof(IsDualSenseVariantVisible))]
+    [NotifyPropertyChangedFor(nameof(IsDualShock4VariantVisible))]
+    [NotifyPropertyChangedFor(nameof(SelectedAudioSourceIndex))]
+    [NotifyPropertyChangedFor(nameof(IsAudioSourceVisible))]
+    [NotifyPropertyChangedFor(nameof(IsAudioAppVisible))]
+    [NotifyPropertyChangedFor(nameof(AudioAppPath))]
+    [NotifyPropertyChangedFor(nameof(SelectedLeftTriggerIndex))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerStart))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerEnd))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerForce))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerFrequency))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerSnapForce))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerFirstFoot))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerSecondFoot))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerAmplitudeB))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerPeriod))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerEndStrength))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerParametersVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerStartVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerEndVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerForceVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerFrequencyVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerSnapForceVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerFirstFootVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerSecondFootVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerAmplitudeBVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerPeriodVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerEndStrengthVisible))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerStartMinimum))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerStartMaximum))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerEndMinimum))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerEndMaximum))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerForceMaximum))]
+    [NotifyPropertyChangedFor(nameof(LeftTriggerSecondFootMinimum))]
+    [NotifyPropertyChangedFor(nameof(SelectedRightTriggerIndex))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerStart))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerEnd))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerForce))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerFrequency))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerSnapForce))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerFirstFoot))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerSecondFoot))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerAmplitudeB))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerPeriod))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerEndStrength))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerParametersVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerStartVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerEndVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerForceVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerFrequencyVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerSnapForceVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerFirstFootVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerSecondFootVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerAmplitudeBVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerPeriodVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerEndStrengthVisible))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerStartMinimum))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerStartMaximum))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerEndMinimum))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerEndMaximum))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerForceMaximum))]
+    [NotifyPropertyChangedFor(nameof(RightTriggerSecondFootMinimum))]
+    [NotifyPropertyChangedFor(nameof(SelectedHideIndex))]
+    [NotifyPropertyChangedFor(nameof(SelectedControllerIndex))]
+    [NotifyPropertyChangedFor(nameof(SelectedMatchScopeIndex))]
+    [NotifyPropertyChangedFor(nameof(IsExeVisible))]
+    [NotifyPropertyChangedFor(nameof(IsTitleVisible))]
+    private AutoProfileRule? selectedRule;
+
+    /// <summary>
+    /// Called after <see cref="SelectedRule"/> changes. Persists pending text edits of
+    /// the previously selected rule and syncs the match scope to its filters.
+    /// </summary>
+    partial void OnSelectedRuleChanged(AutoProfileRule? oldValue, AutoProfileRule? newValue)
+    {
+        _rules.Save();
+        SyncMatchScope(newValue);
+    }
+
+    /// <summary>
+    /// Whether a rule is selected and can be edited.
+    /// </summary>
+    public bool HasSelectedRule
+    {
+        get
+        {
+            return SelectedRule is not null;
+        }
+    }
+
+    /// <summary>
+    /// The selected rule's user-visible name. Setting it updates the rule;
+    /// the change is persisted when the selection changes or another option is set.
+    /// </summary>
+    public string SelectedRuleName
+    {
+        get
+        {
+            return SelectedRule?.Name ?? string.Empty;
+        }
+        set
+        {
+            if (SelectedRule is null || SelectedRule.Name == value)
+            {
+                return;
+            }
+
+            SelectedRule.Name = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// The selected rule's executable path pattern. Setting it updates the rule;
+    /// the change is persisted when the selection changes or another option is set.
+    /// </summary>
+    public string SelectedExePattern
+    {
+        get
+        {
+            return SelectedRule?.ExePattern ?? string.Empty;
+        }
+        set
+        {
+            if (SelectedRule is null || SelectedRule.ExePattern == value)
+            {
+                return;
+            }
+
+            SelectedRule.ExePattern = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// The selected rule's window title pattern. Setting it updates the rule;
+    /// the change is persisted when the selection changes or another option is set.
+    /// </summary>
+    public string SelectedWindowTitle
+    {
+        get
+        {
+            return SelectedRule?.WindowTitle ?? string.Empty;
+        }
+        set
+        {
+            if (SelectedRule is null || SelectedRule.WindowTitle == value)
+            {
+                return;
+            }
+
+            SelectedRule.WindowTitle = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Match scope options: program only, window title only, or both.
+    /// </summary>
+    public ObservableCollection<string> MatchScopeOptions { get; } =
+    [
+        LocalizationService.GetText("AutoProfilesPage.Scope.Exe"),
+        LocalizationService.GetText("AutoProfilesPage.Scope.TitleOnly"),
+        LocalizationService.GetText("AutoProfilesPage.Scope.Both")
+    ];
+
+    /// <summary>
+    /// Backing field for <see cref="SelectedMatchScopeIndex"/>.
+    /// </summary>
+    private int _matchScopeIndex = 2;
+
+    /// <summary>
+    /// Which filters must match (0 = program only, 1 = title only, 2 = both).
+    /// Switching scope clears the hidden filter so <see cref="AutoProfileRule.IsMatch"/>
+    /// semantics stay unchanged, and persists immediately.
+    /// </summary>
+    public int SelectedMatchScopeIndex
+    {
+        get
+        {
+            return _matchScopeIndex;
+        }
+        set
+        {
+            if (SelectedRule is null || value < 0 || value > 2 || value == _matchScopeIndex)
+            {
+                return;
+            }
+
+            _matchScopeIndex = value;
+            if (value == 0)
+            {
+                SelectedRule.WindowTitle = string.Empty;
+            }
+            else if (value == 1)
+            {
+                SelectedRule.ExePattern = string.Empty;
+            }
+
+            _rules.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedExePattern));
+            OnPropertyChanged(nameof(SelectedWindowTitle));
+            OnPropertyChanged(nameof(IsExeVisible));
+            OnPropertyChanged(nameof(IsTitleVisible));
+        }
+    }
+
+    /// <summary>
+    /// Whether the program filter is shown for the current scope.
+    /// </summary>
+    public bool IsExeVisible
+    {
+        get
+        {
+            return _matchScopeIndex != 1;
+        }
+    }
+
+    /// <summary>
+    /// Whether the window title filter is shown for the current scope.
+    /// </summary>
+    public bool IsTitleVisible
+    {
+        get
+        {
+            return _matchScopeIndex != 0;
+        }
+    }
+
+    /// <summary>
+    /// Derives the match scope from a rule's filters: both set or both empty shows
+    /// both (an empty rule never matches regardless), a single filter shows its side.
+    /// Sets the backing field directly without clearing anything.
+    /// </summary>
+    private void SyncMatchScope(AutoProfileRule? rule)
+    {
+        bool hasExe = !string.IsNullOrEmpty(rule?.ExePattern);
+        bool hasTitle = !string.IsNullOrEmpty(rule?.WindowTitle);
+        _matchScopeIndex = hasExe && !hasTitle ? 0 : !hasExe && hasTitle ? 1 : 2;
+        OnPropertyChanged(nameof(SelectedMatchScopeIndex));
+        OnPropertyChanged(nameof(IsExeVisible));
+        OnPropertyChanged(nameof(IsTitleVisible));
+    }
+
+    /// <summary>
+    /// Whether the selected rule leaves profile, emulation, variant, forwarded-audio source,
+    /// triggers, and hiding unchanged, making it a no-op. Shown as a hint in the editor.
+    /// </summary>
+    public bool IsRuleActionless
+    {
+        get
+        {
+            return SelectedRule is not null
+                   && string.IsNullOrEmpty(SelectedRule.ProfileName)
+                   && SelectedRule.EmulationMode is null
+                   && SelectedRule.DualSenseVariant is null
+                   && SelectedRule.DualShock4Variant is null
+                   && SelectedRule.LeftTrigger is null
+                   && SelectedRule.RightTrigger is null
+                   && SelectedRule.AudioSource is null
+                   && SelectedRule.HideController is null;
+        }
+    }
+
+    /// <summary>
+    /// Profile options for the selected rule: "leave unchanged" plus every saved profile.
+    /// </summary>
+    public ObservableCollection<string> ProfileOptions { get; } = [];
+
+    /// <summary>
+    /// The selected rule's profile as an option index (0 leaves the profile unchanged).
+    /// Setting it persists immediately.
+    /// </summary>
+    public int SelectedProfileIndex
+    {
+        get
+        {
+            if (SelectedRule is null || string.IsNullOrEmpty(SelectedRule.ProfileName))
+            {
+                return 0;
+            }
+
+            int index = ProfileOptions.IndexOf(SelectedRule.ProfileName);
+            return index >= 0 ? index : 0;
+        }
+        set
+        {
+            if (SelectedRule is null || value < 0 || value >= ProfileOptions.Count)
+            {
+                return;
+            }
+
+            SelectedRule.ProfileName = value == 0 ? string.Empty : ProfileOptions[value];
+            _rules.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsRuleActionless));
+        }
+    }
+
+    /// <summary>
+    /// Emulation mode options for the selected rule: "leave unchanged", off, and every mode.
+    /// </summary>
+    public ObservableCollection<string> EmulationOptions { get; } =
+    [
+        LocalizationService.GetText("AutoProfilesPage.Emulation.Unchanged"),
+        LocalizationService.GetText("EmulationPage.Emulation.Mode.Off"),
+        LocalizationService.GetText("EmulationPage.Emulation.Mode.Xbox360"),
+        LocalizationService.GetText("EmulationPage.Emulation.Mode.DualShock4"),
+        LocalizationService.GetText("EmulationPage.Emulation.Mode.DualSense")
+    ];
+
+    /// <summary>
+    /// The selected rule's emulation mode as an option index (0 leaves the mode unchanged).
+    /// Setting it persists immediately.
+    /// </summary>
+    public int SelectedEmulationIndex
+    {
+        get
+        {
+            return SelectedRule?.EmulationMode switch
+            {
+                null => 0,
+                EmulationMode.Off => 1,
+                EmulationMode.Xbox360 => 2,
+                EmulationMode.DualShock4 => 3,
+                EmulationMode.DualSense => 4,
+                _ => 0
+            };
+        }
+        set
+        {
+            if (SelectedRule is null)
+            {
+                return;
+            }
+
+            EmulationMode? mode = value switch
+            {
+                1 => EmulationMode.Off,
+                2 => EmulationMode.Xbox360,
+                3 => EmulationMode.DualShock4,
+                4 => EmulationMode.DualSense,
+                _ => null
+            };
+            if (SelectedRule.EmulationMode == mode)
+            {
+                return;
+            }
+
+            SelectedRule.EmulationMode = mode;
+            _rules.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedDualSenseVariantIndex));
+            OnPropertyChanged(nameof(SelectedDualShock4VariantIndex));
+            OnPropertyChanged(nameof(IsDualSenseVariantVisible));
+            OnPropertyChanged(nameof(IsDualShock4VariantVisible));
+            OnPropertyChanged(nameof(IsAudioSourceVisible));
+            OnPropertyChanged(nameof(IsRuleActionless));
+        }
+    }
+
+    /// <summary>
+    /// Forwarded-audio source options for the selected rule: "leave unchanged", the audio
+    /// the game sends to the virtual controller, a loopback capture of the system's
+    /// default output device, or a single application picked by executable path.
+    /// </summary>
+    public ObservableCollection<string> AudioSourceOptions { get; } =
+    [
+        LocalizationService.GetText("AutoProfilesPage.Emulation.Unchanged"),
+        LocalizationService.GetText("AutoProfilesPage.AudioSource.Controller"),
+        LocalizationService.GetText("AutoProfilesPage.AudioSource.SystemOutput"),
+        LocalizationService.GetText("AutoProfilesPage.AudioSource.Application")
+    ];
+
+    /// <summary>
+    /// The selected rule's forwarded-audio source as an option index (0 leaves the source
+    /// unchanged). Setting it persists immediately.
+    /// </summary>
+    public int SelectedAudioSourceIndex
+    {
+        get
+        {
+            return SelectedRule?.AudioSource switch
+            {
+                EmulationAudioSource.ControllerEndpoint => 1,
+                EmulationAudioSource.SystemOutput => 2,
+                EmulationAudioSource.Application => 3,
+                _ => 0
+            };
+        }
+        set
+        {
+            if (SelectedRule is null)
+            {
+                return;
+            }
+
+            EmulationAudioSource? source = value switch
+            {
+                1 => EmulationAudioSource.ControllerEndpoint,
+                2 => EmulationAudioSource.SystemOutput,
+                3 => EmulationAudioSource.Application,
+                _ => null
+            };
+            if (SelectedRule.AudioSource == source)
+            {
+                return;
+            }
+
+            SelectedRule.AudioSource = source;
+            _rules.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsRuleActionless));
+            OnPropertyChanged(nameof(IsAudioAppVisible));
+        }
+    }
+
+    /// <summary>
+    /// Whether the rule's application picker is shown: the rule selects the application
+    /// source.
+    /// </summary>
+    public bool IsAudioAppVisible
+    {
+        get
+        {
+            return SelectedRule?.AudioSource == EmulationAudioSource.Application;
+        }
+    }
+
+    /// <summary>
+    /// The executable path captured by the rule, shown (and browsed to) on the page.
+    /// Empty when nothing has been chosen yet.
+    /// </summary>
+    public string AudioAppPath
+    {
+        get
+        {
+            return SelectedRule?.AudioApp ?? string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Applies an executable picked with the file browser: stores it as the rule's
+    /// captured application.
+    /// </summary>
+    /// <param name="applicationPath">Full path of the chosen executable.</param>
+    public void SelectAudioApplication(string applicationPath)
+    {
+        if (SelectedRule is null || string.IsNullOrWhiteSpace(applicationPath))
+        {
+            return;
+        }
+
+        if (string.Equals(SelectedRule.AudioApp, applicationPath, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        SelectedRule.AudioApp = applicationPath;
+        _rules.Save();
+        OnPropertyChanged(nameof(AudioAppPath));
+    }
+
+    /// <summary>
+    /// Whether the forwarded-audio source picker is shown. The system-output source
+    /// routes directly to the physical controller, so it is available in every mode.
+    /// </summary>
+    public bool IsAudioSourceVisible
+    {
+        get
+        {
+            return HasSelectedRule;
+        }
+    }
+
+    /// <summary>
+    /// DualSense variant options for the selected rule: "leave unchanged", standard, Edge.
+    /// </summary>
+    public ObservableCollection<string> DualSenseVariantOptions { get; } =
+    [
+        LocalizationService.GetText("AutoProfilesPage.Emulation.Unchanged"),
+        LocalizationService.GetText("EmulationPage.Emulation.DeviceType.Standard"),
+        LocalizationService.GetText("EmulationPage.Emulation.DeviceType.Edge")
+    ];
+
+    /// <summary>
+    /// The selected rule's DualSense variant as an option index (0 leaves the variant unchanged).
+    /// Only used with DualSense emulation; kept when switching modes. Setting it persists immediately.
+    /// </summary>
+    public int SelectedDualSenseVariantIndex
+    {
+        get
+        {
+            return SelectedRule?.DualSenseVariant switch
+            {
+                DualSenseVariant.Standard => 1,
+                DualSenseVariant.Edge => 2,
+                _ => 0
+            };
+        }
+        set
+        {
+            if (SelectedRule is null)
+            {
+                return;
+            }
+
+            DualSenseVariant? variant = value switch
+            {
+                1 => DualSenseVariant.Standard,
+                2 => DualSenseVariant.Edge,
+                _ => null
+            };
+            if (SelectedRule.DualSenseVariant == variant)
+            {
+                return;
+            }
+
+            SelectedRule.DualSenseVariant = variant;
+            _rules.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsRuleActionless));
+        }
+    }
+
+    /// <summary>
+    /// Whether the DualSense variant picker is shown (DualSense emulation selected).
+    /// </summary>
+    public bool IsDualSenseVariantVisible
+    {
+        get
+        {
+            return HasSelectedRule && SelectedEmulationIndex == 4;
+        }
+    }
+
+    /// <summary>
+    /// DualShock 4 variant options for the selected rule: "leave unchanged", V1, V2.
+    /// </summary>
+    public ObservableCollection<string> DualShock4VariantOptions { get; } =
+    [
+        LocalizationService.GetText("AutoProfilesPage.Emulation.Unchanged"),
+        LocalizationService.GetText("EmulationPage.Emulation.Ds4Variant.V1"),
+        LocalizationService.GetText("EmulationPage.Emulation.Ds4Variant.V2")
+    ];
+
+    /// <summary>
+    /// The selected rule's DualShock 4 variant as an option index (0 leaves the variant unchanged).
+    /// Only used with DualShock 4 emulation; kept when switching modes. Setting it persists immediately.
+    /// </summary>
+    public int SelectedDualShock4VariantIndex
+    {
+        get
+        {
+            return SelectedRule?.DualShock4Variant switch
+            {
+                DualShock4Variant.V1 => 1,
+                DualShock4Variant.V2 => 2,
+                _ => 0
+            };
+        }
+        set
+        {
+            if (SelectedRule is null)
+            {
+                return;
+            }
+
+            DualShock4Variant? variant = value switch
+            {
+                1 => DualShock4Variant.V1,
+                2 => DualShock4Variant.V2,
+                _ => null
+            };
+            if (SelectedRule.DualShock4Variant == variant)
+            {
+                return;
+            }
+
+            SelectedRule.DualShock4Variant = variant;
+            _rules.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsRuleActionless));
+        }
+    }
+
+    /// <summary>
+    /// Whether the DualShock 4 variant picker is shown (DualShock 4 emulation selected).
+    /// </summary>
+    public bool IsDualShock4VariantVisible
+    {
+        get
+        {
+            return HasSelectedRule && SelectedEmulationIndex == 3;
+        }
+    }
+
+    /// <summary>
+    /// Trigger effect options for the selected rule: "leave unchanged" plus every effect mode.
+    /// </summary>
+    public ObservableCollection<string> TriggerEffectOptions { get; } =
+    [
+        LocalizationService.GetText("AutoProfilesPage.Emulation.Unchanged"),
+        LocalizationService.GetText("CustomizationPage.OutputTest.Triggers.Mode.Off"),
+        LocalizationService.GetText("CustomizationPage.OutputTest.Triggers.Mode.Feedback"),
+        LocalizationService.GetText("CustomizationPage.OutputTest.Triggers.Mode.Weapon"),
+        LocalizationService.GetText("CustomizationPage.OutputTest.Triggers.Mode.Vibration"),
+        LocalizationService.GetText("CustomizationPage.OutputTest.Triggers.Mode.Bow"),
+        LocalizationService.GetText("CustomizationPage.OutputTest.Triggers.Mode.Galloping"),
+        LocalizationService.GetText("CustomizationPage.OutputTest.Triggers.Mode.Machine"),
+        LocalizationService.GetText("CustomizationPage.OutputTest.Triggers.Mode.SlopeFeedback")
+    ];
+
+    /// <summary>
+    /// The selected rule's left trigger effect as an option index (0 leaves the trigger unchanged).
+    /// Setting it persists immediately; the coordinator applies it live.
+    /// </summary>
+    public int SelectedLeftTriggerIndex
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger is null ? 0 : (int)SelectedRule.LeftTrigger.Mode + 1;
+        }
+        set
+        {
+            SetTriggerMode(true, value);
+        }
+    }
+
+    /// <summary>
+    /// The selected rule's right trigger effect as an option index (0 leaves the trigger unchanged).
+    /// Setting it persists immediately; the coordinator applies it live.
+    /// </summary>
+    public int SelectedRightTriggerIndex
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger is null ? 0 : (int)SelectedRule.RightTrigger.Mode + 1;
+        }
+        set
+        {
+            SetTriggerMode(false, value);
+        }
+    }
+
+    /// <summary>
+    /// Sets a trigger effect mode, creating the setting with defaults or clearing it for
+    /// "leave unchanged". Persists immediately so slider edits made afterwards are stored too.
+    /// </summary>
+    private void SetTriggerMode(bool left, int value)
+    {
+        if (SelectedRule is null || value < 0 || value > 8)
+        {
+            return;
+        }
+
+        if (value == 0)
+        {
+            if (left ? SelectedRule.LeftTrigger is null : SelectedRule.RightTrigger is null)
+            {
+                return;
+            }
+
+            if (left)
+            {
+                SelectedRule.LeftTrigger = null;
+            }
+            else
+            {
+                SelectedRule.RightTrigger = null;
+            }
+        }
+        else
+        {
+            AutoProfileTriggerMode mode = (AutoProfileTriggerMode)(value - 1);
+            TriggerEffectSettings settings =
+                left ? SelectedRule.LeftTrigger ??= new TriggerEffectSettings() : SelectedRule.RightTrigger ??= new TriggerEffectSettings();
+            if (settings.Mode == mode)
+            {
+                return;
+            }
+
+            settings.Mode = mode;
+        }
+
+        _rules.Save();
+        OnPropertyChanged(left ? nameof(SelectedLeftTriggerIndex) : nameof(SelectedRightTriggerIndex));
+        if (left)
+        {
+            NotifyLeftTriggerVisibilities();
+        }
+        else
+        {
+            NotifyRightTriggerVisibilities();
+        }
+
+        OnPropertyChanged(nameof(IsRuleActionless));
+    }
+
+    /// <summary>
+    /// Sets a trigger slider value on the live setting (no save: like the text filters,
+    /// slider drags persist on the next option change, selection change, or page leave,
+    /// while the coordinator already applies them live).
+    /// </summary>
+    private void SetTriggerSlider(bool left, string property, int value, int min, int max)
+    {
+        TriggerEffectSettings? settings = left ? SelectedRule?.LeftTrigger : SelectedRule?.RightTrigger;
+        if (settings is null)
+        {
+            return;
+        }
+
+        int clamped = Math.Clamp(value, min, max);
+        switch (property)
+        {
+            case nameof(TriggerEffectSettings.Start):
+                if (settings.Start == clamped)
+                {
+                    return;
+                }
+
+                settings.Start = clamped;
+                break;
+            case nameof(TriggerEffectSettings.End):
+                if (settings.End == clamped)
+                {
+                    return;
+                }
+
+                settings.End = clamped;
+                break;
+            case nameof(TriggerEffectSettings.Force):
+                if (settings.Force == clamped)
+                {
+                    return;
+                }
+
+                settings.Force = clamped;
+                break;
+            case nameof(TriggerEffectSettings.Frequency):
+                if (settings.Frequency == clamped)
+                {
+                    return;
+                }
+
+                settings.Frequency = clamped;
+                break;
+            case nameof(TriggerEffectSettings.SnapForce):
+                if (settings.SnapForce == clamped)
+                {
+                    return;
+                }
+
+                settings.SnapForce = clamped;
+                break;
+            case nameof(TriggerEffectSettings.FirstFoot):
+                if (settings.FirstFoot == clamped)
+                {
+                    return;
+                }
+
+                settings.FirstFoot = clamped;
+                break;
+            case nameof(TriggerEffectSettings.SecondFoot):
+                if (settings.SecondFoot == clamped)
+                {
+                    return;
+                }
+
+                settings.SecondFoot = clamped;
+                break;
+            case nameof(TriggerEffectSettings.AmplitudeB):
+                if (settings.AmplitudeB == clamped)
+                {
+                    return;
+                }
+
+                settings.AmplitudeB = clamped;
+                break;
+            case nameof(TriggerEffectSettings.Period):
+                if (settings.Period == clamped)
+                {
+                    return;
+                }
+
+                settings.Period = clamped;
+                break;
+            case nameof(TriggerEffectSettings.EndStrength):
+                if (settings.EndStrength == clamped)
+                {
+                    return;
+                }
+
+                settings.EndStrength = clamped;
+                break;
+            default:
+                return;
+        }
+
+        OnPropertyChanged(left ? "LeftTrigger" + property : "RightTrigger" + property);
+        if (property == nameof(TriggerEffectSettings.Start))
+        {
+            OnPropertyChanged(left ? nameof(LeftTriggerEndMinimum) : nameof(RightTriggerEndMinimum));
+        }
+        else if (property == nameof(TriggerEffectSettings.FirstFoot))
+        {
+            OnPropertyChanged(left ? nameof(LeftTriggerSecondFootMinimum) : nameof(RightTriggerSecondFootMinimum));
+        }
+    }
+
+    /// <summary>
+    /// Left trigger effect start position (0-9).
+    /// </summary>
+    public int LeftTriggerStart
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.Start ?? 0;
+        }
+        set
+        {
+            SetTriggerSlider(true, nameof(TriggerEffectSettings.Start), value, 0, 9);
+        }
+    }
+
+    /// <summary>
+    /// Left trigger effect end position (0-9).
+    /// </summary>
+    public int LeftTriggerEnd
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.End ?? 8;
+        }
+        set
+        {
+            SetTriggerSlider(true, nameof(TriggerEffectSettings.End), value, 0, 9);
+        }
+    }
+
+    /// <summary>
+    /// Left trigger effect force (0-8).
+    /// </summary>
+    public int LeftTriggerForce
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.Force ?? 8;
+        }
+        set
+        {
+            SetTriggerSlider(true, nameof(TriggerEffectSettings.Force), value, 0, 8);
+        }
+    }
+
+    /// <summary>
+    /// Left trigger vibration/galloping/machine frequency (0-255).
+    /// </summary>
+    public int LeftTriggerFrequency
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.Frequency ?? 10;
+        }
+        set
+        {
+            SetTriggerSlider(true, nameof(TriggerEffectSettings.Frequency), value, 0, 255);
+        }
+    }
+
+    /// <summary>
+    /// Left trigger bow snap-back force (0-8).
+    /// </summary>
+    public int LeftTriggerSnapForce
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.SnapForce ?? 8;
+        }
+        set
+        {
+            SetTriggerSlider(true, nameof(TriggerEffectSettings.SnapForce), value, 0, 8);
+        }
+    }
+
+    /// <summary>
+    /// Left trigger galloping first foot (0-6).
+    /// </summary>
+    public int LeftTriggerFirstFoot
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.FirstFoot ?? 0;
+        }
+        set
+        {
+            SetTriggerSlider(true, nameof(TriggerEffectSettings.FirstFoot), value, 0, 6);
+        }
+    }
+
+    /// <summary>
+    /// Left trigger galloping second foot (1-7).
+    /// </summary>
+    public int LeftTriggerSecondFoot
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.SecondFoot ?? 1;
+        }
+        set
+        {
+            SetTriggerSlider(true, nameof(TriggerEffectSettings.SecondFoot), value, 0, 7);
+        }
+    }
+
+    /// <summary>
+    /// Left trigger machine secondary amplitude (0-7).
+    /// </summary>
+    public int LeftTriggerAmplitudeB
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.AmplitudeB ?? 4;
+        }
+        set
+        {
+            SetTriggerSlider(true, nameof(TriggerEffectSettings.AmplitudeB), value, 0, 7);
+        }
+    }
+
+    /// <summary>
+    /// Left trigger machine period (0-255).
+    /// </summary>
+    public int LeftTriggerPeriod
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.Period ?? 5;
+        }
+        set
+        {
+            SetTriggerSlider(true, nameof(TriggerEffectSettings.Period), value, 0, 255);
+        }
+    }
+
+    /// <summary>
+    /// Left trigger slope end strength (0-8, 0 yields Off).
+    /// </summary>
+    public int LeftTriggerEndStrength
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.EndStrength ?? 8;
+        }
+        set
+        {
+            SetTriggerSlider(true, nameof(TriggerEffectSettings.EndStrength), value, 0, 8);
+        }
+    }
+
+    /// <summary>
+    /// Right trigger effect start position (0-9).
+    /// </summary>
+    public int RightTriggerStart
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.Start ?? 0;
+        }
+        set
+        {
+            SetTriggerSlider(false, nameof(TriggerEffectSettings.Start), value, 0, 9);
+        }
+    }
+
+    /// <summary>
+    /// Right trigger effect end position (0-9).
+    /// </summary>
+    public int RightTriggerEnd
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.End ?? 8;
+        }
+        set
+        {
+            SetTriggerSlider(false, nameof(TriggerEffectSettings.End), value, 0, 9);
+        }
+    }
+
+    /// <summary>
+    /// Right trigger effect force (0-8).
+    /// </summary>
+    public int RightTriggerForce
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.Force ?? 8;
+        }
+        set
+        {
+            SetTriggerSlider(false, nameof(TriggerEffectSettings.Force), value, 0, 8);
+        }
+    }
+
+    /// <summary>
+    /// Right trigger vibration/galloping/machine frequency (0-255).
+    /// </summary>
+    public int RightTriggerFrequency
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.Frequency ?? 10;
+        }
+        set
+        {
+            SetTriggerSlider(false, nameof(TriggerEffectSettings.Frequency), value, 0, 255);
+        }
+    }
+
+    /// <summary>
+    /// Right trigger bow snap-back force (0-8).
+    /// </summary>
+    public int RightTriggerSnapForce
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.SnapForce ?? 8;
+        }
+        set
+        {
+            SetTriggerSlider(false, nameof(TriggerEffectSettings.SnapForce), value, 0, 8);
+        }
+    }
+
+    /// <summary>
+    /// Right trigger galloping first foot (0-6).
+    /// </summary>
+    public int RightTriggerFirstFoot
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.FirstFoot ?? 0;
+        }
+        set
+        {
+            SetTriggerSlider(false, nameof(TriggerEffectSettings.FirstFoot), value, 0, 6);
+        }
+    }
+
+    /// <summary>
+    /// Right trigger galloping second foot (1-7).
+    /// </summary>
+    public int RightTriggerSecondFoot
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.SecondFoot ?? 1;
+        }
+        set
+        {
+            SetTriggerSlider(false, nameof(TriggerEffectSettings.SecondFoot), value, 0, 7);
+        }
+    }
+
+    /// <summary>
+    /// Right trigger machine secondary amplitude (0-7).
+    /// </summary>
+    public int RightTriggerAmplitudeB
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.AmplitudeB ?? 4;
+        }
+        set
+        {
+            SetTriggerSlider(false, nameof(TriggerEffectSettings.AmplitudeB), value, 0, 7);
+        }
+    }
+
+    /// <summary>
+    /// Right trigger machine period (0-255).
+    /// </summary>
+    public int RightTriggerPeriod
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.Period ?? 5;
+        }
+        set
+        {
+            SetTriggerSlider(false, nameof(TriggerEffectSettings.Period), value, 0, 255);
+        }
+    }
+
+    /// <summary>
+    /// Right trigger slope end strength (0-8, 0 yields Off).
+    /// </summary>
+    public int RightTriggerEndStrength
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.EndStrength ?? 8;
+        }
+        set
+        {
+            SetTriggerSlider(false, nameof(TriggerEffectSettings.EndStrength), value, 0, 8);
+        }
+    }
+
+    private AutoProfileTriggerMode SelectedLeftTriggerModeOrOff
+    {
+        get
+        {
+            return SelectedRule?.LeftTrigger?.Mode ?? AutoProfileTriggerMode.Off;
+        }
+    }
+
+    private AutoProfileTriggerMode SelectedRightTriggerModeOrOff
+    {
+        get
+        {
+            return SelectedRule?.RightTrigger?.Mode ?? AutoProfileTriggerMode.Off;
+        }
+    }
+
+    /// <summary>
+    /// Whether any left trigger effect parameter applies (a real effect mode is selected).
+    /// </summary>
+    public bool LeftTriggerParametersVisible
+    {
+        get
+        {
+            return SelectedLeftTriggerIndex >= 2;
+        }
+    }
+
+    /// <summary>
+    /// Whether the left start-position slider applies to the selected mode.
+    /// </summary>
+    public bool LeftTriggerStartVisible
+    {
+        get
+        {
+            return LeftTriggerParametersVisible;
+        }
+    }
+
+    /// <summary>
+    /// Whether the left end-position slider applies to the selected mode.
+    /// </summary>
+    public bool LeftTriggerEndVisible
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff is AutoProfileTriggerMode.Weapon
+                or AutoProfileTriggerMode.Bow
+                or AutoProfileTriggerMode.Galloping
+                or AutoProfileTriggerMode.Machine
+                or AutoProfileTriggerMode.SlopeFeedback;
+        }
+    }
+
+    /// <summary>
+    /// Whether the left force slider applies to the selected mode.
+    /// </summary>
+    public bool LeftTriggerForceVisible
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff is AutoProfileTriggerMode.Feedback
+                or AutoProfileTriggerMode.Weapon
+                or AutoProfileTriggerMode.Vibration
+                or AutoProfileTriggerMode.Bow
+                or AutoProfileTriggerMode.Machine
+                or AutoProfileTriggerMode.SlopeFeedback;
+        }
+    }
+
+    /// <summary>
+    /// Whether the left frequency slider applies to the selected mode.
+    /// </summary>
+    public bool LeftTriggerFrequencyVisible
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff is AutoProfileTriggerMode.Vibration
+                or AutoProfileTriggerMode.Galloping
+                or AutoProfileTriggerMode.Machine;
+        }
+    }
+
+    /// <summary>
+    /// Whether the left snap-force slider applies (bow mode only).
+    /// </summary>
+    public bool LeftTriggerSnapForceVisible
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff == AutoProfileTriggerMode.Bow;
+        }
+    }
+
+    /// <summary>
+    /// Whether the left first-foot slider applies (galloping mode only).
+    /// </summary>
+    public bool LeftTriggerFirstFootVisible
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff == AutoProfileTriggerMode.Galloping;
+        }
+    }
+
+    /// <summary>
+    /// Whether the left second-foot slider applies (galloping mode only).
+    /// </summary>
+    public bool LeftTriggerSecondFootVisible
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff == AutoProfileTriggerMode.Galloping;
+        }
+    }
+
+    /// <summary>
+    /// Whether the left amplitude-B slider applies (machine mode only).
+    /// </summary>
+    public bool LeftTriggerAmplitudeBVisible
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff == AutoProfileTriggerMode.Machine;
+        }
+    }
+
+    /// <summary>
+    /// Whether the left period slider applies (machine mode only).
+    /// </summary>
+    public bool LeftTriggerPeriodVisible
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff == AutoProfileTriggerMode.Machine;
+        }
+    }
+
+    /// <summary>
+    /// Whether the left end-strength slider applies (slope mode only).
+    /// </summary>
+    public bool LeftTriggerEndStrengthVisible
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff == AutoProfileTriggerMode.SlopeFeedback;
+        }
+    }
+
+    /// <summary>
+    /// Whether any right trigger effect parameter applies (a real effect mode is selected).
+    /// </summary>
+    public bool RightTriggerParametersVisible
+    {
+        get
+        {
+            return SelectedRightTriggerIndex >= 2;
+        }
+    }
+
+    /// <summary>
+    /// Whether the right start-position slider applies to the selected mode.
+    /// </summary>
+    public bool RightTriggerStartVisible
+    {
+        get
+        {
+            return RightTriggerParametersVisible;
+        }
+    }
+
+    /// <summary>
+    /// Whether the right end-position slider applies to the selected mode.
+    /// </summary>
+    public bool RightTriggerEndVisible
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff is AutoProfileTriggerMode.Weapon
+                or AutoProfileTriggerMode.Bow
+                or AutoProfileTriggerMode.Galloping
+                or AutoProfileTriggerMode.Machine
+                or AutoProfileTriggerMode.SlopeFeedback;
+        }
+    }
+
+    /// <summary>
+    /// Whether the right force slider applies to the selected mode.
+    /// </summary>
+    public bool RightTriggerForceVisible
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff is AutoProfileTriggerMode.Feedback
+                or AutoProfileTriggerMode.Weapon
+                or AutoProfileTriggerMode.Vibration
+                or AutoProfileTriggerMode.Bow
+                or AutoProfileTriggerMode.Machine
+                or AutoProfileTriggerMode.SlopeFeedback;
+        }
+    }
+
+    /// <summary>
+    /// Whether the right frequency slider applies to the selected mode.
+    /// </summary>
+    public bool RightTriggerFrequencyVisible
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff is AutoProfileTriggerMode.Vibration
+                or AutoProfileTriggerMode.Galloping
+                or AutoProfileTriggerMode.Machine;
+        }
+    }
+
+    /// <summary>
+    /// Whether the right snap-force slider applies (bow mode only).
+    /// </summary>
+    public bool RightTriggerSnapForceVisible
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff == AutoProfileTriggerMode.Bow;
+        }
+    }
+
+    /// <summary>
+    /// Whether the right first-foot slider applies (galloping mode only).
+    /// </summary>
+    public bool RightTriggerFirstFootVisible
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff == AutoProfileTriggerMode.Galloping;
+        }
+    }
+
+    /// <summary>
+    /// Whether the right second-foot slider applies (galloping mode only).
+    /// </summary>
+    public bool RightTriggerSecondFootVisible
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff == AutoProfileTriggerMode.Galloping;
+        }
+    }
+
+    /// <summary>
+    /// Whether the right amplitude-B slider applies (machine mode only).
+    /// </summary>
+    public bool RightTriggerAmplitudeBVisible
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff == AutoProfileTriggerMode.Machine;
+        }
+    }
+
+    /// <summary>
+    /// Whether the right period slider applies (machine mode only).
+    /// </summary>
+    public bool RightTriggerPeriodVisible
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff == AutoProfileTriggerMode.Machine;
+        }
+    }
+
+    /// <summary>
+    /// Whether the right end-strength slider applies (slope mode only).
+    /// </summary>
+    public bool RightTriggerEndStrengthVisible
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff == AutoProfileTriggerMode.SlopeFeedback;
+        }
+    }
+
+    /// <summary>
+    /// Left start-position slider minimum for the selected mode (weapon starts at zone 2).
+    /// </summary>
+    public int LeftTriggerStartMinimum
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff == AutoProfileTriggerMode.Weapon ? 2 : 0;
+        }
+    }
+
+    /// <summary>
+    /// Left start-position slider maximum for the selected mode.
+    /// </summary>
+    public int LeftTriggerStartMaximum
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff switch
+            {
+                AutoProfileTriggerMode.Feedback or AutoProfileTriggerMode.Vibration => 9,
+                AutoProfileTriggerMode.Weapon or AutoProfileTriggerMode.Bow => 7,
+                _ => 8
+            };
+        }
+    }
+
+    /// <summary>
+    /// Left end-position slider minimum: always past the current start position.
+    /// </summary>
+    public int LeftTriggerEndMinimum
+    {
+        get
+        {
+            int start = SelectedRule?.LeftTrigger?.Start ?? 0;
+            return SelectedLeftTriggerModeOrOff is AutoProfileTriggerMode.Weapon or AutoProfileTriggerMode.Bow
+                ? Math.Min(start + 1, 8)
+                : Math.Min(start + 1, 9);
+        }
+    }
+
+    /// <summary>
+    /// Left end-position slider maximum for the selected mode.
+    /// </summary>
+    public int LeftTriggerEndMaximum
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff is AutoProfileTriggerMode.Weapon or AutoProfileTriggerMode.Bow ? 8 : 9;
+        }
+    }
+
+    /// <summary>
+    /// Left force slider maximum: machine mode amplitudes stop at 7, the rest at 8.
+    /// </summary>
+    public int LeftTriggerForceMaximum
+    {
+        get
+        {
+            return SelectedLeftTriggerModeOrOff == AutoProfileTriggerMode.Machine ? 7 : 8;
+        }
+    }
+
+    /// <summary>
+    /// Left second-foot slider minimum: always past the current first foot.
+    /// </summary>
+    public int LeftTriggerSecondFootMinimum
+    {
+        get
+        {
+            return Math.Min((SelectedRule?.LeftTrigger?.FirstFoot ?? 0) + 1, 7);
+        }
+    }
+
+    /// <summary>
+    /// Right start-position slider minimum for the selected mode (weapon starts at zone 2).
+    /// </summary>
+    public int RightTriggerStartMinimum
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff == AutoProfileTriggerMode.Weapon ? 2 : 0;
+        }
+    }
+
+    /// <summary>
+    /// Right start-position slider maximum for the selected mode.
+    /// </summary>
+    public int RightTriggerStartMaximum
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff switch
+            {
+                AutoProfileTriggerMode.Feedback or AutoProfileTriggerMode.Vibration => 9,
+                AutoProfileTriggerMode.Weapon or AutoProfileTriggerMode.Bow => 7,
+                _ => 8
+            };
+        }
+    }
+
+    /// <summary>
+    /// Right end-position slider minimum: always past the current start position.
+    /// </summary>
+    public int RightTriggerEndMinimum
+    {
+        get
+        {
+            int start = SelectedRule?.RightTrigger?.Start ?? 0;
+            return SelectedRightTriggerModeOrOff is AutoProfileTriggerMode.Weapon or AutoProfileTriggerMode.Bow
+                ? Math.Min(start + 1, 8)
+                : Math.Min(start + 1, 9);
+        }
+    }
+
+    /// <summary>
+    /// Right end-position slider maximum for the selected mode.
+    /// </summary>
+    public int RightTriggerEndMaximum
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff is AutoProfileTriggerMode.Weapon or AutoProfileTriggerMode.Bow ? 8 : 9;
+        }
+    }
+
+    /// <summary>
+    /// Right force slider maximum: machine mode amplitudes stop at 7, the rest at 8.
+    /// </summary>
+    public int RightTriggerForceMaximum
+    {
+        get
+        {
+            return SelectedRightTriggerModeOrOff == AutoProfileTriggerMode.Machine ? 7 : 8;
+        }
+    }
+
+    /// <summary>
+    /// Right second-foot slider minimum: always past the current first foot.
+    /// </summary>
+    public int RightTriggerSecondFootMinimum
+    {
+        get
+        {
+            return Math.Min((SelectedRule?.RightTrigger?.FirstFoot ?? 0) + 1, 7);
+        }
+    }
+
+    /// <summary>
+    /// Re-raises the left trigger visibility properties after its mode changes.
+    /// </summary>
+    private void NotifyLeftTriggerVisibilities()
+    {
+        OnPropertyChanged(nameof(LeftTriggerParametersVisible));
+        OnPropertyChanged(nameof(LeftTriggerStartVisible));
+        OnPropertyChanged(nameof(LeftTriggerEndVisible));
+        OnPropertyChanged(nameof(LeftTriggerForceVisible));
+        OnPropertyChanged(nameof(LeftTriggerFrequencyVisible));
+        OnPropertyChanged(nameof(LeftTriggerSnapForceVisible));
+        OnPropertyChanged(nameof(LeftTriggerFirstFootVisible));
+        OnPropertyChanged(nameof(LeftTriggerSecondFootVisible));
+        OnPropertyChanged(nameof(LeftTriggerAmplitudeBVisible));
+        OnPropertyChanged(nameof(LeftTriggerPeriodVisible));
+        OnPropertyChanged(nameof(LeftTriggerEndStrengthVisible));
+        OnPropertyChanged(nameof(LeftTriggerStartMinimum));
+        OnPropertyChanged(nameof(LeftTriggerStartMaximum));
+        OnPropertyChanged(nameof(LeftTriggerEndMinimum));
+        OnPropertyChanged(nameof(LeftTriggerEndMaximum));
+        OnPropertyChanged(nameof(LeftTriggerForceMaximum));
+        OnPropertyChanged(nameof(LeftTriggerSecondFootMinimum));
+    }
+
+    /// <summary>
+    /// Re-raises the right trigger visibility properties after its mode changes.
+    /// </summary>
+    private void NotifyRightTriggerVisibilities()
+    {
+        OnPropertyChanged(nameof(RightTriggerParametersVisible));
+        OnPropertyChanged(nameof(RightTriggerStartVisible));
+        OnPropertyChanged(nameof(RightTriggerEndVisible));
+        OnPropertyChanged(nameof(RightTriggerForceVisible));
+        OnPropertyChanged(nameof(RightTriggerFrequencyVisible));
+        OnPropertyChanged(nameof(RightTriggerSnapForceVisible));
+        OnPropertyChanged(nameof(RightTriggerFirstFootVisible));
+        OnPropertyChanged(nameof(RightTriggerSecondFootVisible));
+        OnPropertyChanged(nameof(RightTriggerAmplitudeBVisible));
+        OnPropertyChanged(nameof(RightTriggerPeriodVisible));
+        OnPropertyChanged(nameof(RightTriggerEndStrengthVisible));
+        OnPropertyChanged(nameof(RightTriggerStartMinimum));
+        OnPropertyChanged(nameof(RightTriggerStartMaximum));
+        OnPropertyChanged(nameof(RightTriggerEndMinimum));
+        OnPropertyChanged(nameof(RightTriggerEndMaximum));
+        OnPropertyChanged(nameof(RightTriggerForceMaximum));
+        OnPropertyChanged(nameof(RightTriggerSecondFootMinimum));
+    }
+
+    /// <summary>
+    /// Hiding options for the selected rule: leave unchanged, hide, or show.
+    /// </summary>
+    public ObservableCollection<string> HideOptions { get; } =
+    [
+        LocalizationService.GetText("AutoProfilesPage.Hiding.Unchanged"),
+        LocalizationService.GetText("AutoProfilesPage.Hiding.Hide"),
+        LocalizationService.GetText("AutoProfilesPage.Hiding.Show")
+    ];
+
+    /// <summary>
+    /// The selected rule's hiding as an option index (0 leaves the state unchanged).
+    /// Setting it persists immediately.
+    /// </summary>
+    public int SelectedHideIndex
+    {
+        get
+        {
+            return SelectedRule?.HideController switch
+            {
+                true => 1,
+                false => 2,
+                _ => 0
+            };
+        }
+        set
+        {
+            if (SelectedRule is null)
+            {
+                return;
+            }
+
+            bool? hide = value switch
+            {
+                1 => true,
+                2 => false,
+                _ => null
+            };
+            if (SelectedRule.HideController == hide)
+            {
+                return;
+            }
+
+            SelectedRule.HideController = hide;
+            _rules.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsRuleActionless));
+        }
+    }
+
+    /// <summary>
+    /// Controller target options for the selected rule: "all controllers" plus every
+    /// known controller.
+    /// </summary>
+    public ObservableCollection<string> ControllerOptions { get; } = [];
+
+    /// <summary>
+    /// The known controllers behind <see cref="ControllerOptions"/> (index 0 has no entry).
+    /// </summary>
+    private readonly List<ControllerInfo> _controllerEntries = [];
+
+    /// <summary>
+    /// The selected rule's controller target as an option index (0 targets every controller).
+    /// Setting it persists immediately.
+    /// </summary>
+    public int SelectedControllerIndex
+    {
+        get
+        {
+            if (SelectedRule is null || SelectedRule.AppliesToAllControllers)
+            {
+                return 0;
+            }
+
+            for (int i = 0; i < _controllerEntries.Count; i++)
+            {
+                ControllerInfo entry = _controllerEntries[i];
+                if (!string.IsNullOrEmpty(SelectedRule.ControllerMac)
+                    && string.Equals(entry.MacAddress?.Trim().ToUpperInvariant(),
+                        SelectedRule.ControllerMac.Trim().ToUpperInvariant(), StringComparison.Ordinal))
+                {
+                    return i + 1;
+                }
+
+                if (!string.IsNullOrEmpty(SelectedRule.ControllerPath)
+                    && string.Equals(entry.DevicePath?.Trim(), SelectedRule.ControllerPath.Trim(), StringComparison.Ordinal))
+                {
+                    return i + 1;
+                }
+            }
+
+            return 0;
+        }
+        set
+        {
+            if (SelectedRule is null || value < 0 || value > _controllerEntries.Count)
+            {
+                return;
+            }
+
+            if (value == 0)
+            {
+                SelectedRule.ControllerMac = string.Empty;
+                SelectedRule.ControllerPath = string.Empty;
+            }
+            else
+            {
+                ControllerInfo entry = _controllerEntries[value - 1];
+                SelectedRule.ControllerMac = entry.MacAddress ?? string.Empty;
+                SelectedRule.ControllerPath = entry.DevicePath ?? string.Empty;
+            }
+
+            _rules.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Creates the page ViewModel and loads the current rules.
+    /// </summary>
+    public AutoProfilePageViewModel()
+    {
+        _rules = App.Services.GetRequiredService<AutoProfileService>();
+        _profiles = App.Services.GetRequiredService<ProfileService>();
+        _controllers = App.Services.GetRequiredService<ControllerInfoService>();
+        _hiding = App.Services.GetRequiredService<IControllerHidingService>();
+        Refresh();
+    }
+
+    /// <summary>
+    /// Reloads the rules, profile names, and controller targets from the services.
+    /// Reloading replaces the rule objects, so the selection restarts at the first rule.
+    /// </summary>
+    public void Refresh()
+    {
+        _rules.Load();
+        AutoProfileRule? selected = SelectedRule;
+
+        Rules.Clear();
+        foreach (AutoProfileRule rule in _rules.Settings.Rules)
+        {
+            Rules.Add(rule);
+        }
+
+        List<string> profiles = [LocalizationService.GetText("AutoProfilesPage.Profile.Unchanged")];
+        profiles.AddRange(_profiles.Settings.Profiles.Select(profile => profile.Name));
+        SyncOptions(ProfileOptions, profiles);
+
+        _controllerEntries.Clear();
+        _controllerEntries.AddRange(_controllers.Settings.Controllers);
+        List<string> controllers = [LocalizationService.GetText("AutoProfilesPage.Controller.All")];
+        controllers.AddRange(_controllerEntries.Select(entry => !string.IsNullOrEmpty(entry.Name)
+            ? entry.Name
+            : !string.IsNullOrEmpty(entry.MacAddress)
+                ? entry.MacAddress
+                : entry.DevicePath));
+        SyncOptions(ControllerOptions, controllers);
+
+        SelectedRule = selected is not null && Rules.Contains(selected) ? selected : Rules.FirstOrDefault();
+        OnPropertyChanged(nameof(Enabled));
+        OnPropertyChanged(nameof(HidingAvailable));
+    }
+
+    /// <summary>
+    /// Updates <paramref name="options"/> in place to match <paramref name="desired"/>,
+    /// changing only entries that differ.
+    /// </summary>
+    /// <remarks>
+    /// A bound ComboBox coerces a TwoWay <c>SelectedIndex</c> to -1 while its source is
+    /// empty. The index setters here ignore out-of-range values without notifying, so a
+    /// <c>Clear</c> + refill permanently blanks the selection (the follow-up same-value
+    /// notification is dropped by the binding). Syncing in place avoids the transient
+    /// empty state, keeping the selection alive.
+    /// </remarks>
+    private static void SyncOptions(ObservableCollection<string> options, List<string> desired)
+    {
+        int index = 0;
+        while (index < desired.Count && index < options.Count)
+        {
+            if (!string.Equals(options[index], desired[index], StringComparison.Ordinal))
+            {
+                options[index] = desired[index];
+            }
+
+            index++;
+        }
+
+        while (index < desired.Count)
+        {
+            options.Add(desired[index]);
+            index++;
+        }
+
+        while (options.Count > desired.Count)
+        {
+            options.RemoveAt(options.Count - 1);
+        }
+    }
+
+    /// <summary>
+    /// Persists pending text edits. Called when leaving the page; option changes,
+    /// add/delete, and selection changes already save immediately.
+    /// </summary>
+    public void Save() => _rules.Save();
+
+    /// <summary>
+    /// Adds a blank rule (all controllers, profile and emulation unchanged) and selects it.
+    /// The service instance is added to the list directly: reloading from disk here
+    /// would replace its identity and break the selection.
+    /// </summary>
+    [RelayCommand]
+    private void AddRule()
+    {
+        AutoProfileRule rule = new AutoProfileRule();
+        _rules.AddRule(rule);
+        _log.Info("Added auto profile rule");
+        Rules.Add(rule);
+        SelectedRule = rule;
+    }
+
+    /// <summary>
+    /// Deletes the selected rule.
+    /// </summary>
+    [RelayCommand]
+    private void DeleteRule()
+    {
+        AutoProfileRule? rule = SelectedRule;
+        if (rule is null)
+        {
+            return;
+        }
+
+        _log.Info($"Deleted auto profile rule for '{rule.ExePattern}'");
+        _rules.RemoveRule(rule);
+        Refresh();
+    }
+}

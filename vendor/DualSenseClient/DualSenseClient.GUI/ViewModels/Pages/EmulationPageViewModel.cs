@@ -1,0 +1,1500 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.DependencyInjection;
+using DualSenseClient.Controllers.Devices;
+using DualSenseClient.Controllers.DualSense.Enum;
+using DualSenseClient.Controllers.Emulation;
+using DualSenseClient.GUI.Models.Items;
+using DualSenseClient.GUI.Controls;
+using DualSenseClient.GUI.Services;
+using SoundFlow.Abstracts;
+using DualSenseClient.Logging;
+using DualSenseClient.Settings;
+using DualSenseClient.Settings.Sections;
+
+namespace DualSenseClient.GUI.ViewModels.Pages;
+
+/// <summary>
+/// ViewModel for the emulation page: the virtual controller settings (mode, variants,
+/// status) and the per-mode button remapping editor backed by
+/// <see cref="ButtonMappingTable"/>.
+/// </summary>
+/// <remarks>
+/// Mirrors <see cref="MainViewModel.SelectedItem"/> like every page ViewModel so the
+/// page always edits the controller active in the shell. Remapping rules are stored per
+/// controller in the emulation settings section and applied live through
+/// <see cref="IEmulationService.ApplyButtonMappings"/> without recreating the device.
+/// </remarks>
+public partial class EmulationPageViewModel : ObservableObject
+{
+    /// <summary>
+    /// Logger instance.
+    /// </summary>
+    private static readonly DualSenseClientLogger _log = DualSenseClientLogger.For("EmulationPage");
+
+    /// <summary>
+    /// The shell ViewModel owning the controller selection.
+    /// </summary>
+    private readonly MainViewModel _mainViewModel;
+
+    /// <summary>
+    /// Service storing persistent controller info, including the per-controller emulation
+    /// settings edited on this page.
+    /// </summary>
+    private readonly ControllerInfoService _controllerService;
+
+    /// <summary>
+    /// Service providing the embedded controller illustration skins.
+    /// </summary>
+    private readonly ControllerIllustrationService _illustrationService;
+
+    /// <summary>
+    /// Service creating the selected controller's virtual controller and applying its
+    /// emulation settings.
+    /// </summary>
+    private readonly IEmulationService _emulation;
+
+    /// <summary>
+    /// The shared audio engine backing the selected controller's audio player.
+    /// </summary>
+    private readonly AudioEngine _audioEngine;
+
+    /// <summary>
+    /// Tracks the previous device item so its event subscriptions are released on replacement.
+    /// </summary>
+    private DeviceInfoItem? _previousItem;
+
+    /// <summary>
+    /// Tracks the previous monitor state so its event subscriptions are released on replacement.
+    /// </summary>
+    private InputMonitorItem? _previousMonitorState;
+
+    /// <summary>
+    /// The buttons currently multi-selected on the controller illustration (the pending
+    /// combo whose target the user is about to assign).
+    /// </summary>
+    private readonly HashSet<ButtonType> _selectedButtons = new HashSet<ButtonType>();
+
+    /// <summary>
+    /// The controller currently shown on this page, or <c>null</c> when none is selected.
+    /// </summary>
+    public DeviceInfoItem? CurrentDevice { get; private set; }
+
+    /// <summary>
+    /// Live controller state driving the reusable controller visualization, or <c>null</c>
+    /// when no controller is selected.
+    /// </summary>
+    public InputMonitorItem? MonitorState { get; private set; }
+
+    /// <summary>
+    /// Whether a controller is selected and its info can be displayed.
+    /// </summary>
+    public bool HasDevice
+    {
+        get
+        {
+            return CurrentDevice is not null;
+        }
+    }
+
+    /// <summary>
+    /// Whether the selected controller is a DualSense Edge, the only model with function
+    /// keys and back paddles.
+    /// </summary>
+    public bool IsEdgeController
+    {
+        get
+        {
+            return CurrentDevice?.Controller.Device is DualSenseEdgeDevice;
+        }
+    }
+
+    /// <summary>
+    /// The Bluetooth MAC address of the selected controller, or empty when unavailable.
+    /// </summary>
+    public string CurrentMac
+    {
+        get
+        {
+            return CurrentDevice?.Controller.PairingInfo?.ClientMac ?? string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// The HID device path of the selected controller, used as a binding fallback when the
+    /// MAC address is unavailable.
+    /// </summary>
+    public string CurrentDevicePath
+    {
+        get
+        {
+            return CurrentDevice?.Controller.Device.Info.Path ?? string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// The concrete DualSense device of the selected controller, or <c>null</c> for
+    /// non-DualSense devices.
+    /// </summary>
+    private DualSenseDevice? CurrentDualSenseDevice
+    {
+        get
+        {
+            return CurrentDevice?.Controller.Device as DualSenseDevice;
+        }
+    }
+
+    // ── Controller illustration ────────────────────────────────
+
+    /// <summary>
+    /// The available controller illustration skins, in display order.
+    /// </summary>
+    public ObservableCollection<string> Skins { get; } = [];
+
+    /// <summary>
+    /// The illustration skin rendered by the controller visualization, or empty when no
+    /// controller is selected.
+    /// </summary>
+    public string SkinName
+    {
+        get
+        {
+            return Skins.Count > 0 ? Skins[Math.Clamp(_skinIndex, 0, Skins.Count - 1)] : string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Backing field for <see cref="SkinIndex"/>.
+    /// </summary>
+    private int _skinIndex;
+
+    /// <summary>
+    /// The index of the selected controller's illustration skin in <see cref="Skins"/>.
+    /// Setting it stores the skin per controller in <see cref="ControllerInfoService"/>
+    /// and refreshes the illustration.
+    /// </summary>
+    public int SkinIndex
+    {
+        get
+        {
+            return _skinIndex;
+        }
+        set
+        {
+            if (value < 0 || value >= Skins.Count || value == _skinIndex)
+            {
+                return;
+            }
+
+            string skin = Skins[value];
+            _skinIndex = value;
+            _controllerService.SetSkin(CurrentMac, CurrentDevicePath, skin);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SkinName));
+        }
+    }
+
+    // ── Emulation settings ──────────────────────────────────────
+
+    /// <summary>
+    /// Virtual controller emulation mode options for the dropdown, in
+    /// <see cref="EmulationMode"/> order (off, Xbox 360, DualShock 4, DualSense).
+    /// </summary>
+    public ObservableCollection<string> EmulationModes { get; } =
+    [
+        LocalizationService.GetText("EmulationPage.Emulation.Mode.Off"),
+        LocalizationService.GetText("EmulationPage.Emulation.Mode.Xbox360"),
+        LocalizationService.GetText("EmulationPage.Emulation.Mode.DualShock4"),
+        LocalizationService.GetText("EmulationPage.Emulation.Mode.DualSense")
+    ];
+
+    /// <summary>
+    /// DualSense hardware variant options for the dropdown, in
+    /// <see cref="DualSenseVariant"/> order (standard, Edge).
+    /// </summary>
+    public ObservableCollection<string> DualSenseVariants { get; } =
+    [
+        LocalizationService.GetText("EmulationPage.Emulation.DeviceType.Standard"),
+        LocalizationService.GetText("EmulationPage.Emulation.DeviceType.Edge")
+    ];
+
+    /// <summary>
+    /// DualShock 4 hardware generation options for the dropdown, in
+    /// <see cref="DualShock4Variant"/> order (V1, V2).
+    /// </summary>
+    public ObservableCollection<string> DualShock4Variants { get; } =
+    [
+        LocalizationService.GetText("EmulationPage.Emulation.Ds4Variant.V1"),
+        LocalizationService.GetText("EmulationPage.Emulation.Ds4Variant.V2")
+    ];
+
+    /// <summary>
+    /// The emulation settings stored for the selected controller. The returned instance
+    /// is the live stored object; mutating it and calling
+    /// <see cref="ControllerInfoService.SaveEmulationSettings"/> persists the change.
+    /// </summary>
+    private EmulationSettings GetEmulationSettings()
+        => _controllerService.GetEmulationSettings(CurrentMac, CurrentDevicePath);
+
+    /// <summary>
+    /// The virtual controller emulation mode (<see cref="EmulationMode"/> value) of the
+    /// selected controller. Setting it persists the change immediately, recreates the
+    /// virtual controller through <see cref="IEmulationService"/>, and refreshes the
+    /// remapping editor for the new mode's target set.
+    /// </summary>
+    public int EmulationModeIndex
+    {
+        get
+        {
+            if (!HasDevice || !EmulationService.IsSupported)
+            {
+                return 0;
+            }
+
+            return (int)GetEmulationSettings().Mode;
+        }
+        set
+        {
+            if (!HasDevice || !EmulationService.IsSupported)
+            {
+                return;
+            }
+
+            EmulationMode mode = (EmulationMode)Math.Clamp(value, 0, (int)EmulationMode.DualSense);
+            EmulationSettings settings = GetEmulationSettings();
+            if (settings.Mode == mode)
+            {
+                return;
+            }
+
+            _log.Info($"Setting emulation mode of {CurrentMac} to {mode}");
+            settings.Mode = mode;
+            _controllerService.SaveEmulationSettings(CurrentMac, CurrentDevicePath, settings);
+            OnPropertyChanged(nameof(EmulationModeIndex));
+            OnPropertyChanged(nameof(IsEmulationEnabled));
+            OnPropertyChanged(nameof(IsDualSenseEmulation));
+            OnPropertyChanged(nameof(IsDualShock4Emulation));
+            OnPropertyChanged(nameof(IsForwardRumbleVisible));
+            OnPropertyChanged(nameof(IsForwardLightbarVisible));
+            OnPropertyChanged(nameof(IsMappingEditorVisible));
+            NotifyTargetPickerState();
+            RefreshMappingTargets();
+            RefreshBindings();
+            _emulation.Refresh();
+        }
+    }
+
+    /// <summary>
+    /// Whether the selected controller's emulation mode is DualSense, the mode with a
+    /// DualSense hardware variant.
+    /// </summary>
+    public bool IsDualSenseEmulation
+    {
+        get
+        {
+            return EmulationModeIndex == (int)EmulationMode.DualSense;
+        }
+    }
+
+    /// <summary>
+    /// Whether the selected controller's emulation mode is DualShock 4, the mode with a
+    /// DualShock 4 hardware generation variant.
+    /// </summary>
+    public bool IsDualShock4Emulation
+    {
+        get
+        {
+            return EmulationModeIndex == (int)EmulationMode.DualShock4;
+        }
+    }
+
+    /// <summary>
+    /// Whether the vibration passthrough toggle applies to the selected controller's
+    /// emulation mode (every mode with a virtual device).
+    /// </summary>
+    public bool IsForwardRumbleVisible
+    {
+        get
+        {
+            return HasDevice && GetEmulationSettings().Mode != EmulationMode.Off;
+        }
+    }
+
+    /// <summary>
+    /// Whether the lightbar and controller-audio passthrough toggles apply to the
+    /// selected controller's emulation mode.
+    /// </summary>
+    public bool IsForwardLightbarVisible
+    {
+        get
+        {
+            if (!HasDevice)
+            {
+                return false;
+            }
+
+            EmulationMode mode = GetEmulationSettings().Mode;
+            return mode is EmulationMode.DualSense or EmulationMode.DualShock4;
+        }
+    }
+
+    /// <summary>
+    /// Whether the host's classic rumble is forwarded to the physical controller
+    /// (two-way, persisted).
+    /// </summary>
+    public bool ForwardRumble
+    {
+        get
+        {
+            return HasDevice && GetEmulationSettings().Forward.Rumble;
+        }
+        set
+        {
+            SetForwardingToggle(value, nameof(ForwardRumble), forward => forward.Rumble, (forward, enabled) => forward.Rumble = enabled);
+        }
+    }
+
+    /// <summary>
+    /// Whether the host's adaptive trigger effects are forwarded to the physical
+    /// controller (two-way, persisted). Only applies to DualSense emulation.
+    /// </summary>
+    public bool ForwardTriggers
+    {
+        get
+        {
+            return HasDevice && GetEmulationSettings().Forward.Triggers;
+        }
+        set
+        {
+            SetForwardingToggle(value, nameof(ForwardTriggers), forward => forward.Triggers, (forward, enabled) => forward.Triggers = enabled);
+        }
+    }
+
+    /// <summary>
+    /// Whether the host's lightbar color and brightness are forwarded to the physical
+    /// controller (two-way, persisted). Applies to DualShock 4 and DualSense emulation.
+    /// </summary>
+    public bool ForwardLightbar
+    {
+        get
+        {
+            return HasDevice && GetEmulationSettings().Forward.Lightbar;
+        }
+        set
+        {
+            SetForwardingToggle(value, nameof(ForwardLightbar), forward => forward.Lightbar, (forward, enabled) => forward.Lightbar = enabled);
+        }
+    }
+
+    /// <summary>
+    /// Whether the host's player indicator LEDs are forwarded to the physical controller
+    /// (two-way, persisted). Only applies to DualSense emulation.
+    /// </summary>
+    public bool ForwardPlayerLeds
+    {
+        get
+        {
+            return HasDevice && GetEmulationSettings().Forward.PlayerLeds;
+        }
+        set
+        {
+            SetForwardingToggle(value, nameof(ForwardPlayerLeds), forward => forward.PlayerLeds, (forward, enabled) => forward.PlayerLeds = enabled);
+        }
+    }
+
+    /// <summary>
+    /// Whether the game's own haptics are forwarded to the physical controller (two-way,
+    /// persisted). Audio-derived haptics are unaffected. Only applies to DualSense
+    /// emulation.
+    /// </summary>
+    public bool ForwardGameHaptics
+    {
+        get
+        {
+            return HasDevice && GetEmulationSettings().Forward.HapticsEnabled;
+        }
+        set
+        {
+            SetForwardingToggle(value, nameof(ForwardGameHaptics), forward => forward.HapticsEnabled,
+                (forward, enabled) => forward.HapticsEnabled = enabled);
+        }
+    }
+
+    /// <summary>
+    /// Whether the virtual controller's own audio is forwarded to the physical controller
+    /// (two-way, persisted). The direct system-output and application audio sources are
+    /// unaffected. Applies to DualShock 4 and DualSense emulation.
+    /// </summary>
+    public bool ForwardAudioEnabled
+    {
+        get
+        {
+            return HasDevice && GetEmulationSettings().Forward.AudioEnabled;
+        }
+        set
+        {
+            SetForwardingToggle(value, nameof(ForwardAudioEnabled), forward => forward.AudioEnabled,
+                (forward, enabled) => forward.AudioEnabled = enabled);
+        }
+    }
+
+    /// <summary>
+    /// Persists a host-feedback passthrough toggle and applies it to the live virtual
+    /// controller and audio forwarder without recreating the virtual device.
+    /// </summary>
+    private void SetForwardingToggle(bool value, string propertyName, Func<ForwardSettings, bool> getter, Action<ForwardSettings, bool> setter)
+    {
+        if (!HasDevice)
+        {
+            return;
+        }
+
+        EmulationSettings settings = GetEmulationSettings();
+        if (getter(settings.Forward) == value)
+        {
+            return;
+        }
+
+        _log.Info($"Setting {propertyName} of {CurrentMac} to {value}");
+        setter(settings.Forward, value);
+        _controllerService.SaveEmulationSettings(CurrentMac, CurrentDevicePath, settings);
+        OnPropertyChanged(propertyName);
+        _emulation.Refresh();
+    }
+
+    /// <summary>
+    /// The last non-off emulation mode used on this page, restored when the toggle is
+    /// switched back on.
+    /// </summary>
+    private EmulationMode _lastEnabledMode;
+
+    /// <summary>
+    /// Whether a virtual controller is created for the selected controller. Turning it on
+    /// restores the last used mode (Xbox 360 when none was used yet); turning it off
+    /// switches to <see cref="EmulationMode.Off"/>.
+    /// </summary>
+    public bool IsEmulationEnabled
+    {
+        get
+        {
+            return EmulationModeIndex != (int)EmulationMode.Off;
+        }
+        set
+        {
+            if (!HasDevice || !EmulationService.IsSupported)
+            {
+                OnPropertyChanged();
+                return;
+            }
+
+            if (value)
+            {
+                EmulationModeIndex = (int)(_lastEnabledMode == EmulationMode.Off ? EmulationMode.Xbox360 : _lastEnabledMode);
+            }
+            else
+            {
+                _lastEnabledMode = (EmulationMode)EmulationModeIndex;
+                EmulationModeIndex = (int)EmulationMode.Off;
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// The DualSense hardware variant (<see cref="DualSenseVariant"/> value) of the
+    /// selected controller's virtual device. Setting it persists the change immediately
+    /// and recreates the virtual controller through <see cref="IEmulationService"/>.
+    /// </summary>
+    public int DualSenseVariantIndex
+    {
+        get
+        {
+            return !HasDevice ? 0 : (int)GetEmulationSettings().Variant.DualSense;
+        }
+        set
+        {
+            if (!HasDevice)
+            {
+                return;
+            }
+
+            DualSenseVariant variant = (DualSenseVariant)Math.Clamp(value, 0, (int)DualSenseVariant.Edge);
+            EmulationSettings settings = GetEmulationSettings();
+            if (settings.Variant.DualSense == variant)
+            {
+                return;
+            }
+
+            _log.Info($"Setting DualSense variant of {CurrentMac} to {variant}");
+            settings.Variant.DualSense = variant;
+            _controllerService.SaveEmulationSettings(CurrentMac, CurrentDevicePath, settings);
+            OnPropertyChanged(nameof(DualSenseVariantIndex));
+            RefreshMappingTargets();
+            RefreshBindings();
+            _emulation.Refresh();
+        }
+    }
+
+    /// <summary>
+    /// The DualShock 4 hardware generation (<see cref="DualShock4Variant"/> value) of the
+    /// selected controller's virtual device. Setting it persists the change immediately
+    /// and recreates the virtual controller through <see cref="IEmulationService"/>.
+    /// </summary>
+    public int DualShock4VariantIndex
+    {
+        get
+        {
+            return !HasDevice ? 0 : (int)GetEmulationSettings().Variant.DualShock4;
+        }
+        set
+        {
+            if (!HasDevice)
+            {
+                return;
+            }
+
+            DualShock4Variant variant = (DualShock4Variant)Math.Clamp(value, 0, (int)DualShock4Variant.V2);
+            EmulationSettings settings = GetEmulationSettings();
+            if (settings.Variant.DualShock4 == variant)
+            {
+                return;
+            }
+
+            _log.Info($"Setting DualShock 4 variant of {CurrentMac} to {variant}");
+            settings.Variant.DualShock4 = variant;
+            _controllerService.SaveEmulationSettings(CurrentMac, CurrentDevicePath, settings);
+            OnPropertyChanged(nameof(DualShock4VariantIndex));
+            _emulation.Refresh();
+        }
+    }
+
+    /// <summary>
+    /// Human-readable description of the selected controller's virtual controller
+    /// emulation state, reflecting <see cref="IEmulationService.GetStatus"/>.
+    /// </summary>
+    public string EmulationStatusText
+    {
+        get
+        {
+            if (CurrentDualSenseDevice is not { } device)
+            {
+                return string.Empty;
+            }
+
+            EmulationStatus status = _emulation.GetStatus(device);
+            if (status.IsCreating)
+            {
+                return LocalizationService.GetText("EmulationPage.Emulation.Status.Creating");
+            }
+
+            if (!status.Running)
+            {
+                return status.Detail ?? LocalizationService.GetText("EmulationPage.Emulation.Status.Idle");
+            }
+
+            if (status.Variant == DualSenseVariant.Edge)
+            {
+                return LocalizationService.GetText("EmulationPage.Emulation.Status.RunningEdge");
+            }
+
+            string mode = EmulationModes[Math.Clamp((int)status.Mode, 0, EmulationModes.Count - 1)];
+            return LocalizationService.GetText("EmulationPage.Emulation.Status.Running").Replace("{mode}", mode);
+        }
+    }
+
+    /// <summary>
+    /// Whether the emulation controls may be changed for the selected controller. False
+    /// while its virtual controller is being (re)created. Always false on platforms
+    /// without emulation support.
+    /// </summary>
+    public bool CanChangeEmulation
+    {
+        get
+        {
+            return EmulationService.IsSupported
+                   && (CurrentDualSenseDevice is not { } device || !_emulation.GetStatus(device).IsCreating);
+        }
+    }
+
+    // ── Button remapping ────────────────────────────────────────
+
+    /// <summary>
+    /// All mappable source buttons in <see cref="ButtonType"/> declaration order.
+    /// </summary>
+    public static IReadOnlyList<ButtonType> SourceButtons
+    {
+        get
+        {
+            return ButtonMappingTable.Sources;
+        }
+    }
+
+    /// <summary>
+    /// The buttons currently selected on the illustration, exposed as a fresh list
+    /// instance so the view's highlight refreshes on every change.
+    /// </summary>
+    public IReadOnlyList<ButtonType> SelectedButtonTypes
+    {
+        get
+        {
+            return _selectedButtons.ToList();
+        }
+    }
+
+    /// <summary>
+    /// Human-readable summary of the pending selection, e.g. "Create + Options".
+    /// </summary>
+    public string SelectionSummary
+    {
+        get
+        {
+            return _selectedButtons.Count == 0 ? string.Empty : string.Join(" + ", _selectedButtons.Select(GetSourceDisplayName));
+        }
+    }
+
+    /// <summary>
+    /// Whether at least one button is selected, enabling the assign controls.
+    /// </summary>
+    public bool HasSelection
+    {
+        get
+        {
+            return _selectedButtons.Count > 0;
+        }
+    }
+
+    /// <summary>
+    /// Whether the pending selection is a combo (more than one key), which unlocks the
+    /// solo-suppression option.
+    /// </summary>
+    public bool IsComboSelection
+    {
+        get
+        {
+            return _selectedButtons.Count > 1;
+        }
+    }
+
+    /// <summary>
+    /// Whether the remapping editor is offered: a virtual controller mode other than Off
+    /// is selected and changes are currently allowed.
+    /// </summary>
+    public bool IsMappingEditorVisible
+    {
+        get
+        {
+            return EmulationModeIndex != (int)EmulationMode.Off && CanChangeEmulation;
+        }
+    }
+
+    /// <summary>
+    /// The assignable targets for the current emulation mode (including the trailing
+    /// "None" entry); each row tracks its own checked state.
+    /// </summary>
+    public ObservableCollection<TargetOptionItem> TargetOptions { get; } = [];
+
+    /// <summary>
+    /// Raw names of the single selected button's effective solo targets (custom or default),
+    /// or <c>null</c> when nothing/no default applies. Used to detect no-op assignments.
+    /// </summary>
+    private IReadOnlyList<string>? _effectiveSoloTargets;
+
+    /// <summary>
+    /// The raw names currently picked as assignment targets.
+    /// </summary>
+    public IReadOnlyList<string> SelectedTargetNames
+    {
+        get
+        {
+            return [.. TargetOptions.Where(option => option.IsSelected).Select(option => option.Raw)];
+        }
+    }
+
+    /// <summary>
+    /// Selects or deselects a target by raw name.
+    /// </summary>
+    public void SetTargetSelected(string raw, bool selected)
+    {
+        TargetOptionItem? option = FindTargetOption(raw);
+        if (option is not null)
+        {
+            // The setter notifies back through OnTargetChanged, which enforces exclusivity.
+            option.IsSelected = selected;
+        }
+    }
+
+    /// <summary>
+    /// Toggles a raw target name in the pending selection. Called from the page code-behind
+    /// when the user clicks a button on the target illustration.
+    /// </summary>
+    public void ToggleTarget(string raw)
+        => SetTargetSelected(raw, FindTargetOption(raw)?.IsSelected != true);
+
+    /// <summary>
+    /// Finds a pending-selection row by raw name, or <c>null</c>.
+    /// </summary>
+    private TargetOptionItem? FindTargetOption(string raw)
+        => TargetOptions.FirstOrDefault(option => option.Raw.Equals(raw, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Enforces the "None" exclusivity rule after a pick changed: "None" cannot be combined
+    /// with any other target, then refreshes everything derived from the picks.
+    /// </summary>
+    private void OnTargetChanged(TargetOptionItem option, bool selected)
+    {
+        if (selected && !option.Raw.Equals("None", StringComparison.OrdinalIgnoreCase))
+        {
+            TargetOptionItem? none = FindTargetOption("None");
+            if (none is { IsSelected: true })
+            {
+                none.IsSelected = false;
+            }
+        }
+        else if (selected)
+        {
+            foreach (TargetOptionItem other in TargetOptions.Where(candidate =>
+                         candidate.IsSelected && !candidate.Raw.Equals("None", StringComparison.OrdinalIgnoreCase)))
+            {
+                other.IsSelected = false;
+            }
+        }
+
+        NotifyTargetSelectionChanged();
+    }
+
+    /// <summary>
+    /// Notifies every consumer of the pending target picks.
+    /// </summary>
+    private void NotifyTargetSelectionChanged()
+    {
+        OnPropertyChanged(nameof(SelectedTargetNames));
+        OnPropertyChanged(nameof(IsNoneTargetSelected));
+        OnPropertyChanged(nameof(IsTriggerOutputVisible));
+        OnPropertyChanged(nameof(CanAssignMapping));
+    }
+
+    /// <summary>
+    /// Which virtual controller illustration the target picker renders for the current
+    /// emulation mode.
+    /// </summary>
+    public VirtualControllerKind TargetViewKind
+    {
+        get
+        {
+            return EmulationModeIndex == (int)EmulationMode.Xbox360
+                ? VirtualControllerKind.Xbox360
+                : VirtualControllerKind.DualShock4;
+        }
+    }
+
+    /// <summary>
+    /// Whether the clickable target controller illustration is offered: Xbox 360 and
+    /// DualShock 4 modes have illustrations; DualSense mode falls back to the dropdown.
+    /// </summary>
+    public bool IsTargetPickerVisible
+    {
+        get
+        {
+            return IsMappingEditorVisible && EmulationModeIndex is (int)EmulationMode.Xbox360 or (int)EmulationMode.DualShock4;
+        }
+    }
+
+    /// <summary>
+    /// Whether the plain target dropdown is shown instead of the illustration.
+    /// </summary>
+    public bool IsTargetComboVisible
+    {
+        get
+        {
+            return IsMappingEditorVisible && !IsTargetPickerVisible;
+        }
+    }
+
+    /// <summary>
+    /// Raises change notifications for everything derived from the emulation mode's target
+    /// picking surface: which editor is shown and which illustration it renders.
+    /// </summary>
+    private void NotifyTargetPickerState()
+    {
+        OnPropertyChanged(nameof(IsTargetPickerVisible));
+        OnPropertyChanged(nameof(IsTargetComboVisible));
+        OnPropertyChanged(nameof(TargetViewKind));
+    }
+
+    /// <summary>
+    /// Whether "None" is currently among the picked targets. Setting it picks or unpicks
+    /// "None"; picking it clears any other picks and vice versa.
+    /// </summary>
+    public bool IsNoneTargetSelected
+    {
+        get
+        {
+            return FindTargetOption("None")?.IsSelected == true;
+        }
+        set
+        {
+            SetTargetSelected("None", value);
+        }
+    }
+
+    /// <summary>
+    /// Output style options for trigger targets that have both a click flag and an
+    /// analog byte (full pull, click only).
+    /// </summary>
+    public ObservableCollection<string> TriggerOutputs { get; } =
+    [
+        LocalizationService.GetText("EmulationPage.Mapping.Output.Full"),
+        LocalizationService.GetText("EmulationPage.Mapping.Output.Click")
+    ];
+
+    /// <summary>
+    /// Backing field for <see cref="TriggerOutputIndex"/>.
+    /// </summary>
+    private int _triggerOutputIndex;
+
+    /// <summary>
+    /// The selected trigger output style while <see cref="IsTriggerOutputVisible"/>.
+    /// </summary>
+    public int TriggerOutputIndex
+    {
+        get
+        {
+            return _triggerOutputIndex;
+        }
+        set
+        {
+            if (value is not 0 and not 1)
+            {
+                return;
+            }
+
+            _triggerOutputIndex = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Whether the trigger output style choice applies to the current selection: it needs
+    /// exactly one picked target that is a trigger on a device whose triggers have both a
+    /// flag and an analog byte (DualShock 4 and DualSense; Xbox 360 triggers are byte-only).
+    /// </summary>
+    public bool IsTriggerOutputVisible
+    {
+        get
+        {
+            IReadOnlyList<string> picks = SelectedTargetNames;
+            return EmulationModeIndex is (int)EmulationMode.DualShock4 or (int)EmulationMode.DualSense
+                   && picks.Count == 1 && picks[0] is "L2" or "R2";
+        }
+    }
+
+    /// <summary>
+    /// Backing field for <see cref="SuppressSolos"/>.
+    /// </summary>
+    private bool _suppressSolos = true;
+
+    /// <summary>
+    /// Whether an assigned combo mutes its member buttons' own outputs while held
+    /// (the default). Ignored by single-button assignments.
+    /// </summary>
+    public bool SuppressSolos
+    {
+        get
+        {
+            return _suppressSolos;
+        }
+        set
+        {
+            if (_suppressSolos == value)
+            {
+                return;
+            }
+
+            _suppressSolos = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// The stored remapping entries of the current emulation mode, displayed as rows.
+    /// </summary>
+    public ObservableCollection<ButtonBindingItem> Bindings { get; } = [];
+
+    /// <summary>
+    /// Whether any custom binding exists for the current mode (enables reset-to-defaults).
+    /// </summary>
+    public bool HasBindings
+    {
+        get
+        {
+            return Bindings.Count > 0;
+        }
+    }
+
+    /// <summary>
+    /// Toggles a source button's membership in the pending selection (command wrapper for
+    /// the Edge chip buttons).
+    /// </summary>
+    /// <param name="button">The chip's source button.</param>
+    [RelayCommand]
+    private void ToggleSelection(ButtonType button) => ToggleButton(button);
+
+    /// <summary>
+    /// Toggles a source button's membership in the pending selection. Called from the
+    /// page code-behind when the user clicks a button on the illustration.
+    /// </summary>
+    public void ToggleButton(ButtonType button)
+    {
+        if (!_selectedButtons.Remove(button))
+        {
+            _selectedButtons.Add(button);
+        }
+
+        OnSelectionChanged();
+    }
+
+    /// <summary>
+    /// Clears the pending selection.
+    /// </summary>
+    [RelayCommand]
+    private void ClearSelection()
+    {
+        _selectedButtons.Clear();
+        OnSelectionChanged();
+    }
+
+    /// <summary>
+    /// Commits the pending selection as one mapping rule, replacing any existing rule
+    /// with the same key combination, then saves and applies the rules live.
+    /// </summary>
+    [RelayCommand]
+    private void AssignMapping()
+    {
+        IReadOnlyList<string> targets = SelectedTargetNames;
+        if (!HasDevice || targets.Count == 0)
+        {
+            return;
+        }
+
+        EmulationSettings settings = GetEmulationSettings();
+        List<ButtonMappingEntry> list = GetEntries(settings) ?? [];
+        list.RemoveAll(entry => SameKeys(entry.Keys, _selectedButtons));
+        list.Add(new ButtonMappingEntry
+        {
+            Keys = _selectedButtons.Select(button => button.ToString()).ToList(),
+            Targets = [.. targets],
+            TargetOutput = IsTriggerOutputVisible && TriggerOutputIndex == 1 ? "click" : null,
+            SuppressSolos = SuppressSolos
+        });
+        SetEntries(settings, list);
+
+        _log.Info($"Assigned {_selectedButtons.Count} button(s) to '{string.Join("+", targets)}' for {CurrentMac}");
+        SaveAndApply(settings);
+        RefreshBindings();
+    }
+
+    /// <summary>
+    /// Removes one binding row and applies the remaining rules live.
+    /// </summary>
+    [RelayCommand]
+    private void RemoveBinding(ButtonBindingItem item)
+    {
+        if (!HasDevice || item is null)
+        {
+            return;
+        }
+
+        EmulationSettings settings = GetEmulationSettings();
+        List<ButtonMappingEntry>? list = GetEntries(settings);
+        if (list is null || !list.Remove(item.Entry))
+        {
+            return;
+        }
+
+        SetEntries(settings, list);
+        _log.Info($"Removed a button binding of {CurrentMac}");
+        SaveAndApply(settings);
+        RefreshBindings();
+    }
+
+    /// <summary>
+    /// Restores the built-in default mapping for the current mode by clearing every
+    /// custom entry.
+    /// </summary>
+    [RelayCommand]
+    private void ResetMappings()
+    {
+        if (!HasDevice)
+        {
+            return;
+        }
+
+        EmulationSettings settings = GetEmulationSettings();
+        SetEntries(settings, []);
+        _log.Info($"Reset button mappings of {CurrentMac}");
+        SaveAndApply(settings);
+        RefreshBindings();
+    }
+
+    /// <summary>
+    /// The stored mapping entries of the current emulation mode, or <c>null</c> when the
+    /// section was never customized.
+    /// </summary>
+    private List<ButtonMappingEntry>? GetEntries(EmulationSettings settings) => EmulationModeIndex switch
+    {
+        (int)EmulationMode.Xbox360 => settings.Mappings.Xbox360,
+        (int)EmulationMode.DualShock4 => settings.Mappings.DualShock4,
+        (int)EmulationMode.DualSense => settings.Mappings.DualSense,
+        _ => null
+    };
+
+    /// <summary>
+    /// Stores the mapping entries into the current emulation mode's settings slot.
+    /// </summary>
+    private void SetEntries(EmulationSettings settings, List<ButtonMappingEntry> entries)
+    {
+        switch ((EmulationMode)EmulationModeIndex)
+        {
+            case EmulationMode.Xbox360:
+                settings.Mappings.Xbox360 = entries;
+                break;
+            case EmulationMode.DualShock4:
+                settings.Mappings.DualShock4 = entries;
+                break;
+            case EmulationMode.DualSense:
+                settings.Mappings.DualSense = entries;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Persists the emulation settings and pushes the resolved mapping table onto the
+    /// running virtual controller without recreating it.
+    /// </summary>
+    private void SaveAndApply(EmulationSettings settings)
+    {
+        _controllerService.SaveEmulationSettings(CurrentMac, CurrentDevicePath, settings);
+        if (CurrentDualSenseDevice is { } device)
+        {
+            _emulation.ApplyButtonMappings(device);
+        }
+    }
+
+    /// <summary>
+    /// The raw target names offered for the current emulation mode.
+    /// In DualSense mode the Edge-only targets (function keys and paddles) are offered only
+    /// when the virtual device presents a DualSense Edge.
+    /// </summary>
+    private IReadOnlyList<string> CurrentTargets() => EmulationModeIndex switch
+    {
+        (int)EmulationMode.Xbox360 => Xbox360Targets,
+        (int)EmulationMode.DualShock4 => DualShock4Targets,
+        (int)EmulationMode.DualSense => IsEdgeVirtualController ? DualSenseTargets : DualSenseStandardTargets,
+        _ => []
+    };
+
+    /// <summary>
+    /// Whether the selected controller's virtual DualSense presents an Edge.
+    /// </summary>
+    private bool IsEdgeVirtualController
+    {
+        get
+        {
+            return HasDevice && GetEmulationSettings().Variant.DualSense == DualSenseVariant.Edge;
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds <see cref="TargetOptions"/> for the current emulation mode and resets the
+    /// target/output selections.
+    /// </summary>
+    private void RefreshMappingTargets()
+    {
+        TargetOptions.Clear();
+        foreach (string raw in CurrentTargets())
+        {
+            TargetOptions.Add(new TargetOptionItem(raw, GetTargetDisplayName(raw), OnTargetChanged));
+        }
+
+        _effectiveSoloTargets = null;
+        _triggerOutputIndex = 0;
+        OnPropertyChanged(nameof(TargetOptions));
+        OnPropertyChanged(nameof(TriggerOutputIndex));
+        NotifyTargetSelectionChanged();
+    }
+
+    /// <summary>
+    /// Rebuilds the binding rows from the stored entries of the current mode.
+    /// </summary>
+    private void RefreshBindings()
+    {
+        Bindings.Clear();
+        if (HasDevice && GetEntries(GetEmulationSettings()) is { } entries)
+        {
+            foreach (ButtonMappingEntry entry in entries.Where(e => e.Keys is { Count: > 0 }))
+            {
+                Bindings.Add(new ButtonBindingItem(entry, this));
+            }
+        }
+
+        OnPropertyChanged(nameof(HasBindings));
+    }
+
+    /// <summary>
+    /// Notifies every binding-row consumer after selection changes.
+    /// </summary>
+    internal string DescribeKeys(IReadOnlyList<string> keys)
+        => string.Join(" + ", keys.Select(key => ButtonMappingTable.TryParseSource(key, out ButtonType button) ? GetSourceDisplayName(button) : key));
+
+    /// <summary>
+    /// Refreshes everything derived from the pending selection.
+    /// </summary>
+    private void OnSelectionChanged()
+    {
+        OnPropertyChanged(nameof(SelectedButtonTypes));
+        OnPropertyChanged(nameof(SelectionSummary));
+        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(IsComboSelection));
+        UpdateTargetFromEffectiveSolo();
+    }
+
+    /// <summary>
+    /// Preselects the target picks with the selected button's effective solo mapping: its
+    /// custom binding when one exists, otherwise its built-in default. Combos start with
+    /// no picks because defaults are defined per single button only.
+    /// </summary>
+    private void UpdateTargetFromEffectiveSolo()
+    {
+        if (_selectedButtons.Count != 1 || !HasDevice)
+        {
+            _effectiveSoloTargets = null;
+            ClearTargetPicks();
+            NotifyTargetSelectionChanged();
+            return;
+        }
+
+        IEnumerable<ButtonMappingEntry>? entries = GetEntries(GetEmulationSettings());
+        ResolvedMappingTarget? effective = EmulationModeIndex switch
+        {
+            (int)EmulationMode.Xbox360 => VirtualInputMapper.Xbox360Table(entries).GetSoloTarget(_selectedButtons.First()),
+            (int)EmulationMode.DualShock4 => VirtualInputMapper.DualShock4Table(entries).GetSoloTarget(_selectedButtons.First()),
+            (int)EmulationMode.DualSense => VirtualInputMapper.DualSenseTable(entries).GetSoloTarget(_selectedButtons.First()),
+            _ => null
+        };
+
+        _effectiveSoloTargets = effective is { } target ? DescribeResolvedTargets(target) : null;
+        ApplyTargetPicks(_effectiveSoloTargets ?? []);
+        NotifyTargetSelectionChanged();
+    }
+
+    /// <summary>
+    /// Unpicks every pending target.
+    /// </summary>
+    private void ClearTargetPicks()
+    {
+        foreach (TargetOptionItem option in TargetOptions.Where(option => option.IsSelected))
+        {
+            option.IsSelected = false;
+        }
+    }
+
+    /// <summary>
+    /// Sets the pending picks to exactly the given raw target names.
+    /// </summary>
+    private void ApplyTargetPicks(IReadOnlyList<string> raws)
+    {
+        foreach (TargetOptionItem option in TargetOptions)
+        {
+            option.IsSelected = raws.Contains(option.Raw);
+        }
+    }
+
+    /// <summary>
+    /// Whether Assign may commit the pending selection: at least one target must be
+    /// picked, and a single-button selection whose picks equal its current effective
+    /// mapping (custom or default) is already in place and needs no entry.
+    /// </summary>
+    public bool CanAssignMapping
+    {
+        get
+        {
+            IReadOnlyList<string> picks = SelectedTargetNames;
+            if (_selectedButtons.Count == 0 || picks.Count == 0)
+            {
+                return false;
+            }
+
+            if (_selectedButtons.Count == 1 && _effectiveSoloTargets is not null && SameNames(picks, _effectiveSoloTargets))
+            {
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Decomposes a resolved target into its raw settings names so it can be matched
+    /// against the mode's target list; multi-flag targets yield one name per flag.
+    /// </summary>
+    private IReadOnlyList<string> DescribeResolvedTargets(ResolvedMappingTarget target)
+    {
+        if (target.IsNone)
+        {
+            return ["None"];
+        }
+
+        List<string> names = [];
+        switch (target.Trigger)
+        {
+            case MappableTriggerSide.Left:
+                names.Add(EmulationModeIndex == (int)EmulationMode.Xbox360 ? "LeftTrigger" : "L2");
+                break;
+            case MappableTriggerSide.Right:
+                names.Add(EmulationModeIndex == (int)EmulationMode.Xbox360 ? "RightTrigger" : "R2");
+                break;
+        }
+
+        if (target.DPad.HasFlag(VirtualDPad.Up))
+        {
+            names.Add("DPadUp");
+        }
+
+        if (target.DPad.HasFlag(VirtualDPad.Down))
+        {
+            names.Add("DPadDown");
+        }
+
+        if (target.DPad.HasFlag(VirtualDPad.Left))
+        {
+            names.Add("DPadLeft");
+        }
+
+        if (target.DPad.HasFlag(VirtualDPad.Right))
+        {
+            names.Add("DPadRight");
+        }
+
+        names.AddRange(EmulationModeIndex switch
+        {
+            (int)EmulationMode.Xbox360 => DecomposeFlags<Xbox360Buttons>(target.ButtonFlags),
+            (int)EmulationMode.DualShock4 => DecomposeFlags<DualShock4Buttons>(target.ButtonFlags),
+            (int)EmulationMode.DualSense => DecomposeFlags<DualSenseButtons>(target.ButtonFlags),
+            _ => []
+        });
+        return names;
+    }
+
+    /// <summary>
+    /// Splits device button flag bits into their individual member names.
+    /// </summary>
+    private static IEnumerable<string> DecomposeFlags<TEnum>(ulong flags) where TEnum : struct, Enum
+        => Enum.GetValues<TEnum>()
+            .Where(value => Convert.ToUInt64(value) != 0 && (flags & Convert.ToUInt64(value)) == Convert.ToUInt64(value))
+            .Select(value => value.ToString());
+
+    /// <summary>
+    /// Whether two raw-name lists pick exactly the same targets, ignoring order and case.
+    /// </summary>
+    private static bool SameNames(IEnumerable<string> first, IEnumerable<string> second)
+        => new HashSet<string>(first, StringComparer.OrdinalIgnoreCase).SetEquals(second);
+
+    /// <summary>
+    /// Display label of a physical source button.
+    /// </summary>
+    internal static string GetSourceDisplayName(ButtonType button) => button switch
+    {
+        ButtonType.DPadUp => "D-Pad Up",
+        ButtonType.DPadDown => "D-Pad Down",
+        ButtonType.DPadLeft => "D-Pad Left",
+        ButtonType.DPadRight => "D-Pad Right",
+        ButtonType.PS => "PS",
+        ButtonType.TouchPad => "Touchpad Click",
+        ButtonType.Mute => "Mute",
+        ButtonType.Edge_LeftFunction => "FnL",
+        ButtonType.Edge_RightFunction => "FnR",
+        ButtonType.Edge_LeftPaddle => "L4 (paddle)",
+        ButtonType.Edge_RightPaddle => "R4 (paddle)",
+        _ => button.ToString()
+    };
+
+    /// <summary>
+    /// Display label of a raw target name.
+    /// </summary>
+    internal static string GetTargetDisplayName(string raw) => raw switch
+    {
+        "LeftShoulder" => "LB",
+        "RightShoulder" => "RB",
+        "LeftTrigger" => "LT (analog)",
+        "RightTrigger" => "RT (analog)",
+        "LeftThumb" => "LS click",
+        "RightThumb" => "RS click",
+        "Share" => "Share",
+        "MicMute" => "Mic Mute",
+        "LeftFunction" => "FnL",
+        "RightFunction" => "FnR",
+        "L4" => "L4 (paddle)",
+        "R4" => "R4 (paddle)",
+        "DPadUp" => "D-Pad Up",
+        "DPadDown" => "D-Pad Down",
+        "DPadLeft" => "D-Pad Left",
+        "DPadRight" => "D-Pad Right",
+        "None" => LocalizationService.GetText("EmulationPage.Mapping.Target.None"),
+        _ => raw
+    };
+
+    /// <summary>
+    /// Raw target names of the Xbox 360 mode (flag members plus the analog-trigger
+    /// pseudo-targets and "None").
+    /// </summary>
+    private static readonly IReadOnlyList<string> Xbox360Targets =
+    [
+        "A", "B", "X", "Y", "LeftShoulder", "RightShoulder", "LeftTrigger", "RightTrigger",
+        "LeftThumb", "RightThumb", "Back", "Start", "Guide", "DPadUp", "DPadDown", "DPadLeft", "DPadRight", "None"
+    ];
+
+    /// <summary>
+    /// Raw target names of the DualShock 4 mode.
+    /// </summary>
+    private static readonly IReadOnlyList<string> DualShock4Targets =
+    [
+        "Square", "Cross", "Circle", "Triangle", "L1", "R1", "L2", "R2", "L3", "R3",
+        "Share", "Options", "PS", "Touchpad", "DPadUp", "DPadDown", "DPadLeft", "DPadRight", "None"
+    ];
+
+    /// <summary>
+    /// Raw target names of the DualSense mode, including the Edge-only function keys and
+    /// back paddles. Only offered when the virtual device presents a DualSense Edge.
+    /// </summary>
+    private static readonly IReadOnlyList<string> DualSenseTargets =
+    [
+        "Square", "Cross", "Circle", "Triangle", "L1", "R1", "L2", "R2", "L3", "R3",
+        "Create", "Options", "PS", "Touchpad", "MicMute", "LeftFunction", "RightFunction", "L4", "R4",
+        "DPadUp", "DPadDown", "DPadLeft", "DPadRight", "None"
+    ];
+
+    /// <summary>
+    /// Raw target names of a standard (non-Edge) virtual DualSense: the full list without
+    /// the Edge-only function keys and paddles.
+    /// </summary>
+    private static readonly IReadOnlyList<string> DualSenseStandardTargets =
+    [
+        "Square", "Cross", "Circle", "Triangle", "L1", "R1", "L2", "R2", "L3", "R3",
+        "Create", "Options", "PS", "Touchpad", "MicMute",
+        "DPadUp", "DPadDown", "DPadLeft", "DPadRight", "None"
+    ];
+
+    /// <summary>
+    /// Whether two mapping entries select exactly the same source keys.
+    /// </summary>
+    private static bool SameKeys(IEnumerable<string> keys, IEnumerable<ButtonType> selection)
+        => new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase)
+            .SetEquals(selection.Select(button => button.ToString()));
+
+    // ── Lifecycle ───────────────────────────────────────────────
+
+    /// <summary>
+    /// Creates the page ViewModel and subscribes to the shell's controller selection.
+    /// </summary>
+    public EmulationPageViewModel()
+    {
+        _mainViewModel = App.Services.GetRequiredService<MainViewModel>();
+        _audioEngine = App.Services.GetRequiredService<AudioEngine>();
+        _controllerService = App.Services.GetRequiredService<ControllerInfoService>();
+        _illustrationService = App.Services.GetRequiredService<ControllerIllustrationService>();
+        _emulation = App.Services.GetRequiredService<IEmulationService>();
+        foreach (string skin in _illustrationService.GetSkins())
+        {
+            Skins.Add(skin);
+        }
+
+        _emulation.StateChanged += OnEmulationStateChanged;
+        _mainViewModel.PropertyChanged += OnMainViewModelPropertyChanged;
+        UpdateDevice();
+    }
+
+    /// <summary>
+    /// Tracks the shell's controller selection.
+    /// </summary>
+    private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.SelectedItem))
+        {
+            UpdateDevice();
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the status line when the emulation service state changes. May be raised
+    /// on a background thread; notifying the UI from it is safe here because Avalonia
+    /// marshals property changes for bindings.
+    /// </summary>
+    private void OnEmulationStateChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(EmulationStatusText));
+        OnPropertyChanged(nameof(CanChangeEmulation));
+        OnPropertyChanged(nameof(IsMappingEditorVisible));
+        NotifyTargetPickerState();
+    }
+
+    /// <summary>
+    /// Rebuilds the device context from the shell's selected controller.
+    /// </summary>
+    private void UpdateDevice()
+    {
+        _previousItem?.Dispose();
+        _previousMonitorState?.Dispose();
+
+        ControllerItem? selected = _mainViewModel.SelectedItem;
+        CurrentDevice = selected is not null ? new DeviceInfoItem(selected) : null;
+        _previousItem = CurrentDevice;
+        MonitorState = selected is not null ? new InputMonitorItem(selected, _audioEngine) : null;
+        _previousMonitorState = MonitorState;
+
+        string storedSkin = selected is null ? string.Empty : _controllerService.GetSkin(CurrentMac, CurrentDevicePath) ?? string.Empty;
+        int storedIndex = Skins.IndexOf(storedSkin);
+        _skinIndex = storedIndex >= 0 ? storedIndex : 0;
+
+        _selectedButtons.Clear();
+        OnPropertyChanged(nameof(CurrentDevice));
+        OnPropertyChanged(nameof(MonitorState));
+        OnPropertyChanged(nameof(HasDevice));
+        OnPropertyChanged(nameof(IsEdgeController));
+        OnPropertyChanged(nameof(SkinIndex));
+        OnPropertyChanged(nameof(SkinName));
+        OnSelectionChanged();
+        RefreshMappingTargets();
+        RefreshBindings();
+
+        if (EmulationModeIndex != (int)EmulationMode.Off)
+        {
+            _lastEnabledMode = (EmulationMode)EmulationModeIndex;
+        }
+
+        OnPropertyChanged(nameof(EmulationModeIndex));
+        OnPropertyChanged(nameof(IsEmulationEnabled));
+        OnPropertyChanged(nameof(IsDualSenseEmulation));
+        OnPropertyChanged(nameof(IsDualShock4Emulation));
+        OnPropertyChanged(nameof(IsForwardRumbleVisible));
+        OnPropertyChanged(nameof(IsForwardLightbarVisible));
+        OnPropertyChanged(nameof(ForwardRumble));
+        OnPropertyChanged(nameof(ForwardTriggers));
+        OnPropertyChanged(nameof(ForwardLightbar));
+        OnPropertyChanged(nameof(ForwardPlayerLeds));
+        OnPropertyChanged(nameof(ForwardGameHaptics));
+        OnPropertyChanged(nameof(ForwardAudioEnabled));
+        OnPropertyChanged(nameof(IsMappingEditorVisible));
+        NotifyTargetPickerState();
+        OnPropertyChanged(nameof(DualSenseVariantIndex));
+        OnPropertyChanged(nameof(DualShock4VariantIndex));
+
+        OnPropertyChanged(nameof(EmulationStatusText));
+        OnPropertyChanged(nameof(CanChangeEmulation));
+    }
+}

@@ -1,0 +1,57 @@
+﻿using System;
+using System.Linq;
+using DualSenseClient.GUI.Services;
+using DualSenseClient.GUI.ViewModels.Pages;
+using DualSenseClient.Settings.Sections;
+
+namespace DualSenseClient.GUI.Models.Items;
+
+/// <summary>
+/// One row of the bindings list: the stored rule plus preformatted display strings.
+/// </summary>
+public sealed class ButtonBindingItem
+{
+    /// <summary>
+    /// The stored rule this row represents.
+    /// </summary>
+    public ButtonMappingEntry Entry { get; }
+
+    /// <summary>
+    /// Human-readable source keys, e.g. "Create + Options".
+    /// </summary>
+    public string KeysDisplay { get; }
+
+    /// <summary>
+    /// Human-readable targets, e.g. "L4 (paddle)", "Y + B" or "None".
+    /// </summary>
+    public string TargetDisplay { get; }
+
+    /// <summary>
+    /// Extra badges describing the rule (click-only output, solos kept).
+    /// </summary>
+    public string Details { get; }
+
+    /// <summary>
+    /// Creates the row for the given stored entry.
+    /// </summary>
+    public ButtonBindingItem(ButtonMappingEntry entry, EmulationPageViewModel owner)
+    {
+        Entry = entry;
+        KeysDisplay = owner.DescribeKeys(entry.Keys);
+        string targets = string.Join(" + ", entry.Targets
+            .Where(target => !target.Equals("None", StringComparison.OrdinalIgnoreCase))
+            .Select(EmulationPageViewModel.GetTargetDisplayName));
+        TargetDisplay = targets.Length == 0
+            ? LocalizationService.GetText("EmulationPage.Mapping.Target.None")
+            : targets;
+        Details = string.Join(", ", new[]
+        {
+            string.Equals(entry.TargetOutput, "click", StringComparison.OrdinalIgnoreCase)
+                ? LocalizationService.GetText("EmulationPage.Binding.OutputClick")
+                : null,
+            entry.Keys.Count > 1 && !entry.SuppressSolos
+                ? LocalizationService.GetText("EmulationPage.Binding.SolosKept")
+                : null
+        }.Where(part => part is not null));
+    }
+}

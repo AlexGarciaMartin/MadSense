@@ -1,0 +1,10 @@
+Concentus/2.2.2 | License: LICENSE | Project: https://github.com/lostromb/concentus
+Microsoft.Extensions.DependencyInjection.Abstractions/10.0.8 | License: MIT | Project: https://dot.net/
+Microsoft.Extensions.Logging.Abstractions/10.0.8 | License: MIT | Project: https://dot.net/
+Nefarius.Drivers.HidHide/3.4.0 | License: MIT | Project: https://github.com/nefarius/Nefarius.Drivers.HidHide
+Nefarius.Utilities.DeviceManagement/5.2.0 | License: MIT | Project: https://github.com/nefarius/Nefarius.Utilities.DeviceManagement
+Nefarius.Vicius.Abstractions/1.4.1 | License: MIT | Project: https://github.com/nefarius/Nefarius.Vicius.Abstractions
+SoundFlow/1.4.1 | License: LICENSE.md | Project: https://github.com/LSXPrime/SoundFlow
+SoundFlow.Codecs.FFMpeg/1.4.0 | License: LICENSE.md | Project: https://github.com/LSXPrime/SoundFlow
+System.ComponentModel.Annotations/5.0.0 | License: MIT | Project: https://github.com/dotnet/runtime
+Tmds.DBus/0.95.1 | License: MIT | Project: 

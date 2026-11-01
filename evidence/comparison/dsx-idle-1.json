@@ -1,0 +1,449 @@
+{
+  "Label": "DSX-3.2-Beta02-idle-1",
+  "Timestamp": "2026-10-31T01:52:32.1229895+01:00",
+  "Seconds": 15,
+  "PhysicalPath": "\\\\?\\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID\u00260002054c_PID\u00260ce6#8\u00267ce5e1a\u00260\u00260000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+  "VirtualPath": "\\\\?\\HID#VID_054C\u0026PID_0CE6\u0026MI_03#4\u0026127b94db\u00260\u00260000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+  "Metric": "Virtual minus physical input read-completion time for identical motion timestamp; observer scheduling is included. NOT end-to-end or mechanical latency.",
+  "WarmupExcludedSeconds": 1,
+  "PhysicalReports": 6437,
+  "VirtualReports": 6437,
+  "UniquePhysical": 6436,
+  "UniqueVirtual": 6436,
+  "Matched": 6436,
+  "MatchFractionOfVirtual": 1,
+  "ForwardingMs": {
+    "Count": 6436,
+    "Min": -0.0256,
+    "Median": 0.0496,
+    "P95": 0.09,
+    "P99": 0.1076,
+    "Max": 0.4052,
+    "Mean": 0.05435728713486651
+  },
+  "NegativeObservedDeltas": 2,
+  "RawPayloadExactMatches": 0,
+  "TriggerStatusExactMatches": 6436,
+  "PhysicalIntervalsMs": {
+    "Count": 6436,
+    "Min": 0.9862,
+    "Median": 1.2586,
+    "P95": 8.9053,
+    "P99": 11.3113,
+    "Max": 25.0168,
+    "Mean": 2.369073570540714
+  },
+  "VirtualIntervalsMs": {
+    "Count": 6436,
+    "Min": 0.6211,
+    "Median": 1.2696,
+    "P95": 8.9358,
+    "P99": 11.3463,
+    "Max": 25.0511,
+    "Mean": 2.369069126786823
+  },
+  "OutputEcho": {
+    "Requested": 140,
+    "ShortWrites": 0,
+    "PhysicalResponses": 0,
+    "VirtualResponses": 0,
+    "PhysicalRoundTripMs": null,
+    "VirtualRoundTripMs": null,
+    "Meaning": "Virtual HID write to observed host timestamp echo; includes output and input transport plus scheduling, not actuator motion. Missing echoes make this metric unsupported, not zero latency."
+  },
+  "Calibration": {
+    "Physical": "0504000400FBFF8A227EDD8B227DDD7C227ADD1C021C02ED1FD9DF811F85DFF01FE1DF030011B13084",
+    "Virtual": "050000EFFF0B00AE2253DD8B2248DDC5225ADD1C021C020F20E8DFBE1F88DFE91F28E0080000000000",
+    "Equal": false,
+    "Meaning": "Calibration report0x05 read before timing capture. Exact raw equality includes trailer bytes."
+  },
+  "TriggerProbe": {
+    "Requested": true,
+    "OnWriteResult": 48,
+    "OffWriteResult": 48,
+    "PhysicalBefore": [
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 255,
+        "FirstTick": 1117804829363
+      }
+    ],
+    "PhysicalDuring": [
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 8,
+        "FirstTick": 1117809753671
+      },
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 17,
+        "Count": 14,
+        "FirstTick": 1117809879216
+      },
+      {
+        "R2": 8,
+        "L2": 8,
+        "Status2": 17,
+        "Count": 3,
+        "FirstTick": 1117810503652
+      },
+      {
+        "R2": 7,
+        "L2": 8,
+        "Status2": 17,
+        "Count": 1,
+        "FirstTick": 1117810566179
+      },
+      {
+        "R2": 7,
+        "L2": 7,
+        "Status2": 17,
+        "Count": 7,
+        "FirstTick": 1117810579153
+      },
+      {
+        "R2": 6,
+        "L2": 7,
+        "Status2": 17,
+        "Count": 1,
+        "FirstTick": 1117810716203
+      },
+      {
+        "R2": 6,
+        "L2": 6,
+        "Status2": 17,
+        "Count": 6,
+        "FirstTick": 1117810729144
+      },
+      {
+        "R2": 5,
+        "L2": 6,
+        "Status2": 17,
+        "Count": 2,
+        "FirstTick": 1117810829212
+      },
+      {
+        "R2": 5,
+        "L2": 5,
+        "Status2": 17,
+        "Count": 5,
+        "FirstTick": 1117810853565
+      },
+      {
+        "R2": 4,
+        "L2": 5,
+        "Status2": 17,
+        "Count": 1,
+        "FirstTick": 1117811041180
+      },
+      {
+        "R2": 4,
+        "L2": 4,
+        "Status2": 17,
+        "Count": 4,
+        "FirstTick": 1117811053479
+      },
+      {
+        "R2": 3,
+        "L2": 4,
+        "Status2": 17,
+        "Count": 3,
+        "FirstTick": 1117811129083
+      },
+      {
+        "R2": 3,
+        "L2": 3,
+        "Status2": 17,
+        "Count": 99,
+        "FirstTick": 1117811241208
+      }
+    ],
+    "VirtualDuring": [
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 8,
+        "FirstTick": 1117809754323
+      },
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 17,
+        "Count": 14,
+        "FirstTick": 1117809879360
+      },
+      {
+        "R2": 8,
+        "L2": 8,
+        "Status2": 17,
+        "Count": 3,
+        "FirstTick": 1117810503973
+      },
+      {
+        "R2": 7,
+        "L2": 8,
+        "Status2": 17,
+        "Count": 1,
+        "FirstTick": 1117810566785
+      },
+      {
+        "R2": 7,
+        "L2": 7,
+        "Status2": 17,
+        "Count": 7,
+        "FirstTick": 1117810579758
+      },
+      {
+        "R2": 6,
+        "L2": 7,
+        "Status2": 17,
+        "Count": 1,
+        "FirstTick": 1117810717217
+      },
+      {
+        "R2": 6,
+        "L2": 6,
+        "Status2": 17,
+        "Count": 6,
+        "FirstTick": 1117810729786
+      },
+      {
+        "R2": 5,
+        "L2": 6,
+        "Status2": 17,
+        "Count": 2,
+        "FirstTick": 1117810829831
+      },
+      {
+        "R2": 5,
+        "L2": 5,
+        "Status2": 17,
+        "Count": 5,
+        "FirstTick": 1117810853854
+      },
+      {
+        "R2": 4,
+        "L2": 5,
+        "Status2": 17,
+        "Count": 1,
+        "FirstTick": 1117811041544
+      },
+      {
+        "R2": 4,
+        "L2": 4,
+        "Status2": 17,
+        "Count": 4,
+        "FirstTick": 1117811053901
+      },
+      {
+        "R2": 3,
+        "L2": 4,
+        "Status2": 17,
+        "Count": 3,
+        "FirstTick": 1117811129268
+      },
+      {
+        "R2": 3,
+        "L2": 3,
+        "Status2": 17,
+        "Count": 99,
+        "FirstTick": 1117811241828
+      }
+    ],
+    "PhysicalAfter": [
+      {
+        "R2": 3,
+        "L2": 3,
+        "Status2": 17,
+        "Count": 8,
+        "FirstTick": 1117813790799
+      },
+      {
+        "R2": 3,
+        "L2": 3,
+        "Status2": 0,
+        "Count": 6,
+        "FirstTick": 1117813940899
+      },
+      {
+        "R2": 3,
+        "L2": 4,
+        "Status2": 0,
+        "Count": 2,
+        "FirstTick": 1117814079240
+      },
+      {
+        "R2": 4,
+        "L2": 5,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814116256
+      },
+      {
+        "R2": 5,
+        "L2": 5,
+        "Status2": 0,
+        "Count": 2,
+        "FirstTick": 1117814128994
+      },
+      {
+        "R2": 5,
+        "L2": 6,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814165731
+      },
+      {
+        "R2": 6,
+        "L2": 6,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814178979
+      },
+      {
+        "R2": 6,
+        "L2": 7,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814190852
+      },
+      {
+        "R2": 7,
+        "L2": 7,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814203453
+      },
+      {
+        "R2": 7,
+        "L2": 8,
+        "Status2": 0,
+        "Count": 2,
+        "FirstTick": 1117814215935
+      },
+      {
+        "R2": 8,
+        "L2": 8,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814240989
+      },
+      {
+        "R2": 8,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814253475
+      },
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 223,
+        "FirstTick": 1117814265963
+      }
+    ],
+    "VirtualAfter": [
+      {
+        "R2": 3,
+        "L2": 3,
+        "Status2": 17,
+        "Count": 8,
+        "FirstTick": 1117813791391
+      },
+      {
+        "R2": 3,
+        "L2": 3,
+        "Status2": 0,
+        "Count": 6,
+        "FirstTick": 1117813941426
+      },
+      {
+        "R2": 3,
+        "L2": 4,
+        "Status2": 0,
+        "Count": 2,
+        "FirstTick": 1117814079578
+      },
+      {
+        "R2": 4,
+        "L2": 5,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814116815
+      },
+      {
+        "R2": 5,
+        "L2": 5,
+        "Status2": 0,
+        "Count": 2,
+        "FirstTick": 1117814129430
+      },
+      {
+        "R2": 5,
+        "L2": 6,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814166090
+      },
+      {
+        "R2": 6,
+        "L2": 6,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814179575
+      },
+      {
+        "R2": 6,
+        "L2": 7,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814191342
+      },
+      {
+        "R2": 7,
+        "L2": 7,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814203988
+      },
+      {
+        "R2": 7,
+        "L2": 8,
+        "Status2": 0,
+        "Count": 2,
+        "FirstTick": 1117814216372
+      },
+      {
+        "R2": 8,
+        "L2": 8,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814241323
+      },
+      {
+        "R2": 8,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 1,
+        "FirstTick": 1117814254124
+      },
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 223,
+        "FirstTick": 1117814266356
+      }
+    ],
+    "Meaning": "Mild Feedback(3,2) for400ms with explicit Off, valid flags only both triggers. Status bytes can remain unchanged without finger pressure. No change is inconclusive, never proof of broken effects or zero latency."
+  },
+  "Errors": [],
+  "Observer": "Two normal-priority dedicated read threads, Stopwatch clock, no process priority changes. Multiple HID handles may affect scheduling; compare repeated same-condition runs."
+}

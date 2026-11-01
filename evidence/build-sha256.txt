@@ -1,0 +1,7 @@
+
+Algorithm Hash                                                             Path
+--------- ----                                                             ----
+SHA256    8D207E30E0A29298F556ED4AE5BC3E51651F574A6E8A3B3E8795284A108CC7BA C:\Users\<usuario>\Documents\Codex\2026-10-31\que…
+SHA256    F626380E8D63908F8FF4B6AC513CC963D132AB479931AA605B7C86CA0A26066C C:\Users\<usuario>\Documents\Codex\2026-10-31\que…
+
+

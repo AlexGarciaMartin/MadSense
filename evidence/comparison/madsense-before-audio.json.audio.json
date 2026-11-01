@@ -1,0 +1,17 @@
+{
+  "Endpoint": {
+    "Id": "{0.0.0.00000000}.{962426c0-b5b8-44fa-94f5-d9bc53e543b2}",
+    "FriendlyName": "Altavoces (5- DualSense Wireless Controller)"
+  },
+  "Format": {
+    "Channels": 4,
+    "SampleRateHz": 48000,
+    "BitsPerSample": 16,
+    "IsFloat": false,
+    "BlockAlign": 8
+  },
+  "ToneHz": 120,
+  "Amplitude": 0.08,
+  "ToneSeconds": 17,
+  "Meaning": "Synthetic four-channel source, not game or perceptual latency."
+}

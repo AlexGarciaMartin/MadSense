@@ -1,0 +1,6 @@
+Serie de pruebas para <MadSense>\tests\DualSenseClient.Tests\bin\Release\net10.0\DualSenseClient.Tests.dll (.NETCoreApp,Version=v10.0)
+1 archivos de prueba en total coincidieron con el patrón especificado.
+ADVERTENCIA: Se sobrescribirá el archivo de resultados: <MadSense>\test-results\final-hardware.trx
+Archivo de resultados: <MadSense>\test-results\final-hardware.trx
+
+Correctas! - Con error:     0, Superado:     3, Omitido:     0, Total:     3, Duración: 32 s - DualSenseClient.Tests.dll (net10.0)

@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\DualSenseClient.Logging\DualSenseClient.Logging.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="DualSenseClient.Tests"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <EmbeddedResource Include="native\version.txt">
+            <LogicalName>hidapi.version.txt</LogicalName>
+        </EmbeddedResource>
+    </ItemGroup>
+
+    <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+        <EmbeddedResource Include="native\win-x64\hidapi.dll">
+            <LogicalName>hidapi.win-x64.dll</LogicalName>
+        </EmbeddedResource>
+    </ItemGroup>
+
+</Project>

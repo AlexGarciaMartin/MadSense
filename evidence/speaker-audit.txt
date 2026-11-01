@@ -1,0 +1,86 @@
+MADSENSE 0.4 — ALTAVOZ POR BLUETOOTH, 01-11-2026 (04:00–05:30)
+
+ORIGEN
+El usuario, jugando a Stellar Blade con MadSense, no oía el sonido del parry por el
+altavoz del mando. Con DSX sí lo oía. Hasta esta noche nadie había escuchado el
+altavoz con MadSense (ninguna versión); las mediciones del byte háptico 0x20 se
+hicieron solo con el acelerómetro.
+
+MÉTODO
+HapticLatencyProbe --speaker-test: escribe pitidos (440 Hz, 300 ms con rampas de
+5 ms, 200 ms de pausa) en los canales frontales del DualSense virtual, el mismo
+sitio donde escribe un juego. No necesita el mando físico ni HidHide ni cerrar
+MadSense. Variantes: --lead-ms (silencio dentro del flujo antes del primer pitido)
+y --gap-ms (pausa entre pitidos). El juez es el oído del usuario.
+
+RESULTADOS
+1. Con 0x50 de volumen (valor por defecto de la librería): se oye, "bastante
+   bajito". La ruta Opus → informe 0x36 → altavoz funciona con el quinto byte de
+   sesión en 0x20.
+2. DSX 3.2 Beta02 guarda audio_system_speaker_volume = 100 (escala 0-100) en
+   DevicesInfoList.json; el byte de volumen del DualSense es útil entre 0x3D y 0x64,
+   es decir 61-100. MadSense pasa a 0x64 (src/Program.cs). Reinicio a las 04:56:01.
+   Usuario: "suena más alta, tiene buena pinta".
+3. Chasquido en el primer pitido de cada tanda. Pruebas:
+   - pausas de 200 ms: solo el primero.
+   - pausas de 3 s entre pitidos (--gap-ms 3000): solo el primero → no depende del
+     silencio previo al sonido.
+   - 3 s de silencio dentro del flujo antes del primer pitido (--lead-ms 3000):
+     ningún pitido cruje → depende de que la apertura del canal coincida con sonido.
+   Apertura del canal = informe 0x31 con ruta/volumen del altavoz + 0x32 de inicio
+   + 8 paquetes de silencio; el mando enciende el altavoz. El canal se cierra tras
+   150 ms sin audio, por eso cada tanda de la sonda lo reabre. Un juego que mantiene
+   el flujo abierto (Stellar Blade lo abre a los 8 s de arrancar y lo mantiene con
+   silencio) solo pasa por esa apertura al arrancar.
+4. Hallazgo colateral corregido: durante los 8 paquetes de calentamiento la cola
+   del altavoz no se consumía; al terminar, el drenaje tiraba un bloque de cada dos
+   durante ~5 ticks, troceando el primer sonido de la sesión. Ahora la cola se
+   recorta a los 3 bloques más recientes durante el calentamiento. Test
+   SpeakerAudioQueuedDuringWarmupIsTrimmedNotChopped; tres tests existentes que
+   contaban con reproducir todo lo encolado se ajustaron. Esto NO era el chasquido
+   (se comprobó con la compilación nueva en marcha: seguía).
+
+5. Parry en Stellar Blade con 0x64: se oye, "apenas". Con DSX sonaba más alto.
+   Descartado Windows: el DualSense virtual está al 100 %, sin mute, y el volumen
+   lo gestiona el hardware (HapticLatencyProbe --endpoint-volume, máscara 0x3).
+   Escalera directa al mando (--ladder 64:2,64:7,FF:2,FF:7, dos vueltas, MadSense
+   parada): los pasos con preganancia 7 (audio control 2, bits 0-2) "destacaron
+   mucho"; 0xFF en el byte de volumen no añadió nada sobre 0x64. MadSense enviaba
+   la preganancia 2 de la librería. Ahora envía 7 (ajuste speaker_pre_gain,
+   src/Program.cs) en el informe de ruta/volumen y en el bloque de estado de cada
+   informe 0x36. Test SpeakerPreGainRidesTheRouteReportAndTheEmbeddedState.
+   Reinicio a las 19:02:51. Además, MadSense registra ahora en engine.log el pico
+   L/R del audio que manda el juego (primer sonido y ventanas de 5 s).
+
+6. Ajuste en la interfaz (19:09): fila ALTAVOZ DEL MANDO con cuatro niveles fijos
+   y el mismo submenú en la bandeja. Niveles = (volumen, preganancia): ALTO 0x64/7,
+   MEDIO 0x64/4, BAJO 0x64/2, APAGADO 0x00/0. Se aplican al forwarder en vivo
+   (SetForwardingSpeaker) y el mando los toma en el siguiente informe de la lane;
+   se guardan en preferences.json y se escriben en controllers.json. Verificado por
+   UI Automation (tools/ui-check.ps1): MEDIO → "Altavoz del mando: medio",
+   speaker_pre_gain 4; ALTO → 7.
+7. MEDIO escuchado (19:15): "se aproxima bastante a alto". Coherente con que el
+   campo sea la preganancia de un compresor (satura arriba: 2→4 cambia mucho,
+   4→7 poco). Se discutió atenuar digitalmente en el puente para tener peldaños
+   en dB; decisión del usuario: no tocar la señal, seguir con el byte del mando y
+   quedarse con tres niveles con hueco real. Fila final ALTO (0x64/7), BAJO
+   (0x64/2), APAGADO (0/0); publicado 19:21:08, verificado por UI Automation
+   (BAJO → preganancia 2, ALTO → 7). Capturas ui-v04-speaker.png y
+   ui-v04-speaker-bajo.png. APAGADO escuchado (19:25): silencio total con los
+   pitidos; volumen 0x00 basta, no hace falta cortar la ruta.
+
+ESTADO
+Suite completa: 1732 correctas, 0 fallos, 35 omitidas (hardware), tras la preganancia.
+MadSense recompilada y en marcha desde las 05:07:34 con volumen 0x64 y el recorte.
+Pendiente: confirmar el parry de Stellar Blade por el altavoz (el juego estaba
+cerrado durante las últimas pruebas). Pendiente de decidir si merece la pena
+retrasar el primer sonido tras la apertura para esquivar el encendido del altavoz;
+en el uso normal no aparece.
+
+NOTAS
+- El flujo del altavoz se remuestrea 512→480 muestras por tick (un tono de 440 Hz
+  sale a ~469 Hz). Heredado de la librería; no es el chasquido ni afecta al
+  volumen. Sin cambiar.
+- Fuentes externas: PCGamingWiki (altavoz soportado en Stellar Blade PC, con
+  deslizador de volumen del altavoz del mando) e Inven (el parry suena por el
+  altavoz con un puente inalámbrico que presenta un DualSense USB).

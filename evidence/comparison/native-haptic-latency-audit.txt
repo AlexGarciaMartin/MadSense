@@ -1,0 +1,55 @@
+MadSense native tactile latency — candidate A, 2026-10-31
+
+User evidence: native effects and triggers work in Stellar Blade, but jump landing
+and shooting feedback are noticeably late. This supersedes any inference from
+successful packets alone; host HID input latency is not tactile output latency.
+
+Confirmed delays in source before candidate A:
+1. Every Bluetooth lane start sent8silent combined packets (10.667ms each) before
+   reading native haptics at all: about85ms of deliberate initial haptic gating.
+   This repeated after an idle gap longer than150ms, not merely at app launch.
+2. Native queue read oldest64bytes first, then discarded one extra packet only
+   when more than3packets remained. Sustained backlog therefore targeted roughly
+   32ms and a large burst could take several late packets to catch up.
+3. Queue capacity2048bytes represents341ms at3000stereo frames/sec. Capacity is
+   a worst-case storage bound, NOT proof of measured typical latency.
+
+Candidate A changes:
+- Speaker Opus remains silent for8warmup packets; strict native PCM is sent in
+  the first warmup report. No cadence/report ID/prime sequence modification.
+- Before choosing a native packet, retain only newest128bytes (64stereo frames,
+  21.333ms of content), discarding whole stereo samples from older backlog.
+  Read64bytes, leaving at most one packet. Underflow pads silence; finite native
+  impulses are consumed once and do not get looped.
+- Speaker buffer/catch-up and legacy audio-derived path are unchanged, isolating
+  the native haptic timing change for subjective A/B comparison.
+
+Validation:63/63 relevant tests passed (native-low-latency.trx). New tests prove
+the first warmup packet carries a48-frame or512-frame native impulse, all later
+warmup packets are silent after consumption, and a6-block burst starts with
+block5 then6 instead of replaying blocks1..4. This is SOFTWARE behavior with a
+fake transport, not physical actuator latency or quality certification.
+
+Tradeoffs/remaining questions:
+- Backlog trimming sacrifices old waveform detail rather than reproduce it late.
+  If upstream delivers big bursts normally, this can shorten effects. Candidate A
+  must be tried in Stellar Blade for intensity/continuity as well as timing.
+- A128byte queue limit bounds buffered CONTENT duration, not end-to-end latency
+  or absolute sample age after a paused process. The USB/game/Bluetooth/controller
+  queues and rendering remain outside that bound.
+- Whether firmware honors native PCM during Opus warmup must be physically
+  validated, especially an isolated effect after a long silence. Packet success
+  alone cannot prove this. Independent nativePCM/audio protocol lanes support
+  the experiment but do not replace a hardware observation.
+- USB/IP OUT is FIFO, processed1packet per USB frame with catch-up on late timer
+  callbacks. No fixed100ms userland capture delay exists in the direct endpoint
+  path. Pending URB depth and arrival-to-delivery age are not yet instrumented.
+  Do not bypass/reorder USB scheduling without measuring that queue first.
+- DSX log queue size256bytes/depth5 cannot be converted into tactile latency
+  without knowing the actual data format, endpoint and completion policy.
+
+Primary protocol reference read:
+https://github.com/hbashton/DS4Windows/blob/main/docs/dualsense-bluetooth-audio-haptics.md
+It separates native haptics (3kHz signed stereo PCM packet0x12) from controller
+speaker Opus (packet0x13), and explicitly keeps haptic source separate from
+speaker audio. It does not establish DSX latency or this firmware's warmup need.

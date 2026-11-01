@@ -1,0 +1,76 @@
+MARGEN RESTANTE DE LATENCIA HÁPTICA — 31-10-2026
+
+Recomendación
+Mantener como base la versión que el usuario acaba de valorar positivamente.
+No habilitar todavía la entrega anticipada de PCM desde la cola ISO. El margen
+observado justifica investigarla, pero no sacrificar la continuidad de los efectos.
+Esta evaluación no ha cambiado el código ni el hardware.
+
+Lo medido
+Stellar Blade envía URB de 10 paquetes: cada paquete contiene 48 muestras por
+canal a 48 kHz, equivalentes a 1 ms. Mantiene dos URB pendientes. La instrumentación
+muestra unos 15,1 ms de media y 21,1 ms máximos estables desde la recepción completa
+de la URB hasta la entrega del paquete a la capa de audio, con unos 1.000 paquetes
+por segundo. No incluye los búferes anteriores de Windows/juego, Bluetooth ni
+el movimiento físico de los actuadores. La latencia de entrada de ~0,05 ms mide
+otra ruta y no debe presentarse como latencia háptica.
+
+¿Adelantar el PCM puede ayudar?
+Sí, si se conserva el ritmo de finalización USB y se adelanta realmente el inicio
+del consumidor. Dos URB de 10 ms contienen 20 ms de audio. El primer bloque háptico
+Bluetooth necesita 512 muestras de entrada, equivalentes a 10,667 ms. Con entrega
+pausada a un paquete por milisegundo, queda completo aproximadamente a los 11 ms;
+con ambas URB disponibles de antemano, puede estar completo desde el principio.
+En condiciones ideales, un inicio de flujo nuevo podría ahorrar unos 10–15 ms de
+esta etapa. No elimina otros búferes ni garantiza ese ahorro en la sensación.
+
+Riesgo de trasladar la cola
+Si el consumidor mantiene la misma fase de reproducción durante un flujo activo,
+entregar antes los datos solo aumenta su cola. No adelanta las muestras que ya
+esperan. Forzar ese adelanto descartando las más antiguas puede cortar efectos.
+Hay que demostrar una fase de inicio adecuada o una sincronización explícita.
+Los 20 ms observados caben por poco en los dos bloques nativos actuales, 21,333 ms:
+solo queda un margen de 1,33 ms. Otros juegos, formatos exclusivos, controladores
+o versiones de Windows pueden enviar URB mayores o más numerosas.
+
+Reloj y cancelación
+No finalizar todas las URB inmediatamente: Windows podría producir audio más
+rápido que el tiempo real, generando desbordamientos o descartes. Una alternativa
+sería entregar el PCM pronto y conservar las respuestas RET_SUBMIT a su ritmo
+original. Eso mantiene el reloj del host, pero introduce otra diferencia: una
+cancelación UNLINK, SET_INTERFACE 0 o SET_CONFIGURATION 0 no puede retirar audio
+que ya se haya enviado al mando. Vaciar la cola elimina lo pendiente, no lo que
+está en Bluetooth o dentro del dispositivo. Ese límite debe ser explícito.
+
+Diseño de un prototipo posterior, desactivado por defecto
+1. Mantener exactamente los tiempos y estados de finalización de las URB.
+2. Guardar el resultado y una copia propia de cada paquete entregado antes de
+   tiempo; la finalización posterior nunca vuelve a emitir sus muestras.
+3. Conservar el orden ante publicación, temporizador, cancelación y reinicio
+   concurrentes. Limitar el adelanto por tiempo de muestras, no solo por número
+   de URB. No conservar vistas temporales de memoria de los callbacks.
+4. Usar una generación de flujo para invalidar datos pendientes al cambiar la
+   interfaz o configuración. Documentar el máximo que puede estar ya enviado.
+5. Mantener la ruta actual para geometrías que no cumplan el límite. No cambiar
+   de política en mitad del flujo sin vaciado y ajuste de fase.
+
+Pruebas necesarias antes de activarlo
+- Reloj virtual: idénticos tiempos de finalización con y sin adelanto; Windows
+  no puede acelerar su producción porque las respuestas siguen temporizadas.
+- Forma de onda identificable: URB de 8, 10, 16 y 128 paquetes, varias pendientes,
+  canales distintos, impulsos, señales débiles y silencio. Cada muestra retenida
+  aparece una sola vez, en orden; los descartes se contabilizan explícitamente.
+- Destino Bluetooth simulado: medir desde la disponibilidad del PCM hasta el
+  primer paquete háptico correcto, en inicio, régimen estable, tras silencio y
+  bajo carga. Demostrar ahorro, no solo traslado de la cola.
+- Cancelación antes y después de anticipar datos, durante un paquete y al cerrar;
+  verificar el límite de audio pendiente y la ausencia de reproducción antigua.
+- Hardware: repetir la misma escena y acciones de Stellar con DSX y MadSense,
+  conservar cadencia/colas/CPU y pedir valoración del usuario. La latencia mecánica
+  necesita medición externa; los timestamps de paquetes no la demuestran.
+
+Otros márgenes
+Medir los periodos del endpoint compartido de Windows y los huecos de entrega.
+No reducir el calentamiento Opus sin comprobar el altavoz: la háptica nativa ya
+lo evita en la corrección actual, así que reducirlo beneficiaría principalmente
+al inicio del sonido del mando, no necesariamente al retraso háptico restante.

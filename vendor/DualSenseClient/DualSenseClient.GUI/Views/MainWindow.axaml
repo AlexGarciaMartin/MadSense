@@ -1,0 +1,23 @@
+<windowing:FAAppWindow xmlns="https://github.com/avaloniaui"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                       xmlns:vm="using:DualSenseClient.GUI.ViewModels"
+                       xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                       xmlns:windowing="using:FluentAvalonia.UI.Windowing"
+                       mc:Ignorable="d"
+                       d:DesignWidth="800"
+                       d:DesignHeight="600"
+                       x:Class="DualSenseClient.GUI.Views.MainWindow"
+                       x:DataType="vm:MainWindowViewModel"
+                       Icon="/Assets/icon.ico"
+                       Title="{Binding WindowTitle}"
+                       MinWidth="820"
+                       MinHeight="320">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel />
+    </Design.DataContext>
+    <!-- The shell view is created after the splash screen's preloading starts;
+         see LoadMainContent. -->
+    <ContentControl x:Name="MainContent" />
+</windowing:FAAppWindow>

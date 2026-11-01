@@ -1,0 +1,113 @@
+{
+  "Label": "MadSense-event-Stellar-2",
+  "Timestamp": "2026-10-31T01:59:54.654541+01:00",
+  "Seconds": 15,
+  "PhysicalPath": "\\\\?\\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID\u00260002054c_PID\u00260ce6#8\u00267ce5e1a\u00260\u00260000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+  "VirtualPath": "\\\\?\\HID#VID_054C\u0026PID_0CE6\u0026MI_03#4\u0026b696fed\u00260\u00260000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+  "Metric": "Virtual minus physical input read-completion time for identical motion timestamp; observer scheduling is included. NOT end-to-end or mechanical latency.",
+  "WarmupExcludedSeconds": 1,
+  "PhysicalReports": 6313,
+  "VirtualReports": 17738,
+  "UniquePhysical": 6309,
+  "UniqueVirtual": 6309,
+  "Matched": 6308,
+  "MatchFractionOfVirtual": 0.9998414962751625,
+  "ForwardingMs": {
+    "Count": 6308,
+    "Min": -0.2194,
+    "Median": 0.0524,
+    "P95": 0.1268,
+    "P99": 0.2509,
+    "Max": 1.6964,
+    "Mean": 0.062328963221306204
+  },
+  "NegativeObservedDeltas": 2,
+  "RawPayloadExactMatches": 6308,
+  "TriggerStatusExactMatches": 6308,
+  "RawGyroAccelExactMatches": 6308,
+  "PhysicalIntervalsMs": {
+    "Count": 6312,
+    "Min": 0.8187,
+    "Median": 1.2563,
+    "P95": 8.784,
+    "P99": 12.3547,
+    "Max": 76.2558,
+    "Mean": 2.219946863117871
+  },
+  "VirtualIntervalsMs": {
+    "Count": 17737,
+    "Min": 0.0013,
+    "Median": 0.8812,
+    "P95": 1.4495,
+    "P99": 1.7167,
+    "Max": 4.1966,
+    "Mean": 0.7902693465636794
+  },
+  "OutputEcho": {
+    "Requested": 0,
+    "ShortWrites": 0,
+    "PhysicalResponses": 0,
+    "VirtualResponses": 0,
+    "PhysicalRoundTripMs": null,
+    "VirtualRoundTripMs": null,
+    "Meaning": "Virtual HID write to observed host timestamp echo; includes output and input transport plus scheduling, not actuator motion. Missing echoes make this metric unsupported, not zero latency."
+  },
+  "Calibration": {
+    "Physical": "0504000400FBFF8A227EDD8B227DDD7C227ADD1C021C02ED1FD9DF811F85DFF01FE1DF030011B13084",
+    "Virtual": "0504000400FBFF8A227EDD8B227DDD7C227ADD1C021C02ED1FD9DF811F85DFF01FE1DF030011B13084",
+    "Equal": true,
+    "Meaning": "Calibration report0x05 read before timing capture. Exact raw equality includes trailer bytes."
+  },
+  "TriggerProbe": {
+    "Requested": false,
+    "OnWriteResult": 0,
+    "OffWriteResult": 0,
+    "OnWriteTick": 0,
+    "OffWriteTick": 0,
+    "StopwatchFrequency": 10000000,
+    "PhysicalAck": {
+      "BaselineInactive": false,
+      "ActivationMs": null,
+      "ClearMs": null,
+      "Meaning": "Observed status2 bits0/4 asserted/cleared after explicit writes. Controller-reported state acknowledgement plus transport/scheduling; NOT felt force, calibrated actuator onset or mechanical latency."
+    },
+    "VirtualAck": {
+      "BaselineInactive": false,
+      "ActivationMs": null,
+      "ClearMs": null,
+      "Meaning": "Observed status2 bits0/4 asserted/cleared after explicit writes. Controller-reported state acknowledgement plus transport/scheduling; NOT felt force, calibrated actuator onset or mechanical latency."
+    },
+    "PhysicalBefore": [
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 253,
+        "FirstTick": 1122240185832
+      }
+    ],
+    "PhysicalDuring": [],
+    "VirtualDuring": [],
+    "PhysicalAfter": [
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 6700,
+        "FirstTick": 1122094907680
+      }
+    ],
+    "VirtualAfter": [
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 18944,
+        "FirstTick": 1122094907645
+      }
+    ],
+    "Meaning": "Mild Feedback(3,2) for400ms with explicit Off, valid flags only both triggers. Status bytes can remain unchanged without finger pressure. No change is inconclusive, never proof of broken effects or zero latency."
+  },
+  "Errors": [],
+  "Observer": "Two normal-priority dedicated read threads, Stopwatch clock, no process priority changes. Multiple HID handles may affect scheduling; compare repeated same-condition runs."
+}

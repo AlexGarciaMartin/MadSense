@@ -1,0 +1,113 @@
+{
+  "Label": "MadSense-event-Stellar-1",
+  "Timestamp": "2026-10-31T01:59:39.3300009+01:00",
+  "Seconds": 15,
+  "PhysicalPath": "\\\\?\\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID\u00260002054c_PID\u00260ce6#8\u00267ce5e1a\u00260\u00260000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+  "VirtualPath": "\\\\?\\HID#VID_054C\u0026PID_0CE6\u0026MI_03#4\u0026b696fed\u00260\u00260000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+  "Metric": "Virtual minus physical input read-completion time for identical motion timestamp; observer scheduling is included. NOT end-to-end or mechanical latency.",
+  "WarmupExcludedSeconds": 1,
+  "PhysicalReports": 5919,
+  "VirtualReports": 17418,
+  "UniquePhysical": 5918,
+  "UniqueVirtual": 5916,
+  "Matched": 5916,
+  "MatchFractionOfVirtual": 1,
+  "ForwardingMs": {
+    "Count": 5916,
+    "Min": -0.1459,
+    "Median": 0.051,
+    "P95": 0.1131,
+    "P99": 0.2211,
+    "Max": 3.101,
+    "Mean": 0.05836844151453683
+  },
+  "NegativeObservedDeltas": 9,
+  "RawPayloadExactMatches": 5916,
+  "TriggerStatusExactMatches": 5916,
+  "RawGyroAccelExactMatches": 5916,
+  "PhysicalIntervalsMs": {
+    "Count": 5918,
+    "Min": 0.9748,
+    "Median": 1.2574,
+    "P95": 9.9651,
+    "P99": 12.5163,
+    "Max": 46.2557,
+    "Mean": 2.3666841838458974
+  },
+  "VirtualIntervalsMs": {
+    "Count": 17417,
+    "Min": 0.0012,
+    "Median": 0.8574,
+    "P95": 1.458,
+    "P99": 1.6733,
+    "Max": 4.5213,
+    "Mean": 0.8044715450422009
+  },
+  "OutputEcho": {
+    "Requested": 0,
+    "ShortWrites": 0,
+    "PhysicalResponses": 0,
+    "VirtualResponses": 0,
+    "PhysicalRoundTripMs": null,
+    "VirtualRoundTripMs": null,
+    "Meaning": "Virtual HID write to observed host timestamp echo; includes output and input transport plus scheduling, not actuator motion. Missing echoes make this metric unsupported, not zero latency."
+  },
+  "Calibration": {
+    "Physical": "0504000400FBFF8A227EDD8B227DDD7C227ADD1C021C02ED1FD9DF811F85DFF01FE1DF030011B13084",
+    "Virtual": "0504000400FBFF8A227EDD8B227DDD7C227ADD1C021C02ED1FD9DF811F85DFF01FE1DF030011B13084",
+    "Equal": true,
+    "Meaning": "Calibration report0x05 read before timing capture. Exact raw equality includes trailer bytes."
+  },
+  "TriggerProbe": {
+    "Requested": false,
+    "OnWriteResult": 0,
+    "OffWriteResult": 0,
+    "OnWriteTick": 0,
+    "OffWriteTick": 0,
+    "StopwatchFrequency": 10000000,
+    "PhysicalAck": {
+      "BaselineInactive": false,
+      "ActivationMs": null,
+      "ClearMs": null,
+      "Meaning": "Observed status2 bits0/4 asserted/cleared after explicit writes. Controller-reported state acknowledgement plus transport/scheduling; NOT felt force, calibrated actuator onset or mechanical latency."
+    },
+    "VirtualAck": {
+      "BaselineInactive": false,
+      "ActivationMs": null,
+      "ClearMs": null,
+      "Meaning": "Observed status2 bits0/4 asserted/cleared after explicit writes. Controller-reported state acknowledgement plus transport/scheduling; NOT felt force, calibrated actuator onset or mechanical latency."
+    },
+    "PhysicalBefore": [
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 223,
+        "FirstTick": 1122086762624
+      }
+    ],
+    "PhysicalDuring": [],
+    "VirtualDuring": [],
+    "PhysicalAfter": [
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 6364,
+        "FirstTick": 1121941601445
+      }
+    ],
+    "VirtualAfter": [
+      {
+        "R2": 9,
+        "L2": 9,
+        "Status2": 0,
+        "Count": 18696,
+        "FirstTick": 1121941601392
+      }
+    ],
+    "Meaning": "Mild Feedback(3,2) for400ms with explicit Off, valid flags only both triggers. Status bytes can remain unchanged without finger pressure. No change is inconclusive, never proof of broken effects or zero latency."
+  },
+  "Errors": [],
+  "Observer": "Two normal-priority dedicated read threads, Stopwatch clock, no process priority changes. Multiple HID handles may affect scheduling; compare repeated same-condition runs."
+}
