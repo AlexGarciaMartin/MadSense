@@ -11,8 +11,8 @@ Abre MadSense, enciende tu DualSense y abre el juego. La app espera al mando, co
 - **Iniciar con Windows** desde el menú de la bandeja: arranca oculto (`--tray`) y conecta el mando sin que tengas que abrir nada.
 - Si el DualSense está enchufado por USB, lo dice claramente en vez de "esperando": por cable ya va en nativo.
 - Corregido un test del núcleo que fallaba por el nombre de la opción `strict_native_haptics` en `controllers.json` (ahora en el mismo estilo que el resto).
-- **Latencia háptica medida de verdad y recortada 30 ms.** `tools/HapticLatencyProbe` manda un impulso háptico (por el DualSense virtual, como un juego, o directo al mando) y detecta la sacudida en el acelerómetro del mando físico: latencia real hasta el actuador, sin equipo externo. Con ella se descubrió que el quinto byte del bloque de sesión Bluetooth fija cuánto háptico retiene el firmware del mando antes de sonar: con el valor de referencia que envían todos los puentes (0x40) el mando tarda 74 ms desde que recibe el informe; con 0x20, 42 ms y la misma continuidad. MadSense envía ahora 0x20 en ese byte (los cuatro del altavoz siguen en 0x40). Camino completo juego → actuador: 72-79 ms de mediana frente a 109-114 antes y 117-120 de DSX 3.2 Beta02, mismo mando y misma noche. `MADSENSE_BT_HAPTIC_BUFFER=0x10` da 67 ms pero corta un 4 % de la vibración continua; por eso no es el valor por defecto. Estudio completo en `evidence/comparison/haptic-latency-audit.txt`.
-- **Altavoz escuchado y al volumen de DSX (01-11-2026).** El altavoz por Bluetooth se oyó por primera vez con `HapticLatencyProbe --speaker-test`, que manda pitidos por el DualSense virtual igual que un juego, sin tocar el mando físico. Sonaba bajo: MadSense enviaba 0x50 en el byte de volumen y el mando admite hasta 0x64; DSX guarda 100 (0x64). Ahora se envía 0x64. Aun así el parry sonaba más bajo que con DSX: una escalera de tonos directa al mando mostró que la palanca real es la preganancia del altavoz (audio control 2, de 0 a 7), que la librería dejaba en 2; MadSense envía 7 (`speaker_pre_gain` en `controllers.json`). El audio que llega mientras el canal calienta se recorta a los tres bloques más recientes en vez de reproducirse troceado. Queda un chasquido al abrir el canal del altavoz coincidiendo con sonido (el mando enciende el amplificador); con el canal ya abierto no se produce, y un juego lo abre con silencio al arrancar. Detalle en `evidence/speaker-audit.txt`.
+- **Latencia háptica medida de verdad y recortada 30 ms.** `tools/HapticLatencyProbe` manda un impulso háptico (por el DualSense virtual, como un juego, o directo al mando) y detecta la sacudida en el acelerómetro del mando físico: latencia real hasta el actuador, sin equipo externo. Con ella se descubrió que el quinto byte del bloque de sesión Bluetooth fija cuánto háptico retiene el firmware del mando antes de sonar: con el valor de referencia que envían todos los puentes (0x40) el mando tarda 74 ms desde que recibe el informe; con 0x20, 42 ms y la misma continuidad. MadSense envía ahora 0x20 en ese byte (los cuatro del altavoz siguen en 0x40). Camino completo juego → actuador: 72-79 ms de mediana frente a 109-114 antes y 117-120 del puente comercial de referencia, mismo mando y misma noche. `MADSENSE_BT_HAPTIC_BUFFER=0x10` da 67 ms pero corta un 4 % de la vibración continua; por eso no es el valor por defecto. Estudio completo en `evidence/comparison/haptic-latency-audit.txt`.
+- **Altavoz escuchado y a su volumen real (01-11-2026).** El altavoz por Bluetooth se oyó por primera vez con `HapticLatencyProbe --speaker-test`, que manda pitidos por el DualSense virtual igual que un juego, sin tocar el mando físico. Sonaba bajo: MadSense enviaba 0x50 en el byte de volumen y el mando admite hasta 0x64, el tope que usan otras soluciones. Ahora se envía 0x64. Aun así el parry seguía sonando bajo: una escalera de tonos directa al mando mostró que la palanca real es la preganancia del altavoz (audio control 2, de 0 a 7), que la librería dejaba en 2; MadSense envía 7 (`speaker_pre_gain` en `controllers.json`). El audio que llega mientras el canal calienta se recorta a los tres bloques más recientes en vez de reproducirse troceado. Queda un chasquido al abrir el canal del altavoz coincidiendo con sonido (el mando enciende el amplificador); con el canal ya abierto no se produce, y un juego lo abre con silencio al arrancar. Detalle en `evidence/speaker-audit.txt`.
 - **Nivel del altavoz desde la ventana y la bandeja.** Fila ALTAVOZ DEL MANDO con ALTO, BAJO y APAGADO; el mismo menú en el icono de la bandeja. Cambia al instante, sin reconectar ni reiniciar el juego, y se recuerda. Cada nivel es una pareja fija de volumen y preganancia del mando (ALTO 0x64/7, BAJO 0x64/2, APAGADO 0/0). La preganancia alimenta el compresor del altavoz, así que sus pasos no son uniformes: un nivel intermedio (4) se probó y sonaba casi como ALTO, por eso hay tres niveles con hueco real y no un deslizador. En modo Xbox la fila se desactiva. `preferences.json` guarda ahora `{"mode","speaker"}`; el fichero antiguo con solo el modo se sigue leyendo.
 
 Detalles y mediciones en `RESULTADOS.txt`, `evidence/v04-validation.txt`, `evidence/comparison/haptic-latency-audit.txt` y `evidence/speaker-audit.txt`.
@@ -33,7 +33,7 @@ Para desinstalar: `Desinstalar.cmd`. Los controladores se quitan desde Configura
 
 ## Uso
 
-1. Cierra DSX, SenseBridge u otro programa que controle el mismo mando.
+1. Cierra cualquier otra aplicación que esté controlando el mando (puentes, remapeadores o utilidades de vibración): solo una puede tenerlo a la vez.
 2. Abre MadSense (menú Inicio, o `app/MadSense.exe`).
 3. Pulsa PS en el mando. Espera **Listo para jugar**.
 4. Abre el juego. Cerrar o minimizar la ventana deja MadSense en la bandeja.
@@ -58,7 +58,7 @@ Un juego no necesita venir de PS5 para aceptar el mando. Lo decisivo es la API y
 
 Cambia de modo **antes** de abrir el juego. No se cambian identidades al detectar procesos ni se publican dos mandos simultáneamente: muchos juegos fijan el dispositivo al arrancar, y ambas técnicas pueden provocar desconexión o doble entrada.
 
-## Cambios frente a SenseBridge
+## Cambios frente a la base de partida
 
 - Nombre, logo vectorial e interfaz nativa MadSense: estética de fanzine en marfil/tinta/naranja, trama de puntos, ilustración y bandeja. Sin navegador integrado ni paquetes gráficos adicionales. La animación se detiene al ocultarse.
 - Arranque automático, espera normal cuando el mando está apagado, reintentos y recuperación de la creación virtual atascada. Trabajo de conexión fuera del hilo de interfaz.
@@ -72,9 +72,9 @@ Cambia de modo **antes** de abrir el juego. No se cambian identidades al detecta
 
 ## Qué queda sin garantizar
 
-No se ha demostrado equivalencia total con DSX ni PS5, ni compatibilidad del 100 % de juegos. Las pruebas automatizadas validan protocolo, Windows y escrituras al hardware; no sustituyen sentir el mando o medir con equipo externo. El altavoz se ha escuchado con pitidos de prueba, no todavía con el sonido de un juego.
+No se ha demostrado equivalencia total con una PS5 ni con otros puentes, ni compatibilidad del 100 % de juegos. Las pruebas automatizadas validan protocolo, Windows y escrituras al hardware; no sustituyen sentir el mando o medir con equipo externo. El altavoz se ha escuchado con pitidos de prueba, no todavía con el sonido de un juego.
 
-La conversión Bluetooth utiliza Opus para audio y 3 kHz/8 bits para hápticos. El altavoz mantiene ocho paquetes Opus de calentamiento; los hápticos nativos ya se envían desde el primer paquete. No es audio USB bit a bit. Las colas son acotadas y descartan contenido antiguo bajo sobrecarga para evitar retraso acumulado. No se ha medido latencia física extremo a extremo ni demostrado que sea menor que DSX.
+La conversión Bluetooth utiliza Opus para audio y 3 kHz/8 bits para hápticos. El altavoz mantiene ocho paquetes Opus de calentamiento; los hápticos nativos ya se envían desde el primer paquete. No es audio USB bit a bit. Las colas son acotadas y descartan contenido antiguo bajo sobrecarga para evitar retraso acumulado. La latencia física se ha medido para los hápticos (ver Novedades); la del altavoz, no.
 
 No hay captura del micrófono físico por Bluetooth. El endpoint virtual de captura no prueba lo contrario. El jack y la reconexión física apagando/encendiendo requieren comprobación manual; el cambio de ruta por detección del jack está implementado. Edge tiene su variante, pero solo se ha probado hardware DualSense normal. El firmware y algunos informes de características virtuales siguen siendo valores de referencia; la calibración física sí se copia.
 
@@ -82,29 +82,28 @@ No hay captura del micrófono físico por Bluetooth. El endpoint virtual de capt
 
 `src/` contiene la app y los recursos. `vendor/DualSenseClient/` contiene el núcleo GPLv3 y sus modificaciones. La interfaz original no se compila. `tests/`, `test-results/` y `evidence/` contienen pruebas, resultados y auditorías. Consulta `RESULTADOS.txt` para la validación final de esta sesión.
 
-Con .NET SDK 10: `./build.ps1`. Para pruebas físicas: `./test.ps1 -Hardware`, con MadSense/DSX cerrados y el mando encendido. Envía un tono y efectos suaves al mando; no ejecutar durante una partida.
+Con .NET SDK 10: `./build.ps1`. Para pruebas físicas: `./test.ps1 -Hardware`, con MadSense y cualquier otra aplicación de mando cerradas y el mando encendido. Envía un tono y efectos suaves al mando; no ejecutar durante una partida.
 
 Diagnóstico: `MadSense.exe --diagnose`, `--probe`, `--exercise`, `--soak`, `--soak --xbox`. `--stop` cierra de forma ordenada también la interfaz. `--tray` arranca oculto en la bandeja (lo usa el inicio con Windows). `tools/measure-process.ps1` toma una muestra de CPU y memoria del proceso. `tools/HapticLatencyProbe` (publicar con `dotnet publish`, autorizar su exe en HidHide mientras se usa) mide la latencia háptica hasta el actuador: `--list`, `--label X --out f.json` contra el puente activo, `--direct` al mando físico con MadSense cerrado, `--session-bytes 40,40,40,40,20`, `--sustain-ms 3000 --speaker-tone` para continuidad, `--speaker-test [--lead-ms N --gap-ms N]` para oír pitidos por el altavoz a través del puente (no necesita HidHide ni cerrar MadSense), `--endpoint-volume` para leer el volumen Windows del DualSense virtual, `--ladder 64:2,64:7` para comparar de oído volumen y preganancia directos al mando (MadSense cerrada). `--exercise-stream` junto con `--soak` se usa en la prueba de gatillos durante audio. Los modos de diagnóstico no cambian la preferencia guardada. No se transmite telemetría.
 
 ## Fuentes y licencias
 
-Núcleo [DualSense Client](https://github.com/DualSenseClient/DualSenseClient), commit `210ba4e3ea27e8aca455215d772ca7af6a2f987f`, con modificaciones identificadas en `THIRD-PARTY-NOTICES.txt`. MadSense se entrega bajo GPLv3 con su código correspondiente, sin DLL privadas de DSX. Conserva las licencias si lo redistribuyes.
+Núcleo [DualSense Client](https://github.com/DualSenseClient/DualSenseClient), commit `210ba4e3ea27e8aca455215d772ca7af6a2f987f`, con modificaciones identificadas en `THIRD-PARTY-NOTICES.txt`. MadSense se entrega bajo GPLv3 con su código correspondiente, sin binarios privados de terceros. Conserva las licencias si lo redistribuyes.
 
 Fuentes primarias consultadas el 31-10-2026:
 
-- [DSX: notas oficiales](https://steamcommunity.com/app/1812620/announcements/): audio/hápticos virtuales y correcciones Beta02 de gatillos, silencio y salida durante audio.
 - [DualSense Client: emulación](https://dualsenseclient.github.io/DualSenseClient/guides/virtual-controller/).
 - [Valve: emulación de mandos Steam Input](https://partner.steamgames.com/doc/features/steam_controller/steam_input_gamepad_emulation_bestpractices).
 - [Valve: soporte nativo y Steam Input](https://partner.steamgames.com/doc/features/steam_controller/getting_started_for_devs).
 - [PlayStation: soporte de juegos PC](https://www.playstation.com/en-us/support/playstation-gaming-on-pc/).
 - [usbip-win2](https://github.com/vadimgrn/usbip-win2) y [HidHide](https://github.com/nefarius/HidHide).
 
-Para volver a DSX: sal de MadSense desde su bandeja y abre DSX. Se conserva la ocultación que ya existía y las autorizaciones de otras aplicaciones en HidHide.
+Para volver a otra aplicación de mando: sal de MadSense desde su bandeja y ábrela después. Se conserva la ocultación que ya existía y las autorizaciones de otras aplicaciones en HidHide.
 
 
 Medición histórica de la versión 0.2, anterior a corregir la temporización de entrada (no representa la versión actual): **0,13 % de CPU total y 88,69 MiB de memoria residente** en una muestra de 15 segundos, conectado y en bandeja sin juego. Antes de retirar el motor local no usado: 0,47 % y 93,30 MiB. Son muestras puntuales del proceso, no incluyen el controlador ni miden latencia; detalles en `evidence/performance-final.txt`.
 
-## Comparación con DSX y mejoras de 0.3
+## Comparación y mejoras de 0.3
 
 Consulta `COMPARATIVA.txt` y `evidence/comparison/` para los resultados completos.
 
