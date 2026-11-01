@@ -1,0 +1,26 @@
+ISO OUT latency diagnostic — 2026-10-31
+
+Opt-in flag: EmulationServerOptions.MeasureIsoOutLatency = true (also forwarded
+toUsbIpServerOptions). Defaultfalse: no clockreads/diagnosticlocks/formatting in
+ISO hotpath. No scheduling changed. Exposes aggregate INFO every2seconds:
+URB count, packetsperURB mean/max, queuedURB max, deliveredpacket rate,
+completeUSB/IP receipt→packetcallback mean/maxage, maxdeliverygap, StartFrame
+last/zero/sentinelcounts. Excludesgame/Windowsaudio leadbuffer beforeUSB/IP and
+physicalBluetooth/actuatorlatency. Packet callbacks measured beforepersonacode.
+
+Tests25/25PASS, iso-diagnostics.trx. Optin/defaultoff assert1packet/1ms timing and
+completionframing remain unchanged, no perpacket logs, aggregate correct on
+knownvirtualclock ages1ms,2ms,1ms =>mean1.333ms/max2ms.
+
+Observed candidate Stellar/userworkload, engine.log02:06:32–02:06:40:
+Windows submits10packetURBs,2URBs outstanding. Steady delivery1000packets/s;
+meanreceipt→packetdelivery~15.1ms, max~21.1ms. Initial2swindow had53.4msmax and
+39.7msdeliverygap; steadystategaps~2–3.6ms. This is a real~15ms bufferingstage,
+butnotbyitselfa100msdelay. Separateforwarderpreroll/queue remainsmajorcandidate.
+
+Do not immediatelycompleteallOUT URBs: completingfasterthanaudiotime letsWindows
+producefaster, changesaudioclock andcanoverflow/dropwaveforms. Possiblefuture
+opt-inexperiment is earlyPCMdispatchwithpacedRET_SUBMIT stillonUSBframeclock;
+thenWindowsclockremainscorrectbut cancellationcannotundoalready-forwardedfuture
+samples andforwarderboundedqueue mustaccommodateprefetchvolume. MusttestlongURBs,
+multiplequeuedURBs,cancel,reset,no doppeldelivery; noimplementationdonehere.

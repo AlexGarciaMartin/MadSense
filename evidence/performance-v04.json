@@ -1,0 +1,14 @@
+﻿{
+    "Timestamp":  "2026-10-31T02:44:19.0708088+01:00",
+    "ProcessId":  29612,
+    "ElapsedSeconds":  15.01,
+    "CpuSeconds":  3.6719,
+    "OneCorePercent":  24.46,
+    "MachinePercent":  1.223,
+    "LogicalProcessors":  20,
+    "WorkingSetMiB":  109.18,
+    "PrivateMemoryMiB":  46.67,
+    "PriorityClass":  "AboveNormal",
+    "Threads":  25,
+    "Conditions":  "MadSense 0.4 con Stellar Blade abierto en segundo plano, puente DualSense activo, ventana visible, sin interaccion en el juego"
+}

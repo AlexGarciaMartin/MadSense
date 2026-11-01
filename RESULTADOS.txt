@@ -1,0 +1,67 @@
+MADSENSE 0.4 — RESULTADOS 31-10-2026 (actualizado 03:50 con el estudio háptico)
+
+Abre app\MadSense.exe o MadSense.lnk. Uso: README.md.
+Comparación detallada con DSX (0.3, sin cambios de protocolo en 0.4): COMPARATIVA.txt.
+Validación completa de esta versión: evidence\v04-validation.txt.
+
+VALIDACIÓN ACTUAL
+1727 pruebas automáticas superadas, 0 fallidas, 35 omitidas (hardware gated).
+validation.trx. Incluye la corrección de un test del núcleo que ya fallaba en 0.3.
+
+QUÉ CAMBIA EN 0.4
+- Puente por eventos: comandos al instante (pausa 55 ms, cambio de modo 17 ms
+  hasta que el puente reacciona), aviso de Windows al aparecer el mando, pérdida
+  de enlace detectada al primer fallo de lectura. Exe → "Listo para jugar": 1,0 s.
+- Prioridad: proceso AboveNormal, lector de entrada en MMCSS "Games", bomba
+  Bluetooth en MMCSS "Pro Audio" y en hilo propio, con temporizador de alta
+  resolución (desvío 0,27 ms de media) en vez de girar el último milisegundo.
+- UI: lámparas HÁPTICOS / GATILLOS / AUDIO (VIBRACIÓN en Xbox), línea de
+  actividad con hora, "Listo para jugar" explícito, batería en la bandeja y aviso
+  al 15 %, inicio con Windows en bandeja (--tray), mensaje claro si el mando va
+  por USB (por cable no hace falta MadSense).
+
+MEDICIONES
+Entrada observada físico→virtual (0.3, misma ruta en 0.4): mediana 0,051–0,055 ms,
+p95 0,113–0,127 ms; DSX mediana 0,064 ms, p95 0,221 ms. No es latencia táctil.
+
+Latencia háptica real juego→actuador (tools/HapticLatencyProbe, acelerómetro
+del mando, 15 impulsos por tanda, mismo mando y noche; evidence/comparison/
+haptic-latency-audit.txt):
+  DSX 3.2 Beta02                       117–120 ms mediana (p95 123–128)
+  MadSense 0.4 con protocolo como DSX  109–114 ms (p95 115–127)
+  MadSense 0.4 final (byte háptico 0x20) 72–79 ms (p95 83–84)
+  Suelo del mando (directo, 0x40)       74–75 ms; con 0x20, 42–44; con 0x10, 30.
+El quinto byte del bloque de sesión Bluetooth fija el búfer háptico del firmware.
+0x20 mantiene la continuidad de 0x40 en un tono de 3 s; 0x10 corta ≈4 % de las
+ventanas de 20 ms y queda como opción (MADSENSE_BT_HAPTIC_BUFFER=0x10).
+Consumo 0.4 en bandeja con Stellar Blade abierto: 24,6 % de un núcleo (1,23 % del
+equipo de 20 núcleos), 96,9 MiB residentes. Mismo rango que 0.3 (24,2 %); el giro
+de la bomba se eliminó y el resto es el transporte USB/IP a 1 kHz.
+
+ALTAVOZ (01-11-2026, evidence\speaker-audit.txt)
+Primera escucha real del altavoz por Bluetooth, con pitidos enviados al DualSense
+virtual (HapticLatencyProbe --speaker-test). Sonaba bajo: byte de volumen 0x50;
+el mando admite hasta 0x64 y DSX guarda 100 (= 0x64). MadSense envía ahora 0x64 y
+se oye claramente más alto. Corregido además el troceado del audio recibido
+durante el calentamiento del canal (test nuevo; 1731 pruebas correctas, 0 fallos).
+Chasquido al abrir el canal coincidiendo con sonido: confirmado que desaparece con
+el canal ya abierto (3 s de silencio previo); es el encendido del altavoz del mando.
+Parry de Stellar Blade: se oía, pero más bajo que con DSX. Escalera de tonos directa
+al mando: la preganancia del altavoz (audio control 2, 0-7) es la palanca; 7 suena
+mucho más alto que el 2 de la librería, y 0xFF de volumen no añade nada sobre 0x64.
+MadSense envía ahora preganancia 7 (speaker_pre_gain) y registra el pico del audio
+que manda el juego. Windows descartado: endpoint virtual al 100 %, por hardware.
+Fila ALTAVOZ DEL MANDO (ALTO/BAJO/APAGADO) en la ventana y en la bandeja, aplicada
+al instante y recordada; comprobada por UI Automation (clic BAJO → registro
+"Altavoz del mando: bajo", preferences.json {"mode","speaker"} y controllers.json
+con preganancia 2; clic ALTO → 7). Un nivel MEDIO (preganancia 4) se probó de oído
+y quedó casi igual que ALTO (la preganancia entra en el compresor del altavoz), así
+que se retiró. Capturas evidence\ui-v04-speaker*.png. Los tres niveles escuchados por el
+usuario: ALTO como DSX, BAJO discreto, APAGADO en silencio total.
+
+LÍMITES
+No se garantiza el 100 % de juegos. Xbox pierde funciones exclusivas de DualSense.
+Micrófono Bluetooth físico no implementado. Edge y jack no probados físicamente.
+Pulsar PS, apagar el mando, batería baja y el conmutador de inicio con Windows
+no se ejercitaron físicamente en esta sesión; los respaldos de 0.3 (reintento
+3 s, silencio 5 s) siguen activos. La sensación háptica es la validada en 0.3.

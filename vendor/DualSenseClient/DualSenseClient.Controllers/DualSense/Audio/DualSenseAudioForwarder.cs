@@ -1,0 +1,1382 @@
+using System.Diagnostics;
+using DualSenseClient.Controllers.DualSense.Output;
+using DualSenseClient.Controllers.DualSense.Triggers;
+using DualSenseClient.Controllers.Emulation;
+using DualSenseClient.Core.Utilities;
+using DualSenseClient.Hid;
+using DualSenseClient.Logging;
+using DualSenseClient.Settings.Sections;
+
+namespace DualSenseClient.Controllers.DualSense.Audio;
+
+/// <summary>
+/// Forwards host audio to the physical DualSense while virtual-controller emulation is active, so
+/// the pad's own speaker plays the host's audio. The host loopback capture feeds one
+/// 512-frame (10.667 ms) stereo block per <see cref="FeedPcm"/> call into a bounded
+/// ring; a pump thread paced at the DualSense Bluetooth audio-clock cadence pops blocks
+/// and fans them out to the active transport: Bluetooth HID reports (<c>0x35</c>/<c>0x36</c>)
+/// or the USB UAC render endpoint via <see cref="DualSenseUsbAudioTarget"/>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The ring absorbs the capture-callback jitter and the difference between the host
+/// loopback period and the 512/48000 s controller cadence. Underruns send silence so
+/// the stream stays paced; when the ring fills beyond the target latency the pump
+/// discards one extra block per tick until it settles, keeping end-to-end latency
+/// bounded. Haptics are derived from the same audio block (voice-coil follows the
+/// audio), matching <see cref="DualSenseAudioPlayer"/>.
+/// </para>
+/// <para>
+/// The Bluetooth audio lane is only opened once audio is actually being fed: the
+/// first block of a session primes the stream (reset, init-prime and silence
+/// preroll) and, after the lane has been idle long enough to underrun, the next
+/// session re-primes. An idle forwarder therefore never occupies the Bluetooth
+/// audio lane — which would make the controller ignore the virtual controller's
+/// output-state reports (rumble, adaptive triggers, LEDs) — and never feeds the
+/// USB endpoint.
+/// </para>
+/// <para>
+/// While the lane is open the pad still ignores standalone output-state reports, so
+/// the game's output state is embedded into the combined reports instead: the
+/// <see cref="UpdateGameOutputState"/> snapshot rides the <c>0x36</c> state block
+/// and the <c>0x32</c> init-prime (triggers, lightbar and player LEDs apply
+/// normally, with the audio bytes overridden), and the game's classic rumble is
+/// synthesized into the haptics PCM as 60/180 Hz sine waves.
+/// </para>
+/// <para>
+/// When the virtual controller's realtime-haptics callback delivers a fresh rear voice-coil pair
+/// (2ch S16LE @48kHz via <see cref="UpdateGameHaptics"/>), it replaces the
+/// audio-derived haptics so the pad reproduces the game's actual haptics; the
+/// audio-derived path is only the fallback for games that do not drive the haptics
+/// channels. <see cref="HapticStrength"/> scales both paths, and
+/// <see cref="ForceAudioHaptics"/> ignores the game payload entirely.
+/// </para>
+/// </remarks>
+public sealed class DualSenseAudioForwarder : IAudioPcmSink, IDisposable
+{
+    /// <summary>
+    /// Interleaved float samples in one 512-frame stereo block.
+    /// </summary>
+    private const int BlockSamples = DualSenseBtAudioPipeline.FramesPerBlock * DualSenseBtAudioPipeline.Channels;
+
+    /// <summary>
+    /// Interleaved samples in one 480-frame Opus block.
+    /// </summary>
+    private const int OpusBlockSamples = DualSenseBtAudioPipeline.OpusFrameSamples * DualSenseBtAudioPipeline.Channels;
+
+    /// <summary>
+    /// Interleaved samples in one 512-frame quad block fed to the USB render target.
+    /// </summary>
+    private const int QuadBlockSamples = DualSenseBtAudioPipeline.FramesPerBlock * 4;
+
+    /// <summary>
+    /// Silent speaker reports sent after priming, so the Opus decoder warms up
+    /// before real audio. Native haptics already travel during these reports;
+    /// only the legacy audio-derived path stays silent. 8 packets ≈ 85 ms.
+    /// </summary>
+    private const int BtPrerollPackets = 8;
+
+    /// <summary>
+    /// Ring capacity in blocks (32 × 10.667 ms ≈ 341 ms of buffered audio).
+    /// </summary>
+    private const int RingBlocks = 32;
+
+    /// <summary>
+    /// Steady-state latency the pump targets (3 blocks ≈ 32 ms). Above it, the pump
+    /// discards one extra block per tick until the ring drains back down.
+    /// </summary>
+    private const int TargetBlocks = 3;
+
+    // Native haptics must not inherit the speaker queue's latency. Keep at most
+    // two packets (21.333 ms of samples) before selecting the next packet, so at most one
+    // packet remains after it. Excess backlog is stale, not something to replay.
+    private const int NativeHapticsMaxQueuedBytes = 2 * DualSenseBtAudioPipeline.HapticsBytes;
+
+    /// <summary>
+    /// How long an update from the realtime-haptics callback stays fresh before the
+    /// forwarder falls back to the audio-derived haptics. The callback fires on every
+    /// host speaker write, so this window (~9 intervals) tolerates scheduling gaps
+    /// while keeping the fallback prompt when the game stops sending haptics packets.
+    /// All-zero packets are not stale: while they keep arriving, silence is
+    /// authoritative once the game has delivered its first nonzero payload.
+    /// </summary>
+    private const int GameHapticsFreshWindowMs = 100;
+
+    /// <summary>
+    /// Target interval between pump ticks: 512/48000 s = 10.667 ms.
+    /// </summary>
+    private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(DualSenseBtAudioPipeline.FramesPerBlock / (double)DualSenseBtAudioPipeline.SampleRate);
+
+    /// <summary>
+    /// <see cref="GameHapticsFreshWindowMs"/> in stopwatch ticks.
+    /// </summary>
+    private static readonly long GameHapticsFreshWindowTicks = (long)(Stopwatch.Frequency * GameHapticsFreshWindowMs / 1000.0);
+
+    /// <summary>
+    /// Logger instance.
+    /// </summary>
+    private static readonly DualSenseClientLogger _log = DualSenseClientLogger.For("DualSenseAudioForwarder");
+
+    /// <summary>
+    /// The physical controller's Bluetooth audio lane, or <c>null</c> when the pad is
+    /// not Bluetooth-connected.
+    /// </summary>
+    private readonly IDualSenseAudioOutputs? _outputs;
+
+    /// <summary>
+    /// The physical controller's USB render target, or <c>null</c> when the pad is not
+    /// USB-connected or no render endpoint exists.
+    /// </summary>
+    private readonly DualSenseUsbAudioTarget? _usbTarget;
+
+    /// <summary>
+    /// Shared Bluetooth audio conversion pipeline (resample, Opus encode, haptics).
+    /// </summary>
+    private readonly DualSenseBtAudioPipeline _pipeline = new DualSenseBtAudioPipeline();
+
+    /// <summary>
+    /// Ring holding the captured stereo blocks between the capture callback and the pump.
+    /// </summary>
+    private readonly PcmBlockRing _audioRing = new PcmBlockRing(RingBlocks);
+
+    // MadSense: preserve native sample timing and never manufacture haptics from speaker audio.
+    private readonly NativeHapticsQueue _nativeHaptics = new();
+    public bool StrictNativeHaptics { get; set; }
+    private readonly AutoResetEvent _dataReady = new(false);
+    private int _prerollRemaining;
+    private int _primeCount;
+
+    /// <summary>
+    /// Serializes start/stop and the pump's per-tick work with feed/stop calls.
+    /// </summary>
+    private readonly Lock _sync = new Lock();
+
+    /// <summary>
+    /// Cancels the running pump loop; <c>null</c> while the forwarder is stopped.
+    /// </summary>
+    private CancellationTokenSource? _cts;
+
+    /// <summary>
+    /// The background task running the pump loop.
+    /// </summary>
+    private Task? _loopTask;
+
+    /// <summary>
+    /// Scratch buffer for one block popped from the ring.
+    /// </summary>
+    private readonly float[] _floatBlock = new float[BlockSamples];
+
+    /// <summary>
+    /// Scratch buffer holding the block converted to signed 16-bit PCM.
+    /// </summary>
+    private readonly short[] _pcmBlock = new short[BlockSamples];
+
+    /// <summary>
+    /// Scratch buffer for one 480-frame Opus block.
+    /// </summary>
+    private readonly short[] _opusBlock = new short[OpusBlockSamples];
+
+    /// <summary>
+    /// Scratch buffer for the fixed 200-byte Opus frame sent to the controller.
+    /// </summary>
+    private readonly byte[] _opusFrame = new byte[DualSenseBtAudioPipeline.OpusBytes];
+
+    /// <summary>
+    /// Scratch buffer for the 64-byte Bluetooth haptics payload.
+    /// </summary>
+    private readonly byte[] _hapticsPcm = new byte[DualSenseBtAudioPipeline.HapticsBytes];
+
+    /// <summary>
+    /// Latest haptics payload delivered by the virtual controller's realtime-haptics callback (the
+    /// game's own voice-coil data), valid while <see cref="_lastGameHapticsTimestamp"/>
+    /// is within <see cref="GameHapticsFreshWindowTicks"/>. Guarded by <see cref="_sync"/>.
+    /// </summary>
+    private readonly byte[] _gameHapticsPcm = new byte[DualSenseBtAudioPipeline.HapticsBytes];
+
+    /// <summary>
+    /// Stopwatch timestamp of the last accepted realtime-haptics update, or 0 when none
+    /// was accepted yet. Guarded by <see cref="_sync"/>.
+    /// </summary>
+    private long _lastGameHapticsTimestamp;
+
+    /// <summary>
+    /// Whether the game has delivered a nonzero haptics payload since the lane was opened.
+    /// Until then an all-zero payload is ignored so the audio-derived haptics keep playing;
+    /// afterwards silence is authoritative. Guarded by <see cref="_sync"/>.
+    /// </summary>
+    private bool _gameHapticsActive;
+
+    /// <summary>
+    /// One-shot diagnostics for the realtime-haptics combined report validation.
+    /// </summary>
+    private int _gameHapticsAcceptedLogged;
+
+    private int _gameHapticsRejectedLogged;
+
+    /// <summary>
+    /// Scratch buffer for the interleaved quad (S16) block fed to the USB render target.
+    /// </summary>
+    private readonly short[] _usbQuadBlock = new short[QuadBlockSamples];
+
+    /// <summary>
+    /// Scratch buffer used to discard catch-up blocks.
+    /// </summary>
+    private readonly float[] _discardBlock = new float[BlockSamples];
+
+    /// <summary>
+    /// Idle period after which the Bluetooth audio lane is considered dead (the pad's
+    /// shallow receive buffer has underrun), so the next audio session re-primes the
+    /// stream. Long enough to ignore capture-jitter gaps, short enough to release the
+    /// lane promptly when audio stops.
+    /// </summary>
+    private static readonly long RePrimeIdleTicks =
+        (long)(Stopwatch.Frequency * TimeSpan.FromMilliseconds(150).TotalSeconds);
+
+    /// <summary>
+    /// Speaker volume (0-255) applied to the controller's speaker/headset hardware.
+    /// </summary>
+    private volatile byte _speakerVolume = 0x50;
+
+    /// <summary>
+    /// Speaker pre-gain (audio control 2 bits 0-2, 0-7) embedded in every audio-lane state block
+    /// and in the route/volume report. MadSense: 7 was heard clearly louder than 2 on hardware at
+    /// the same volume byte; the library default stays 2.
+    /// </summary>
+    private volatile byte _speakerPreGain = 0x02;
+
+    /// <summary>Speaker pre-gain (0-7); see <see cref="_speakerPreGain"/>.</summary>
+    public byte SpeakerPreGain
+    {
+        get => _speakerPreGain;
+        set => _speakerPreGain = (byte)Math.Min(value, (byte)7);
+    }
+
+    /// <summary>
+    /// Whether the haptic actuators follow the audio.
+    /// </summary>
+    private volatile bool _hapticsEnabled = true;
+
+    /// <summary>
+    /// Haptic vibration strength multiplier (1.0 = full).
+    /// </summary>
+    private volatile float _hapticStrength = 1f;
+
+    /// <summary>
+    /// Whether the game's own haptics payload is ignored in favor of the audio-derived haptics.
+    /// </summary>
+    private volatile bool _forceAudioHaptics;
+
+    /// <summary>Whether the game's classic rumble is forwarded to the physical controller.</summary>
+    private volatile bool _gameRumbleEnabled = true;
+
+    /// <summary>Whether the game's adaptive trigger effects are forwarded.</summary>
+    private volatile bool _gameTriggersEnabled = true;
+
+    /// <summary>Whether the game's lightbar is forwarded.</summary>
+    private volatile bool _gameLightbarEnabled = true;
+
+    /// <summary>Whether the game's player indicator LEDs are forwarded.</summary>
+    private volatile bool _gamePlayerLedsEnabled = true;
+
+    /// <summary>Whether the game's own realtime haptics payload is forwarded.</summary>
+    private volatile bool _gameHapticsEnabled = true;
+
+    /// <summary>
+    /// Whether audio is routed to the headset jack instead of the internal speaker.
+    /// </summary>
+    private volatile bool _playToHeadset;
+
+    /// <summary>
+    /// Last volume/route signature applied to the controller, so the pump only issues
+    /// <see cref="IDualSenseAudioOutputs.SetAudioOutput"/> when the configuration changed.
+    /// </summary>
+    private int _appliedConfigSignature = -1;
+
+    /// <summary>
+    /// Whether the Bluetooth audio lane is currently open on the controller. Guarded by
+    /// <see cref="_sync"/>; only the pump (and <see cref="Start"/>) mutate it.
+    /// </summary>
+    private bool _btStreamPrimed;
+
+    /// <summary>
+    /// The game's latest output state (rumble, lightbar, player LEDs, trigger effects),
+    /// embedded into the Bluetooth audio-lane reports while the lane is open. Guarded
+    /// by <see cref="_sync"/>; set from the virtual controller's output-state callback thread.
+    /// </summary>
+    private SetStateData? _gameState;
+
+    /// <summary>
+    /// Target rumble motor strengths (0-255) derived from <see cref="_gameState"/> only
+    /// when the game's output state explicitly selected rumble emulation. When rumble
+    /// is not gated on, targets stay zero so stale motor bytes do not vibrate. Guarded by
+    /// <see cref="_sync"/>.
+    /// </summary>
+    private byte _rumbleLeftTarget;
+
+    private byte _rumbleRightTarget;
+
+    /// <summary>
+    /// Phase (in cycles) of the rumble-emulation haptics oscillators, advanced once per
+    /// 3 kHz haptics sample so the waveform stays continuous across report boundaries.
+    /// </summary>
+    private double _rumbleLeftPhase;
+
+    private double _rumbleRightPhase;
+
+    /// <summary>
+    /// Smoothed magnitude (0-1) of each rumble-emulation oscillator, approached
+    /// exponentially per sample so strength changes ramp instead of clicking.
+    /// </summary>
+    private float _rumbleLeftMagnitude;
+
+    private float _rumbleRightMagnitude;
+
+    /// <summary>
+    /// Whether the pump is currently running.
+    /// </summary>
+    public bool IsActive
+    {
+        get
+        {
+            return _cts is not null;
+        }
+    }
+
+    /// <summary>
+    /// Speaker volume (0-255) applied to the controller's speaker/headset hardware.
+    /// </summary>
+    public byte SpeakerVolume
+    {
+        get
+        {
+            return _speakerVolume;
+        }
+        set
+        {
+            _speakerVolume = value;
+        }
+    }
+
+    /// <summary>
+    /// Whether the haptic actuators follow the audio.
+    /// </summary>
+    public bool HapticsEnabled
+    {
+        get
+        {
+            return _hapticsEnabled;
+        }
+        set
+        {
+            _hapticsEnabled = value;
+        }
+    }
+
+    /// <summary>
+    /// Haptic vibration strength multiplier (1.0 = full, 2.0 = 200%).
+    /// </summary>
+    public float HapticStrength
+    {
+        get
+        {
+            return _hapticStrength;
+        }
+        set
+        {
+            _hapticStrength = Math.Clamp(value, 0f, 2f);
+        }
+    }
+
+    /// <summary>
+    /// Whether the game's own haptics payload is ignored in favor of the audio-derived
+    /// haptics (which always honor <see cref="HapticStrength"/>). Only affects the
+    /// Bluetooth path: USB output never carries the game's haptics.
+    /// </summary>
+    public bool ForceAudioHaptics
+    {
+        get
+        {
+            return _forceAudioHaptics;
+        }
+        set
+        {
+            _forceAudioHaptics = value;
+        }
+    }
+
+    /// <summary>
+    /// Applies the host-feedback forwarding options to the game-output lane. Disabled
+    /// channels are cleared from the state embedded in the Bluetooth audio reports and
+    /// from the rumble mix on the next pump tick; audio-derived haptics are unaffected.
+    /// </summary>
+    /// <param name="settings">The forwarding options to apply.</param>
+    public void ApplyForwardingSettings(ForwardSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        StrictNativeHaptics = settings.StrictNativeHaptics;
+        _gameRumbleEnabled = settings.Rumble;
+        _gameTriggersEnabled = settings.Triggers;
+        _gameLightbarEnabled = settings.Lightbar;
+        _gamePlayerLedsEnabled = settings.PlayerLeds;
+        _gameHapticsEnabled = settings.HapticsEnabled;
+    }
+
+    /// <summary>
+    /// Whether audio is routed to the headset jack instead of the internal speaker.
+    /// </summary>
+    public bool PlayToHeadset
+    {
+        get
+        {
+            return _playToHeadset;
+        }
+        set
+        {
+            _playToHeadset = value;
+        }
+    }
+
+    /// <summary>
+    /// Creates the forwarder for the given physical controller lanes. At least one lane
+    /// must be non-<c>null</c>; the forwarder takes ownership of <paramref name="usbTarget"/>.
+    /// </summary>
+    public DualSenseAudioForwarder(IDualSenseAudioOutputs? outputs, DualSenseUsbAudioTarget? usbTarget)
+    {
+        _outputs = outputs;
+        _usbTarget = usbTarget;
+    }
+
+    /// <summary>
+    /// Whether the physical controller's connection uses the USB UAC render endpoint.
+    /// Only a wired pad exposes that endpoint; a Bluetooth pad uses the HID audio lane.
+    /// The virtual controller also presents a render endpoint with the same friendly
+    /// name, so opening it in place of the physical pad would feed the forwarded audio
+    /// back into the capture when that endpoint is the default output.
+    /// </summary>
+    internal static bool ShouldUseUsbTarget(ConnectionType? connectionType) => connectionType == ConnectionType.Usb;
+
+    /// <summary>
+    /// Starts the pump and opens the USB render endpoint when the physical pad is wired.
+    /// The Bluetooth audio lane is intentionally left closed until the first audio block
+    /// is actually fed, so an idle forwarder never occupies the lane — which would
+    /// make the controller ignore the virtual controller's output-state reports.
+    /// Returns <c>false</c> when no transport is available.
+    /// </summary>
+    public bool Start()
+    {
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
+            if (_cts is not null)
+            {
+                return true;
+            }
+
+            bool bluetooth = _outputs is not null && _outputs.ConnectionType == ConnectionType.Bluetooth;
+            bool usb = ShouldUseUsbTarget(_outputs?.ConnectionType)
+                       && _usbTarget is not null
+                       && _usbTarget.Start();
+            if (!bluetooth && !usb)
+            {
+                _log.Info("No forwarding transport available (neither Bluetooth audio lane nor USB render endpoint)");
+                return false;
+            }
+
+            _btStreamPrimed = false;
+            _appliedConfigSignature = -1;
+            _gameHapticsActive = false;
+            _nativeHaptics.Clear();
+            _audioRing.Clear();
+            _lastGameHapticsTimestamp = 0;
+            _prerollRemaining = 0;
+            var cts = new CancellationTokenSource();
+            _cts = cts;
+            // MadSense: a dedicated thread, never a ThreadPool worker. The pump is a long-running
+            // real-time loop; on the pool it would hog a worker and inherit pool scheduling.
+            // The token is not handed to the factory: the loop exits normally on cancellation, so
+            // Stop's Wait never observes a cancelled task.
+            _loopTask = Task.Factory.StartNew(() => PumpLoop(cts.Token), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            _log.Info($"Audio forwarding started ({(bluetooth ? "bluetooth" : "usb")})");
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Stops the pump and releases the transports. Safe to call repeatedly.
+    /// </summary>
+    public void Stop()
+    {
+        CancellationTokenSource? cts;
+        Task? loopTask;
+        lock (_sync)
+        {
+            cts = _cts;
+            _cts = null;
+            loopTask = _loopTask;
+            _loopTask = null;
+        }
+
+        if (cts is null)
+        {
+            return;
+        }
+
+        cts.Cancel();
+        loopTask?.Wait(TimeSpan.FromSeconds(2));
+        if (loopTask is null || loopTask.IsCompleted) cts.Dispose();
+        _usbTarget?.Stop();
+        _log.Info("Audio forwarding stopped");
+    }
+
+    /// <summary>
+    /// Whether <see cref="Dispose"/> ran. A disposed forwarder drops fed audio and
+    /// must not be reused; the owning service replaces it instead.
+    /// </summary>
+    public bool IsDisposed { get; private set; }
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        IsDisposed = true;
+        Stop();
+        lock (_sync)
+        {
+            _pipeline.Dispose();
+        }
+
+        _usbTarget?.Dispose();
+        _dataReady.Dispose();
+    }
+
+    /// <summary>
+    /// Feeds one chunk of interleaved 48 kHz stereo float PCM captured from the host.
+    /// Blocks are accumulated and pushed to the ring whole; a partially filled tail
+    /// block is kept for the next call. Safe to call from the capture callback.
+    /// </summary>
+    public void FeedPcm(ReadOnlySpan<float> stereo)
+    {
+        lock (_sync)
+        {
+            if (_cts is null)
+            {
+                return;
+            }
+
+            int offset = 0;
+            int partial = _audioRing.PartialCount;
+            if (partial > 0)
+            {
+                int take = Math.Min(BlockSamples - partial, stereo.Length - offset);
+                _audioRing.AppendPartial(stereo.Slice(offset, take));
+                offset += take;
+                if (_audioRing.PartialCount == BlockSamples)
+                {
+                    _audioRing.PushPartial();
+                }
+            }
+
+            while (offset + BlockSamples <= stereo.Length)
+            {
+                _audioRing.Push(stereo.Slice(offset, BlockSamples));
+                offset += BlockSamples;
+            }
+
+            if (offset < stereo.Length)
+            {
+                _audioRing.AppendPartial(stereo.Slice(offset));
+            }
+            if (_audioRing.Count > 0) _dataReady.Set();
+        }
+    }
+
+    /// <summary>
+    /// Stores the game's latest output state so the pump can embed it into the
+    /// Bluetooth audio-lane reports (combined <c>0x36</c> and <c>0x32</c> init-prime)
+    /// and drive the classic rumble motors through the haptics PCM. Called from the
+    /// virtual controller's output-state callback thread; safe to call while the forwarder is
+    /// stopped.
+    /// </summary>
+    public void UpdateGameOutputState(SetStateData state)
+    {
+        lock (_sync)
+        {
+            byte[] snapshot = new byte[SetStateData.PayloadSize];
+            state.CopyTo(snapshot, 0);
+            _gameState = new SetStateData(snapshot, 0);
+            bool rumbleSelected = (state.ValidFlag0 & (ValidFlags.EnableRumbleEmulation | ValidFlags.UseRumbleNotHaptics)) != 0
+                                  || (state.ValidFlag2 & ValidFlags.EnableImprovedRumbleEmu) != 0;
+
+            if (rumbleSelected)
+            {
+                _rumbleLeftTarget = state.RumbleLeft;
+                _rumbleRightTarget = state.RumbleRight;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stores the game's actual haptics payload from the virtual controller's realtime-haptics
+    /// lane (rear voice-coil pair, 2ch S16LE @48kHz), so the pump can embed it into the Bluetooth
+    /// audio-lane reports instead of the audio-derived haptics. The Emulation DualSense adapter feeds
+    /// this lane. The S16LE stereo frames are decimated to the 32-frame s8 payload; malformed buffers
+    /// are rejected so the forwarder keeps the audio-derived fallback. All-zero payloads are treated
+    /// as intentional silence only after the game has delivered a nonzero payload; before that they
+    /// are ignored so the audio-derived haptics keep playing. Called from the engine's callback
+    /// thread; safe to call while stopped.
+    /// </summary>
+    public void UpdateGameHaptics(byte[] pcm)
+    {
+        if (pcm is null || pcm.Length < 4 || pcm.Length % 4 != 0)
+        {
+            if (Interlocked.Exchange(ref _gameHapticsRejectedLogged, 1) == 0)
+            {
+                string head = pcm is null
+                    ? "(null)"
+                    : string.Join(" ", pcm.AsSpan(0, Math.Min(16, pcm.Length)).ToArray().Select(b => b.ToString("X2")));
+                _log.Info(
+                    $"Realtime-haptics PCM rejected (expected whole 2ch S16LE frames); head {head}");
+            }
+
+            return;
+        }
+
+        int frames = pcm.Length / 4;
+        lock (_sync)
+        {
+            if (IsDisposed) return;
+            if (StrictNativeHaptics)
+            {
+                if (_lastGameHapticsTimestamp != 0 && Stopwatch.GetTimestamp() - _lastGameHapticsTimestamp > GameHapticsFreshWindowTicks) _nativeHaptics.Clear();
+                bool wasEmpty = _nativeHaptics.Count == 0;
+                _nativeHaptics.Feed(pcm);
+                _lastGameHapticsTimestamp = Stopwatch.GetTimestamp();
+                // Wake once a packet is complete; a short final packet is flushed after
+                // one period without new input. Do not wake the pump for every USB ms.
+                if (wasEmpty || _nativeHaptics.Count >= DualSenseBtAudioPipeline.HapticsBytes) _dataReady.Set();
+                return;
+            }
+            bool nonZero = false;
+            for (int i = 0; i < DualSenseBtAudioPipeline.HapticsFrames; i++)
+            {
+                int src = i * frames / DualSenseBtAudioPipeline.HapticsFrames;
+                byte left = pcm[src * 4 + 1];
+                byte right = pcm[src * 4 + 3];
+                _gameHapticsPcm[i * 2] = left;
+                _gameHapticsPcm[i * 2 + 1] = right;
+                nonZero |= left != 0 || right != 0;
+            }
+
+            _gameHapticsActive |= nonZero;
+            _lastGameHapticsTimestamp = Stopwatch.GetTimestamp();
+            _dataReady.Set();
+        }
+
+        if (Interlocked.Exchange(ref _gameHapticsAcceptedLogged, 1) == 0)
+        {
+            _log.Info("Game haptics active: the pad now reproduces the game's own haptics payload");
+        }
+    }
+
+    /// <summary>
+    /// Discards all buffered audio and marks the Bluetooth audio lane as closed, so the
+    /// next audio block re-primes the stream. Called when the virtual controller's
+    /// audio interface resets or changes alternate setting (a stream-generation
+    /// barrier), so stale PCM from the previous generation cannot burst into the pad's
+    /// shallow receive buffer. Safe to call from the virtual controller's speaker-reset callback
+    /// thread.
+    /// </summary>
+    public void Flush()
+    {
+        lock (_sync)
+        {
+            _audioRing.Clear();
+            _nativeHaptics.Clear();
+            _btStreamPrimed = false;
+            _prerollRemaining = 0;
+            _lastGameHapticsTimestamp = 0;
+            _gameHapticsActive = false;
+            _rumbleLeftTarget = 0;
+            _rumbleRightTarget = 0;
+            _rumbleLeftMagnitude = 0;
+            _rumbleRightMagnitude = 0;
+        }
+    }
+
+    /// <summary>
+    /// Runs the pump loop until canceled: waits for audio or fresh game haptics to
+    /// appear, then pops one block per tick and fans it out to every active transport.
+    /// Ticks are paced against an accumulated deadline so the average cadence matches
+    /// <see cref="TickInterval"/> exactly (a per-tick restart would drift). While the
+    /// ring is empty and no game haptics are fresh the pump idles without sending, so an
+    /// idle forwarder never occupies the Bluetooth audio lane (which would corrupt
+    /// <see cref="DualSenseAudioPlayer"/> playback and make the controller ignore the
+    /// virtual controller's output-state reports); the first block of a session primes
+    /// the lane, and after the lane has been idle beyond <see cref="RePrimeIdleTicks"/>
+    /// the next session re-primes. When audio resumes, the deadline is re-anchored to now.
+    /// </summary>
+    private void PumpLoop(CancellationToken ct)
+    {
+        _log.Debug("Pump loop started");
+        bool timerRequested = false;
+        WaitHandle[] wake = [_dataReady, ct.WaitHandle];
+        // MadSense: the pad's receive buffer is shallow and every tick is a 10.667 ms deadline.
+        // MMCSS "Pro Audio" keeps the cadence while the game saturates the CPU.
+        Thread.CurrentThread.Name ??= "DualSense BT Audio Pump";
+        Thread.CurrentThread.Priority = ThreadPriority.Highest;
+        using IDisposable? mmcss = MultimediaThread.Enter("Pro Audio");
+        try
+        {
+            long tickPeriodTicks = (long)(Stopwatch.Frequency * TickInterval.TotalSeconds);
+            long nextTick = Stopwatch.GetTimestamp();
+            while (!ct.IsCancellationRequested)
+            {
+                bool wasIdle = false;
+                long idleSince = Stopwatch.GetTimestamp();
+                while (!ct.IsCancellationRequested && !HasPendingWork())
+                {
+                    wasIdle = true;
+                    long idleTicks = Stopwatch.GetTimestamp() - idleSince;
+                    if (timerRequested && idleTicks >= RePrimeIdleTicks)
+                    {
+                        TimerResolution.Release(); timerRequested = false;
+                    }
+                    // A producer or cancellation wakes us; no 500 Hz idle polling.
+                    int tailTimeout;
+                    lock (_sync) tailTimeout = StrictNativeHaptics && _hapticsEnabled && _gameHapticsEnabled && _nativeHaptics.Count > 0 ? 11 : Timeout.Infinite;
+                    // Keep timing stable across ordinary packet gaps; release it once
+                    // the lane really goes idle, without toggling it on every packet.
+                    if (timerRequested)
+                    {
+                        int idleTimeout = Math.Max(1, (int)Math.Ceiling((RePrimeIdleTicks - idleTicks) * 1000.0 / Stopwatch.Frequency));
+                        tailTimeout = tailTimeout == Timeout.Infinite ? idleTimeout : Math.Min(tailTimeout, idleTimeout);
+                    }
+                    WaitHandle.WaitAny(wake, tailTimeout);
+                }
+                if (ct.IsCancellationRequested) break;
+                if (!timerRequested) { TimerResolution.AddRef(); timerRequested = true; }
+                if (wasIdle)
+                {
+                    lock (_sync)
+                    {
+                        if (Stopwatch.GetTimestamp() - idleSince >= RePrimeIdleTicks)
+                            _btStreamPrimed = false;
+                    }
+                    nextTick = Stopwatch.GetTimestamp();
+                }
+
+                try
+                {
+                    lock (_sync)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        bool bluetooth = _outputs?.ConnectionType == ConnectionType.Bluetooth;
+                        if (bluetooth && !_btStreamPrimed) PrimeBluetoothStream();
+                        if (bluetooth && _prerollRemaining > 0)
+                        {
+                            // One warmup report per tick: never sleep holding the callback lock.
+                            _opusBlock.AsSpan().Clear();
+                            _pipeline.EncodeOpus(_opusBlock, _opusFrame);
+                            // Only the Opus speaker decoder needs silent preroll.
+                            // Native haptics use their own PCM lane in the combined report.
+                            if (StrictNativeHaptics && _hapticsEnabled) FillHapticsPcm();
+                            else _hapticsPcm.AsSpan().Clear();
+                            SendBluetoothReports();
+                            _prerollRemaining--;
+                            // MadSense: speaker blocks that arrive while the pad's decoder warms up cannot be
+                            // played; keeping them made the post-warmup drain discard every other block for
+                            // several ticks, so the first sound of a session came out chopped (heard as a
+                            // crackle at the first beep of every stream). Keep only the newest TargetBlocks
+                            // so playback resumes continuous from the latest audio.
+                            while (_audioRing.Count > TargetBlocks) _audioRing.TryPop(_discardBlock);
+                        }
+                        else ProcessBlock(ct);
+                    }
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex) { _log.LogExceptionDetails(ex); break; }
+
+                nextTick = Math.Max(nextTick + tickPeriodTicks, Stopwatch.GetTimestamp());
+                WaitUntil(nextTick);
+            }
+        }
+        finally
+        {
+            if (timerRequested) TimerResolution.Release();
+        }
+        _log.Debug("Pump loop ended");
+    }
+
+    private bool HasPendingWork()
+    {
+        lock (_sync)
+            return _prerollRemaining > 0 || _audioRing.Count > 0 || HasPendingGameHaptics();
+    }
+
+    /// <summary>
+    /// Consumes one block from the ring and feeds every active transport.
+    /// </summary>
+    private void ProcessBlock(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        lock (_sync)
+        {
+            if (!_audioRing.TryPop(_floatBlock))
+            {
+                _floatBlock.AsSpan().Clear();
+            }
+            else if (_audioRing.Count > TargetBlocks)
+            {
+                _audioRing.TryPop(_discardBlock);
+            }
+
+            DualSenseBtAudioPipeline.ConvertToPcm16(_floatBlock, _pcmBlock);
+
+            // The pad keeps its default output path (headphones, speaker muted) until an
+            // output report selects one, and that same report carries the volume and
+            // audio-control2 fields. Apply it for every transport — a wired pad needs the
+            // route set before the PCM fed to its UAC endpoint is audible, exactly as
+            // DualSenseAudioPlayer does for local file playback.
+            if (_outputs is not null)
+            {
+                ApplyAudioStateIfChanged();
+            }
+
+            bool bluetooth = _outputs is not null && _outputs.ConnectionType == ConnectionType.Bluetooth;
+            if (bluetooth)
+            {
+                DualSenseBtAudioPipeline.ResampleToOpusBlock(_pcmBlock, _opusBlock);
+                _pipeline.EncodeOpus(_opusBlock, _opusFrame);
+                if (_hapticsEnabled)
+                {
+                    FillHapticsPcm();
+                }
+
+                SendBluetoothReports();
+            }
+
+            if (_usbTarget is { IsActive: true })
+            {
+                ToUsbQuadS16(_pcmBlock, _usbQuadBlock);
+                _usbTarget.Feed(_usbQuadBlock);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fills <see cref="_hapticsPcm"/> for the current block. The game's own haptics
+    /// payload takes priority while it is fresh (scaled by the haptic strength, so the
+    /// slider also applies to game-driven haptics); an all-zero payload is intentional
+    /// silence once the game has driven haptics, so it also wins. Before the first
+    /// nonzero payload, silence is ignored and the haptics are derived from the block's
+    /// audio content (with the classic rumble folded in).
+    /// <see cref="ForceAudioHaptics"/> skips the game payload and always derives from audio.
+    /// Caller must hold <see cref="_sync"/>.
+    /// </summary>
+    private void FillHapticsPcm()
+    {
+        if (StrictNativeHaptics)
+        {
+            // Drop stale backlog BEFORE choosing output; sending the oldest packet
+            // first kept effects late for several ticks after every burst or stall.
+            // This consumes each retained sample once, including finite impulses.
+            _nativeHaptics.TrimToNewest(NativeHapticsMaxQueuedBytes);
+            _nativeHaptics.Read(_hapticsPcm);
+            if (!_gameHapticsEnabled) _hapticsPcm.AsSpan().Clear();
+            ScaleHaptics(_hapticsPcm, _hapticStrength);
+            return;
+        }
+        if (!_forceAudioHaptics && TryGetFreshGameHaptics(_hapticsPcm))
+        {
+            ScaleHaptics(_hapticsPcm, _hapticStrength);
+            return;
+        }
+
+        DualSenseBtAudioPipeline.ToHapticsPcm(_pcmBlock, _hapticsPcm, _hapticStrength);
+    }
+
+    /// <summary>
+    /// Scales an s8 haptics payload in place by the given strength, clamping to the s8
+    /// range. A strength of 1 leaves the payload untouched. Mirrors the scaling in
+    /// <see cref="DualSenseBtAudioPipeline.ToHapticsPcm"/>.
+    /// </summary>
+    private static void ScaleHaptics(Span<byte> haptics, float strength)
+    {
+        if (strength == 1f)
+        {
+            return;
+        }
+
+        for (int i = 0; i < haptics.Length; i++)
+        {
+            haptics[i] = (byte)Math.Clamp((int)((sbyte)haptics[i] * strength), -128, 127);
+        }
+    }
+
+    /// <summary>
+    /// Whether a fresh game-haptics payload is available and the game has actually driven
+    /// haptics. An all-zero payload before the first nonzero one is not authoritative.
+    /// Caller must hold <see cref="_sync"/>.
+    /// </summary>
+    private bool HasFreshGameHaptics()
+    {
+        return _gameHapticsEnabled
+               && _gameHapticsActive
+               && _lastGameHapticsTimestamp != 0
+               && Stopwatch.GetTimestamp() - _lastGameHapticsTimestamp <= GameHapticsFreshWindowTicks;
+    }
+
+    /// <summary>
+    /// Whether the pump has game haptics to send without audio. While this holds, the
+    /// haptics-only lane keeps the game's voice-coil data flowing even when
+    /// controller-audio passthrough is off.
+    /// </summary>
+    private bool HasPendingGameHaptics()
+    {
+        lock (_sync)
+        {
+            if (StrictNativeHaptics) return _hapticsEnabled && _gameHapticsEnabled &&
+                (_nativeHaptics.Count >= DualSenseBtAudioPipeline.HapticsBytes ||
+                 (_nativeHaptics.Count > 0 && Stopwatch.GetTimestamp() - _lastGameHapticsTimestamp >= Stopwatch.Frequency * TickInterval.TotalSeconds));
+            return _hapticsEnabled && HasFreshGameHaptics();
+        }
+    }
+
+    /// <summary>
+    /// Copies the freshest realtime-haptics payload into <paramref name="destination"/>
+    /// if one was delivered recently. A payload is fresh while its timestamp is within
+    /// <see cref="GameHapticsFreshWindowTicks"/>. Caller must hold <see cref="_sync"/>.
+    /// </summary>
+    private bool TryGetFreshGameHaptics(Span<byte> destination)
+    {
+        if (!HasFreshGameHaptics())
+        {
+            return false;
+        }
+
+        _gameHapticsPcm.CopyTo(destination);
+        return true;
+    }
+
+    /// <summary>
+    /// Sends the Bluetooth audio frame to the configured route, folding the haptics
+    /// packet into the combined <c>0x36</c> report when haptics are enabled — or when a
+    /// lightbar/player-LED override needs the output-state block carried — with a
+    /// cleared haptics payload.
+    /// </summary>
+    private void SendBluetoothReports()
+    {
+        SetStateData state = CreateAudioState();
+        BluetoothAudioRoute route = _playToHeadset ? BluetoothAudioRoute.Headset : BluetoothAudioRoute.Speaker;
+        bool stateBlock = _outputs!.NeedsOutputStateBlock;
+        if (_hapticsEnabled || stateBlock)
+        {
+            if (_hapticsEnabled)
+            {
+                MixRumbleIntoHaptics();
+            }
+            else
+            {
+                _hapticsPcm.AsSpan().Clear();
+            }
+
+            _outputs!.SendBluetoothAudioAndHaptics(state, _opusFrame, _hapticsPcm, route);
+        }
+        else
+        {
+            _outputs!.SendBluetoothAudio(_opusFrame, route);
+        }
+    }
+
+    /// <summary>
+    /// Applies the volume/route configuration to the controller's speaker/headset
+    /// hardware when it changed since the last tick.
+    /// </summary>
+    private void ApplyAudioStateIfChanged()
+    {
+        bool headset = _playToHeadset;
+        byte volume = _speakerVolume;
+        byte preGain = _speakerPreGain;
+        int signature = volume | (headset ? 1 << 8 : 0) | (preGain << 9);
+        if (signature == _appliedConfigSignature)
+        {
+            return;
+        }
+
+        _appliedConfigSignature = signature;
+        _outputs!.SetAudioOutput(headset ? AudioControl.OutputPathHeadphones : AudioControl.OutputPathSpeaker, volume, headset ? volume : (byte)0x3F, preGain);
+    }
+
+    /// <summary>
+    /// The controller's output path selected by <see cref="PlayToHeadset"/>.
+    /// </summary>
+    private AudioControl OutputControl
+    {
+        get
+        {
+            return _playToHeadset ? AudioControl.OutputPathHeadphones : AudioControl.OutputPathSpeaker;
+        }
+    }
+
+    /// <summary>
+    /// Headphone volume for the active route: the headset gets the slider value while
+    /// the speaker route keeps the hardware default.
+    /// </summary>
+    private byte HeadphoneVolume
+    {
+        get
+        {
+            return _playToHeadset ? _speakerVolume : (byte)0x3F;
+        }
+    }
+
+    /// <summary>
+    /// Builds the 47-byte output state embedded in both the init-prime and the per-tick
+    /// combined <c>0x36</c> report: the game's output state overridden by the
+    /// forwarder's audio configuration. The rumble-mode bits are cleared — while the
+    /// audio lane is open the pad ignores the motor bytes (and switching modes
+    /// mid-stream breaks audio), so rumble is driven through the haptics PCM instead.
+    /// Every other field rides through exactly as the game wrote it, including the
+    /// trigger FFB allow bits: with a bit set the pad applies the embedded block each
+    /// tick; with a bit clear the pad retains its effect, matching real hardware.
+    /// Channels the forwarding options disabled are replaced with their clearing
+    /// value (Off triggers, black lightbar, no player LEDs) so they release even while
+    /// standalone output reports are ignored. Caller must hold <see cref="_sync"/>.
+    /// </summary>
+    private SetStateData CreateAudioState()
+    {
+        SetStateData game = _gameState ?? new SetStateData();
+
+        // Clone: `with` writes through the shared raw buffer, and the cached game state must
+        // keep the host's own fields so re-enabling a channel restores them on the next tick.
+        byte[] raw = new byte[SetStateData.PayloadSize];
+        game.CopyTo(raw, 0);
+        SetStateData state = new SetStateData(raw, 0);
+
+        // Recompute the flags from the game's bytes every tick; the `with` expressions
+        // below write through this tick's clone, never the cached game state.
+        ValidFlags flag0 = (state.ValidFlag0 & ~(ValidFlags.EnableRumbleEmulation | ValidFlags.UseRumbleNotHaptics))
+                           | ValidFlags.AllowSpeakerVolume | ValidFlags.AllowHeadphoneVolume
+                           | ValidFlags.AllowAudioControl;
+        ValidFlags flag1 = state.ValidFlag1 | ValidFlags.AllowAudioControl2;
+        ValidFlags flag2 = state.ValidFlag2 & ~ValidFlags.EnableImprovedRumbleEmu;
+
+        if (!_gameTriggersEnabled)
+        {
+            // Keep the allow bits set with an Off block so the pad releases the triggers
+            // instead of retaining the last effect while the lane is open.
+            flag0 |= ValidFlags.AllowRightTriggerFfb | ValidFlags.AllowLeftTriggerFfb;
+            state = state with
+            {
+                R2TriggerEffect = TriggerEffectBuilder.Off(),
+                L2TriggerEffect = TriggerEffectBuilder.Off()
+            };
+        }
+
+        if (!_gameLightbarEnabled)
+        {
+            flag1 |= ValidFlags.AllowLedColor;
+            flag2 |= ValidFlags.AllowColorFadeAnim;
+            state = state with
+            {
+                LightFadeAnimation = 0x02,
+                LedRed = 0,
+                LedGreen = 0,
+                LedBlue = 0
+            };
+        }
+
+        if (!_gamePlayerLedsEnabled)
+        {
+            flag1 |= ValidFlags.AllowPlayerIndicators;
+            state = state with
+            {
+                PlayerLeds = PlayerLedMask.None
+            };
+        }
+
+        return state with
+        {
+            ValidFlag0 = flag0,
+            ValidFlag1 = flag1,
+            ValidFlag2 = flag2,
+            SpeakerVolume = _speakerVolume,
+            HeadphoneVolume = HeadphoneVolume,
+            AudioControl = OutputControl,
+            AudioControl2 = _speakerPreGain
+        };
+    }
+
+    /// <summary>
+    /// Mixes the game's classic rumble motors into the haptics PCM: each motor is
+    /// synthesized as a sine wave (60 Hz for the left/strong motor, 180 Hz for the
+    /// right/weak motor, matching the reference Gamepad haptics-PCM polyfill) and
+    /// summed into both haptics channels, clamped to the s8 range. The magnitudes are
+    /// exponentially smoothed (about 50 ms) so strength changes ramp instead of
+    /// clicking. While the audio lane is open the pad ignores the state block's motor
+    /// bytes, so this is the only rumble path during streaming. Caller must hold
+    /// <see cref="_sync"/>.
+    /// </summary>
+    private void MixRumbleIntoHaptics()
+    {
+        if (!_gameRumbleEnabled)
+        {
+            _rumbleLeftMagnitude = 0f;
+            _rumbleRightMagnitude = 0f;
+            return;
+        }
+
+        byte leftTarget = _rumbleLeftTarget;
+        byte rightTarget = _rumbleRightTarget;
+
+        if (leftTarget == 0 && rightTarget == 0 && _rumbleLeftMagnitude < 0.001f && _rumbleRightMagnitude < 0.001f)
+        {
+            _rumbleLeftMagnitude = 0f;
+            _rumbleRightMagnitude = 0f;
+            return;
+        }
+
+        // Haptics sample rate: 32 frames per 512/48000 s tick = 3 kHz.
+        const double rate = DualSenseBtAudioPipeline.HapticsFrames
+                            / (DualSenseBtAudioPipeline.FramesPerBlock / (double)DualSenseBtAudioPipeline.SampleRate);
+        double smoothPerSample = 1.0 - Math.Exp(-1.0 / (0.05 * rate));
+        const double twoPi = 2.0 * Math.PI;
+        double leftStep = 60.0 / rate;
+        double rightStep = 180.0 / rate;
+
+        Span<byte> haptics = _hapticsPcm;
+        for (int i = 0; i < DualSenseBtAudioPipeline.HapticsFrames; i++)
+        {
+            _rumbleLeftMagnitude += (float)((leftTarget / 255.0 - _rumbleLeftMagnitude) * smoothPerSample);
+            _rumbleRightMagnitude += (float)((rightTarget / 255.0 - _rumbleRightMagnitude) * smoothPerSample);
+
+            _rumbleLeftPhase += leftStep;
+            _rumbleRightPhase += rightStep;
+
+            double wave = _rumbleLeftMagnitude * Math.Sin(twoPi * _rumbleLeftPhase)
+                          + _rumbleRightMagnitude * Math.Sin(twoPi * _rumbleRightPhase);
+            int sample = (int)Math.Round(wave * 127.0);
+
+            int left = (sbyte)haptics[i * 2] + sample;
+            int right = (sbyte)haptics[i * 2 + 1] + sample;
+            haptics[i * 2] = (byte)Math.Clamp(left, -128, 127);
+            haptics[i * 2 + 1] = (byte)Math.Clamp(right, -128, 127);
+        }
+    }
+
+    /// <summary>
+    /// Expands a stereo PCM block into the quad S16 USB representation: channels 1/2
+    /// carry the audio, channels 3/4 carry the audio scaled by the haptic strength —
+    /// or silence when haptics are disabled.
+    /// </summary>
+    private void ToUsbQuadS16(ReadOnlySpan<short> stereo, Span<short> quad)
+    {
+        float strength = _hapticsEnabled ? _hapticStrength : 0f;
+        for (int f = 0; f < DualSenseBtAudioPipeline.FramesPerBlock; f++)
+        {
+            int o = f * 4;
+            short left = stereo[f * 2];
+            short right = stereo[f * 2 + 1];
+            quad[o] = left;
+            quad[o + 1] = right;
+            quad[o + 2] = (short)Math.Clamp(left * strength, short.MinValue, short.MaxValue);
+            quad[o + 3] = (short)Math.Clamp(right * strength, short.MinValue, short.MaxValue);
+        }
+    }
+
+    /// <summary>
+    /// Opens the Bluetooth audio lane on the controller: resets the report sequence and
+    /// Opus encoder, applies the audio configuration, sends the <c>0x32</c> init-prime
+    /// and schedules eight warmup packets on pump ticks. Called from
+    /// the pump right before the first report of an audio session, so an idle forwarder
+    /// never occupies the lane. Caller must hold <see cref="_sync"/>.
+    /// </summary>
+    private void PrimeBluetoothStream()
+    {
+        _outputs!.ResetBluetoothAudioStream();
+        _pipeline.ResetEncoder();
+        bool headset = _playToHeadset;
+        byte volume = _speakerVolume;
+        byte preGain = _speakerPreGain;
+        _outputs.SetAudioOutput(headset ? AudioControl.OutputPathHeadphones : AudioControl.OutputPathSpeaker, volume, headset ? volume : (byte)0x3F, preGain);
+        _outputs.SendBluetoothAudioPrime(CreateAudioState());
+        _prerollRemaining = BtPrerollPackets;
+        _appliedConfigSignature = volume | (headset ? 1 << 8 : 0) | (preGain << 9);
+        _btStreamPrimed = true;
+        // MadSense: the first few lane openings at Info, so a session log shows whether a game keeps
+        // the speaker stream running or reopens it per sound (each reopening costs the warmup).
+        if (++_primeCount <= 3) _log.Info($"Bluetooth audio lane opened (prime #{_primeCount}); {BtPrerollPackets} warmup packets follow");
+        else _log.Debug("Bluetooth stream initialized; warmup advances on pump ticks");
+    }
+
+    /// <summary>
+    /// Blocks until the stopwatch reaches <paramref name="deadlineTimestamp"/>. MadSense: a
+    /// high-resolution waitable timer instead of yielding out the last millisecond, which at
+    /// MMCSS priority was a hot spin on every tick.
+    /// </summary>
+    private static void WaitUntil(long deadlineTimestamp) => PrecisionWait.SleepUntil(deadlineTimestamp);
+
+    /// <summary>
+    /// Bounded ring of fixed 512-frame stereo blocks, shared between the capture
+    /// callback (producer) and the pump (consumer). Full pushes drop the oldest block;
+    /// the pump handles draining back to the target latency.
+    /// </summary>
+    private sealed class PcmBlockRing
+    {
+        private readonly Lock _lock = new Lock();
+        private readonly float[][] _blocks;
+        private readonly int _capacity;
+        private int _write;
+        private int _read;
+        private int _count;
+
+        /// <summary>
+        /// Creates a ring holding <paramref name="capacity"/> blocks.
+        /// </summary>
+        public PcmBlockRing(int capacity)
+        {
+            _capacity = capacity;
+            _blocks = new float[capacity][];
+            for (int i = 0; i < capacity; i++)
+            {
+                _blocks[i] = new float[BlockSamples];
+            }
+        }
+
+        /// <summary>
+        /// Number of complete blocks currently in the ring.
+        /// </summary>
+        public int Count
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _count;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Number of samples buffered in the partial-block accumulator.
+        /// </summary>
+        public int PartialCount
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _partialCount;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Partial-block accumulator; appends the tail of a feed chunk.
+        /// </summary>
+        private int _partialCount;
+
+        /// <summary>
+        /// Partial-block accumulator; holds the tail of a feed chunk.
+        /// </summary>
+        private readonly float[] _partial = new float[BlockSamples];
+
+        /// <summary>
+        /// Appends samples to the partial-block accumulator.
+        /// </summary>
+        public void AppendPartial(ReadOnlySpan<float> samples)
+        {
+            lock (_lock)
+            {
+                samples.CopyTo(_partial.AsSpan(_partialCount, samples.Length));
+                _partialCount += samples.Length;
+            }
+        }
+
+        /// <summary>
+        /// Pushes the completed partial block into the ring, dropping the oldest block
+        /// when full, and resets the accumulator.
+        /// </summary>
+        public void PushPartial()
+        {
+            lock (_lock)
+            {
+                if (_partialCount == BlockSamples)
+                {
+                    _partial.CopyTo(_blocks[_write], 0);
+                    AdvanceWrite();
+                    _partialCount = 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Pushes one complete block, dropping the oldest block when the ring is full.
+        /// </summary>
+        public void Push(ReadOnlySpan<float> block)
+        {
+            lock (_lock)
+            {
+                block.CopyTo(_blocks[_write].AsSpan());
+                AdvanceWrite();
+            }
+        }
+
+        /// <summary>
+        /// Pops the oldest block into <paramref name="destination"/>; returns <c>false</c>
+        /// when the ring is empty.
+        /// </summary>
+        public bool TryPop(float[] destination)
+        {
+            lock (_lock)
+            {
+                if (_count == 0)
+                {
+                    return false;
+                }
+
+                _blocks[_read].CopyTo(destination, 0);
+                _read = (_read + 1) % _capacity;
+                _count--;
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Drops every buffered block and the partial-block accumulator.
+        /// </summary>
+        public void Clear()
+        {
+            lock (_lock)
+            {
+                _write = 0;
+                _read = 0;
+                _count = 0;
+                _partialCount = 0;
+            }
+        }
+
+        /// <summary>
+        /// Writes one block at the write cursor, dropping the oldest when full. Caller
+        /// must hold <see cref="_lock"/>.
+        /// </summary>
+        private void AdvanceWrite()
+        {
+            if (_count == _capacity)
+            {
+                _read = (_read + 1) % _capacity;
+            }
+            else
+            {
+                _count++;
+            }
+
+            _write = (_write + 1) % _capacity;
+        }
+    }
+}

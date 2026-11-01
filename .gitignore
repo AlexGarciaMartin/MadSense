@@ -1,0 +1,19 @@
+# Compilación y publicación
+**/bin/
+**/obj/
+app/
+dist/
+test-results/
+*.user
+
+# Estado de este PC: accesos directos absolutos, registros y ajustes en vivo
+MadSense.lnk
+*.log
+*.log.previous
+/app/preferences.json
+/app/controllers.json*
+/app/diagnostic.json
+/app/hidden-controller.json
+
+# Las evidencias sí se versionan (evidence/), con rutas y MAC anonimizadas.
+!evidence/**/*.log

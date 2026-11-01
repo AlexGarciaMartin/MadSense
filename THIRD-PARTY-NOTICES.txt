@@ -1,0 +1,103 @@
+MadSense 0.2 — 31 October 2026
+
+Application UI and orchestration: MadSense project. GPL-3.0.
+
+Controller, Bluetooth, HID, audio, settings, emulation and HidHide libraries:
+DualSense Client contributors — GPL-3.0.
+https://github.com/DualSenseClient/DualSenseClient
+Pinned source: 210ba4e3ea27e8aca455215d772ca7af6a2f987f
+Source and license are included in vendor/DualSenseClient.
+The original GUI source is retained for source provenance but is not used by SenseBridge.
+Upstream tests are included; SenseBridgeHardwareTests.cs is added by this project.
+SenseBridge modifications dated 2026-10-31: NativeHapticsQueue.cs added;
+DualSenseAudioForwarder.cs, EmulationSettings.cs and EmulationService.cs modified
+to add opt-in strictly native queued haptics. SenseBridge enables this mode.
+NativeHapticsQueueTests.cs and strict-native forwarder tests added.
+The queue preserves 48 kHz packet continuity when converting to 3 kHz,
+consumes each queued sample once, and outputs silence on underflow.
+
+HIDAPI 0.15.0, libusb/hidapi contributors.
+https://github.com/libusb/hidapi/tree/hidapi-0.15.0
+Windows x64 binary downloaded from the official release.
+HIDAPI offers a choice of BSD-3-Clause, GPL-3.0, or HIDAPI licenses.
+The BSD license is included with the vendored binary.
+
+usbip-win2, Vadim Grinberg and contributors — BSD-2-Clause.
+https://github.com/vadimgrn/usbip-win2
+Official signed version 0.9.8.1 installed separately; not linked into this application.
+
+HidHide driver, Nefarius Software Solutions — separately installed existing dependency.
+https://github.com/nefarius/HidHide
+
+NuGet package dependencies and license metadata are recorded in dependency-notices.txt.
+The self-contained distribution includes Microsoft .NET runtime components under their respective licenses.
+No proprietary DSX binaries are included.
+
+MadSense modifications, 2026-10-31:
+- Native WinForms UI/logo, automatic reconnect, tray, persisted native/XInput modes,
+  bounded logs, robust lifecycle and HidHide state recovery (src/).
+- DualSenseAudioForwarder: nonblocking warmup, event-driven idle, cancellation,
+  restart-buffer cleanup, copied output snapshots and short native impulse flush.
+- DualSenseDevice: guard disabled Trace formatting in the input hot path.
+- EmulationService / DualSenseFeatureReports: physical calibration report forwarding.
+- HidHideService: global cloak state access and application authorization query.
+- Calibration, XInput API round-trip, native audio regression and physical
+  MadSense integration tests added. See evidence for validation details.
+Original copyright and license headers remain in the vendored source.
+
+Bluetooth-only MadSense avoids constructing the unused local MiniAudioEngine; native USB/IP audio is forwarded directly.
+
+
+MadSense 0.3 changes (31 October 2026):
+- Original vector comic/print UI and new logo in src/assets; no external artwork.
+- Scoped input timing lease and opt-in ImmediateInputDelivery event-coalesced
+  USB/IP completion with FIFO, unlink and teardown regression tests.
+- Native haptics nearest/ties-even quantization; real PCM during speaker warmup;
+  bounded recent haptic queue before consumption, preserving finite impulses.
+- Opt-in ISO OUT latency aggregates, with scheduling unchanged and tests.
+- MadSenseProbe source and lab-only comparison test are included; diagnostics
+  are not automatically run during normal use. See evidence/comparison.
+
+MadSense 0.4 changes (31 October 2026):
+- Core/Utilities/MultimediaThread.cs added: MMCSS registration helper.
+- Core/Utilities/PrecisionWait.cs added: high-resolution waitable timer sleep.
+- DualSenseAudioForwarder: pump on a dedicated long-running thread, MMCSS
+  "Pro Audio", tick wait through PrecisionWait instead of a yield spin.
+- DualSenseDevice (physical): input read loop registered with MMCSS "Games".
+- EmulationSettings: StrictNativeHaptics serialized as "strict_native_haptics";
+  the upstream serialization test is updated accordingly.
+- tests/Core/PrecisionWaitTests.cs added.
+- src/: event-driven bridge worker, device-change wake, link-loss detection,
+  live feedback signals, low-battery notice, tray autostart (--tray).
+- BluetoothAudioReportBuilder / DualSenseDevice: the five session-block buffer
+  bytes are settable (SessionBufferLengths); default unchanged at 0x40. MadSense
+  sets the fifth byte to 0x20 (measured: pad-side haptic buffering 74 → 42 ms).
+- tools/HapticLatencyProbe added (GPL-3.0): accelerometer-based tactile latency
+  probe; includes a copy of the test-only WASAPI helper without NUnit.
+- tests/Controllers/DualSense/Output/BluetoothAudioSessionBufferTests.cs added.
+
+MadSense 0.4 speaker follow-up (1 November 2026):
+- DualSenseAudioForwarder: speaker blocks queued during the eight-packet warmup are
+  trimmed to the newest three (the post-warmup drain discarded alternate blocks);
+  the first three lane openings are logged at Info. Forwarder tests adjusted and
+  SpeakerAudioQueuedDuringWarmupIsTrimmedNotChopped added.
+- src/Program.cs: forwarded speaker volume 0x64 (the pad's usable maximum) instead
+  of the library default 0x50.
+- tools/HapticLatencyProbe: --speaker-test mode (front-channel beeps through the
+  bridge's render endpoint; --lead-ms, --gap-ms), --endpoint-volume, --ladder.
+- EmulationSettings.ForwardSettings.SpeakerPreGain ("speaker_pre_gain", default 2);
+  IDualSenseAudioOutputs.SetAudioOutput gained a preampGain parameter; the
+  forwarder embeds the pre-gain in audio control 2 of the route report and of every
+  audio-lane state block. MadSense sets 7 (heard on hardware). Serialization test
+  expectation updated; forwarder test added.
+- EmulationDualSenseAudioCapture: Info log of the first non-silent speaker chunk
+  and of 5 s window peaks (what the host actually sends).
+- IEmulationService.SetForwardingSpeaker(device, volume, preGain) added: applies
+  both to the live forwarder without recreating the virtual controller.
+- src/: speaker level (SpeakerLevels, Preferences {"mode","speaker"}, Bridge.
+  SetSpeaker, ALTAVOZ DEL MANDO row and tray submenu); tools/ui-check.ps1
+  (PrintWindow capture + UI Automation click) for UI evidence.
+- setup/ (install.ps1, uninstall.ps1, Instalar.cmd, Desinstalar.cmd) and
+  tools/build-release.ps1: installable package. The installer downloads
+  usbip-win2 0.9.8.1 (BSD-2) and HidHide 1.5.230 (MIT) from their official
+  GitHub releases with pinned SHA-256; neither binary is redistributed here.

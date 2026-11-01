@@ -1,0 +1,206 @@
+{
+  "Label": "DSX-3.2-Beta02-run1",
+  "Timestamp": "2026-10-31T03:23:00.3501503+01:00",
+  "Endpoint": "Altavoces (4- DualSense Wireless Controller)",
+  "ShareMode": "Shared",
+  "Format": "4 ch float 32-bit 48000 Hz",
+  "BufferFrames": 1056,
+  "StreamLatencyMs": 0,
+  "TargetAheadFrames": 480,
+  "PhysicalPath": "\\\\?\\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID\u00260002054c_PID\u00260ce6#8\u00267ce5e1a\u00260\u00260000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+  "Impulse": {
+    "frequency": 100,
+    "impulseMs": 60,
+    "amplitude": 0.9,
+    "Channels": "rear pair (3-4) only; front pair silent"
+  },
+  "Metric": "Host timestamp of the WASAPI write that begins the impulse \u2192 first physical accelerometer sample (Bluetooth input report) deviating \u003E max(8\u03C3, 250) from the pre-impulse baseline. Includes Windows audio engine, bridge, Bluetooth output, firmware, actuator rise, Bluetooth input and observer scheduling. \u0027Scheduled\u0027 subtracts the frames already queued in the stream at write time.",
+  "Trials": 15,
+  "Detected": 15,
+  "WriteToSpikeMs": {
+    "Count": 15,
+    "Min": 111.4762,
+    "Median": 120.262,
+    "P95": 127.9137,
+    "Max": 134.7527,
+    "Mean": 120.7839
+  },
+  "ScheduledToSpikeMs": {
+    "Count": 15,
+    "Min": 111.4762,
+    "Median": 120.262,
+    "P95": 127.9137,
+    "Max": 134.7527,
+    "Mean": 120.7839
+  },
+  "QueuedAheadMs": {
+    "Count": 15,
+    "Min": 0,
+    "Median": 0,
+    "P95": 0,
+    "Max": 0,
+    "Mean": 0
+  },
+  "PeakDeviation": {
+    "Count": 15,
+    "Min": 1206.441812780955,
+    "Median": 9480.886678007198,
+    "P95": 9898.367933294352,
+    "Max": 9899.114416154664,
+    "Mean": 8310.188943336652
+  },
+  "PerTrial": [
+    {
+      "Index": 0,
+      "WriteTick": 1171749164839,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 112.4968,
+      "ScheduledToSpikeMs": 112.4968,
+      "Peak": 9898.367933294352,
+      "BaselineSigma": 16.617918620533462,
+      "BaselineSamples": 157
+    },
+    {
+      "Index": 1,
+      "WriteTick": 1171773802973,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 126.1564,
+      "ScheduledToSpikeMs": 126.1564,
+      "Peak": 7626.393544416681,
+      "BaselineSigma": 16.894365535888753,
+      "BaselineSamples": 151
+    },
+    {
+      "Index": 2,
+      "WriteTick": 1171798616311,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 134.7527,
+      "ScheduledToSpikeMs": 134.7527,
+      "Peak": 1206.441812780955,
+      "BaselineSigma": 15.761546447175016,
+      "BaselineSamples": 146
+    },
+    {
+      "Index": 3,
+      "WriteTick": 1171823548739,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 111.4762,
+      "ScheduledToSpikeMs": 111.4762,
+      "Peak": 9765.678697880523,
+      "BaselineSigma": 15.498903867768151,
+      "BaselineSamples": 147
+    },
+    {
+      "Index": 4,
+      "WriteTick": 1171848374056,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 118.9123,
+      "ScheduledToSpikeMs": 118.9123,
+      "Peak": 9480.886678007198,
+      "BaselineSigma": 15.080092016972046,
+      "BaselineSamples": 154
+    },
+    {
+      "Index": 5,
+      "WriteTick": 1171873185495,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 126.5011,
+      "ScheduledToSpikeMs": 126.5011,
+      "Peak": 9737.847235823172,
+      "BaselineSigma": 16.5301106443526,
+      "BaselineSamples": 122
+    },
+    {
+      "Index": 6,
+      "WriteTick": 1171897915406,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 117.2189,
+      "ScheduledToSpikeMs": 117.2189,
+      "Peak": 9899.114416154664,
+      "BaselineSigma": 16.745641340547397,
+      "BaselineSamples": 128
+    },
+    {
+      "Index": 7,
+      "WriteTick": 1171922676703,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 121.0358,
+      "ScheduledToSpikeMs": 121.0358,
+      "Peak": 9743.957474554987,
+      "BaselineSigma": 17.269684435562368,
+      "BaselineSamples": 126
+    },
+    {
+      "Index": 8,
+      "WriteTick": 1171947747855,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 115.1506,
+      "ScheduledToSpikeMs": 115.1506,
+      "Peak": 9786.715952707522,
+      "BaselineSigma": 15.966338251512754,
+      "BaselineSamples": 143
+    },
+    {
+      "Index": 9,
+      "WriteTick": 1171972696606,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 120.262,
+      "ScheduledToSpikeMs": 120.262,
+      "Peak": 9649.695702860694,
+      "BaselineSigma": 15.352441336352648,
+      "BaselineSamples": 152
+    },
+    {
+      "Index": 10,
+      "WriteTick": 1171997759533,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 122.7074,
+      "ScheduledToSpikeMs": 122.7074,
+      "Peak": 8816.829663847548,
+      "BaselineSigma": 16.392609888739873,
+      "BaselineSamples": 154
+    },
+    {
+      "Index": 11,
+      "WriteTick": 1172022561052,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 122.4709,
+      "ScheduledToSpikeMs": 122.4709,
+      "Peak": 4270.917406681522,
+      "BaselineSigma": 16.89977890406182,
+      "BaselineSamples": 144
+    },
+    {
+      "Index": 12,
+      "WriteTick": 1172047346673,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 115.1856,
+      "ScheduledToSpikeMs": 115.1856,
+      "Peak": 8372.264773427478,
+      "BaselineSigma": 17.168988079151603,
+      "BaselineSamples": 152
+    },
+    {
+      "Index": 13,
+      "WriteTick": 1172072439922,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 119.5181,
+      "ScheduledToSpikeMs": 119.5181,
+      "Peak": 8728.84285047019,
+      "BaselineSigma": 15.228220251667418,
+      "BaselineSamples": 145
+    },
+    {
+      "Index": 14,
+      "WriteTick": 1172097332111,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 127.9137,
+      "ScheduledToSpikeMs": 127.9137,
+      "Peak": 7668.880007142292,
+      "BaselineSigma": 16.274723002137282,
+      "BaselineSamples": 144
+    }
+  ],
+  "Errors": [],
+  "Caveats": "Pad must rest untouched. Shared-mode engine period and the bridge\u0027s own buffering are both inside the number; compare runs made with this same tool and settings only."
+}

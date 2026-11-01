@@ -1,0 +1,33 @@
+Immediate input delivery implementation — 2026-10-31
+
+Optional EmulationServerOptions.ImmediateInputDelivery / UsbIpServerOptions bool,
+default false. Enable only in MadSense after physical comparison.
+
+- VirtualUsbDevice.InputReportAvailable event; protected NotifyInputReportAvailable.
+- Raw HID snapshot and DualSense/Xbox synthetic setters notify after their own
+  state locks release. The notification does no socket work on the HID reader.
+- Session records input generation and coalesces notifications into one ThreadPool
+  worker. Separate wakeup generation includes later URB arrival: data published
+  without a pending host read is retained as the latest snapshot.
+- The worker checks fresh generation, answers one waiting URB perendpoint and uses
+  the existing serialized writer. It never queues historical input states.
+- Perendpoint completion lock serializes eventworker and periodicpacer, preserving
+  FIFO take/report/send order and avoiding duplicate/overtaken completions.
+- Existingpacer is retained as fallback andforinitial/unchangedreports. ISO clocks
+  areunchanged; still require highprecisiontiming whilebridgeconnected.
+- Session teardown sets torn-downflag andunsubscribes beforepacerstop/queueclear;
+  outstandingcompletion seesflag orclosedstream. No globaldriver/systemchanges.
+
+Tests:36/36 UsbIpServerTests passed, including6added tests covering immediate
+completionwithoutmanualclockadvance; defaultpacingunchanged; burstlateststate
+withoutstalehistoryreplay; unlink; producerreturnswhilepriorreportblocked and
+pacer/eventFIFOexactlyonce; stopunsubscribe. Nohardwareinunitrun.
+
+Physicalcomparison pending root. Nominalinputintervalisnotproof oflatency; compare
+sameprobe deltas, matchingratio andpayloadintegrity plusCPU. Timer fallbackmay
+stillproduce duplicatecurrentstate andlateststate samplingdoesnotprove packetloss.
+
+Files: EmulationServerOptions.cs,EmulationServer.cs,UsbIpServer.cs,
+Core/VirtualUsbDevice.cs,Core/VirtualHidDevice.cs,
+Devices/DualSense/DualSenseDevice.cs,Devices/Xbox360/Xbox360Device.cs,
+tests/Emulation/UsbIp/UsbIpServerTests.cs.

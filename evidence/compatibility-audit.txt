@@ -1,0 +1,46 @@
+MadSense compatibility and lifecycle audit — 2026-10-31
+
+Implemented by audit worker:
+- Physical motion calibration feature 0x05 is copied into the virtual DualSense before USB attachment. Raw physical gyro/accelerometer reports previously used generic virtual calibration; games could apply incorrect bias/scale. Copy is defensive, validates size/ID/nonzero data, and retains reference fallback with warning on unavailable reads.
+- Avoid hex string formatting/BitConverter allocation for every physical input packet when Trace logging is disabled.
+- Feature-report test covers supplied calibration, truncated GET_REPORT, buffer ownership, invalid data rejection and pairing identity preservation. 98 calibration/service tests passed; calibration.trx.
+- New gated XInputRoundTripTests verifies actual Windows XInput enumeration, exact test input, rumble callback and removal. Built successfully; root must execute when physical testing is serialized.
+
+Open architecture findings for root:
+1. A failed virtual attachment left a live physical controller indefinitely stuck. Retry must include stalled/failed virtual creation, not only missing physical controller.
+2. No controller should be a normal waiting state, not fatal startup. Background serialized worker should keep UI responsive through attach/dispose and retry.
+3. Preserve raw default DualSense mapping. Bluetooth report31 payload copied to USB01 preserves physical trigger state echo (important to Stellar Blade), touch, sensors and timestamps. Remapping switches to synthesized input that intentionally lacks some echo/status fields.
+4. HidHide blacklist membership alone does not prove active cloaking. Driver helper auto toggles global cloak; journal storing only a device ID cannot restore all prior global states. Preserve own changes and expose actionable failure instead of reporting ready if hiding failed.
+5. Cleanup must isolate failures: controller disposal exception must not skip audio disposal and journal restoration.
+6. Xbox360 mode skips HID discovery because the device is vendor-class. Existing Running status proves attachment request, not necessarily usable XInput. xusb22 driver-binding test exists; new XInput test adds real API verification.
+7. Logs should be bounded and nonfatal. Existing portable logs/config beside EXE assume writable install directory. Rename changes HidHide whitelist executable path; add new path and avoid silently deleting unrelated entries.
+8. One controller only; microphone physical Bluetooth capture absent; device firmware features mostly synthetic; physical unplug/reconnect, jack, touch and perceived latency remain distinct test gaps.
+
+Compatibility / UX recommendation:
+- Default native DualSense USB persona + automatic Bluetooth reconnection is a sound default for this project. Steam can translate that persona for games without native support when its per-game/global settings allow it.
+- Label this 'Recomendado · DualSense + Steam', with helper explaining Steam Input configuration; 'Auto' alone misleadingly implies native support is universally detected by MadSense.
+- Explicit 'DualSense directo' retains native capabilities; explicit 'Compatibilidad Xbox' covers XInput games outside Steam. Xbox provides sticks/buttons/ordinary vibration, not native adaptive triggers, touch coordinates, speaker or PS5 haptic waveforms. Game must implement advanced functions; its console origin is not the deciding factor.
+- Do not change personality merely after detecting a running EXE; cached devices, player slots and games that do not hotplug can break. Do not publish both active personalities by default (double-input/player2 risk).
+- Steam's 'Enabled in Games w/o Support' selective option is established, but exceptions and incorrect game metadata exist. Native games may require per-game Steam Input disabled. No supported public API found for external apps to atomically configure live Steam settings; do not edit opaque VDF files blindly.
+- If adding game launch profiles later, select personality before launch, persist it per exact game executable, and offer explicit restart guidance for changes. Avoid claiming 100% compatibility or auto detection.
+
+Current primary sources inspected:
+https://steamcommunity.com/app/1812620/announcements/
+Official v3.2 Beta02 notes: quiet native haptics fix, LEDs/triggers kept current during audio, physical trigger state routing fix explicitly naming Stellar Blade. Beta01 covers virtual DualSense audio/haptics and latency-growth/stream-restart fixes. These are meaningful parity regression targets.
+https://steamcommunity.com/app/1812620/eventcomments/568163851455126926/
+Developer Paliverse reply 22 June says Bluetooth microphone is planned; it does not prove present support. Do not frame absent microphone as proven regression versus DSX current beta without newer evidence.
+https://partner.steamgames.com/doc/features/steam_controller/steam_input_gamepad_emulation_bestpractices
+Valve explains Windows Steam Input intercepts controller APIs and provides an emulated Xbox controller. Native identity and extra input semantics differ; game-specific glyph APIs exist.
+https://partner.steamgames.com/doc/features/steam_controller/getting_started_for_devs
+Valve recommends opting controller types without native support into Steam Input and explains Xbox identity when emulated.
+https://steamcommunity.com/games/593110/announcements/detail/3823053915988527062
+Valve's PlayStation support discovery / game compatibility categories.
+https://store.steampowered.com/news/posts/?enddate=1701714847&feed=steam_community_announcements
+Publisher Cyberpunk 2077 2.1 note documents DualSense support and warns connection after launch can freeze unless Steam Input PlayStation support disabled. This is direct evidence against blind runtime persona swapping, not proof of every current game version.
+
+Recommended root regression sequence:
+- No controller start, late wake, reconnect, DSX conflict, driver missing, failed virtual enumeration, pause/resume, repeated attach/detach, crash journal recovery.
+- Native raw input/trigger status tests; physical calibration equality; active triggers while speaker+haptics continuously stream; very low amplitudes/silences.
+- XInput driver bind + new API round trip; real game input and physical rumble are additional checks.
+- Hide/minimize stops decorative animation; memory/CPU measured after warmup; closed-to-tray preserves connection, Quit cleans device.
+- End-to-end latency needs hardware measurement. Host scheduling or polling interval is not total tactile latency and should be labeled accordingly.

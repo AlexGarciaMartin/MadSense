@@ -1,0 +1,44 @@
+MadSense native haptics precision audit — 2026-10-31
+
+Changed only NativeHapticsQueue.cs and NativeHapticsQueueTests.cs.
+
+Problem: the continuous converter averaged 16 S16 frames and truncated its S8
+quantization toward zero. An average of +129 through +255 S16 units became zero,
+as did the negative mirror. These values are nearer to +/-1 S8 unit than zero.
+This is an avoidable magnitude bias for quiet native effects, separate from the
+unavoidable finite resolution of the Bluetooth haptic format.
+
+Correction: round the average to nearest S8 value, ties to even, then saturate to
+[-128,127]. No gain, dither, packet-rate change, transport change, accumulation
+across output samples, audio-derived effect or artificial amplitude threshold.
+Zero remains exactly zero. The deterministic half-LSB deadzone belongs to the
+quantizer; arbitrarily tiny signals cannot be preserved in S8 without dither.
+
+Validation: 12/12 NativeHapticsQueue tests passed. Coverage includes packet
+fragment continuity, channel order, underflow/flush/overflow, quiet amplitudes
+127/128/129/255, sign symmetry, tie-to-even cases, and every constant S16 level
+(-32768..32767) for <=0.5 S8 LSB error except unavoidable positive saturation.
+File: outputs/MadSense/test-results/haptics-precision.trx.
+
+Mathematical exhaustive constant-level sweep (not hardware or perceived quality):
+Old RMS quantization error = 0.5756585372 S8 LSB.
+New RMS quantization error = 0.2903529052 S8 LSB.
+Includes asymmetric positive full-scale saturation of signed8.
+
+Compatibility risk: weak native waveforms can now produce +/-1 where the old
+converter produced zero. This is intentional nearest quantization, but tactile
+strength/quality still requires physical comparison. No claim about DSX's own
+quantizer or superior human perception has been verified.
+
+Speaker cadence review (unchanged): the pipeline linearly maps each512-frame
+48kHz input block to480 frames for a10ms Opus frame, then transmits at512/48000s
+(10.667ms). This preserves the existing reference transport but encodes45000
+decoded samples per host second if counted as480-frame packets. Whether this
+is firmware's intended playback timebase cannot be established by these source
+files. A generic48kHz decoder alone would not settle the physical playback clock.
+Changing packet cadence or removing the resampling without firmware evidence
+could break the combined haptics lane. No speaker/pitch/cadence change was made.
+
+The16-frame box average is a simple low-pass, not a high-quality antialias filter.
+A more complex filter would change phase/group delay and should be evaluated
+against captured native waveforms and actual actuator response before shipping.

@@ -1,0 +1,55 @@
+MadSense — Auditoría audio/hápticos, 31-10-2026
+
+Archivos modificados por esta auditoría:
+- vendor/DualSenseClient/DualSenseClient.Controllers/DualSense/Audio/DualSenseAudioForwarder.cs
+- tests/DualSenseClient.Tests/Controllers/DualSense/Audio/DualSenseAudioForwarderTests.cs
+
+Fallos corregidos
+1. El calentamiento Bluetooth dormía ocho veces bajo el mismo bloqueo que
+   reciben los callbacks USB y las órdenes del juego. Ahora envía un paquete
+   de calentamiento por tick y libera el bloqueo entre ticks. Elimina esa
+   detención de aproximadamente 85–96 ms del productor, sin reducir a ciegas
+   los ocho paquetes que utiliza la implementación de referencia.
+2. La bomba despertaba cada 2 ms en reposo y retenía resolución de temporizador
+   de 1 ms durante toda la conexión. Ahora espera una señal de datos/cancelación.
+   Libera la resolución tras 150 ms de inactividad, conservándola a través de
+   los huecos normales para evitar alternarla con cada paquete.
+3. El delegado Task.Run capturaba _cts mutable: Stop podía ponerla a null antes
+   de que comenzase la tarea. Ahora captura un CancellationTokenSource local.
+4. Start después de Stop conservaba audio de altavoz antiguo en la cola.
+   Ahora limpia cola, acumulador y timestamp antes de arrancar.
+5. UpdateGameOutputState guardaba una vista del buffer del llamante. Ahora
+   copia los 47 bytes, evitando mutaciones externas de gatillos/luces/estado.
+6. Una cola nativa con menos de 32 frames podía quedarse sin consumir para
+   siempre al terminar un efecto breve. Ahora drena la cola final con silencio
+   de relleno después de un periodo sin entrada. No repite el último efecto.
+7. La expiración del snapshot antiguo también se aplicaba a la cola consumible:
+   podía borrar el primer impulso tras calentamiento. Se retiró esa expiración
+   en la lectura. Una discontinuidad de entrada, Flush o Start siguen limpiando
+   datos antiguos. Las colas permanecen acotadas.
+
+Validación
+52 pruebas de audio/hápticos superadas, 0 fallidas, 0 omitidas.
+TRX: outputs/MadSense/test-results/audio-optimization.trx
+Incluye cuatro regresiones nuevas: callback durante calentamiento, impulso
+final corto sin altavoz, reinicio sin reproducir audio antiguo, snapshot de
+estado independiente del buffer de origen.
+Callback durante calentamiento: 0,047 ms en la última ejecución, transporte
+falso. NO mide Bluetooth, USB/IP, latencia de juego ni actuador físico.
+Pruebas de hardware corresponden al agente principal tras esta auditoría.
+
+Límites y decisiones deliberadas
+- Conservados ocho paquetes de calentamiento y formato/cadencia Bluetooth.
+  Reducirlos sin medir pérdidas reales podría empeorar el altavoz.
+- Conversión nativa de 48 kHz S16 estéreo a 3 kHz S8: media de 16 frames,
+  continuidad entre fragmentos, sin umbral de amplitud inventado ni derivación
+  del altavoz. La cuantización de 8 bits limita señales muy pequeñas; no es
+  transporte bit-perfect. El filtro de promedio no es un filtro antialias ideal.
+- Audio y hápticos tienen colas separadas y acotadas. Bajo sobrecarga se
+  descartan datos antiguos para recuperar latencia; no se garantiza sincronía
+  perfecta bajo host saturado. Los datos siguen ordenados dentro de cada ruta.
+- La ruta de altavoz tiene codificación Opus y conversión 512→480; no se midió
+  latencia extremo a extremo, calidad acústica ni equivalencia con DSX/PS5.
+- No se añadió captura del micrófono físico ni se modificó el protocolo.
+- No se reclamó reducción cuantificada del consumo de CPU; se eliminó el
+  polling periódico ocioso por inspección de código y regresiones funcionales.

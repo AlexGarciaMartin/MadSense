@@ -1,0 +1,29 @@
+Host cadence issue — read-only audit
+
+EndpointPacer.Start and UsbFrameClock.Start schedule ITimer with nominal1ms
+interval via TimeProvider.System. Audio forwarder now releases the process's
+precision lease while idle; the USB/IP input pacer remains active. Thus a1ms
+interval request can become coarse Windows scheduling when no audio plays.
+First observed MadSense baseline: physicalmean1.978ms, virtualmean9.864ms,
+virtualP95interval16.664ms. Same motion timestamp matched for99.93% of virtual
+unique reports, exact63-byte payload/status passthrough. Latest-state delivery
+means low virtualreport count is freshness loss, not proof of transportpacketloss.
+
+Conservative root fix: hold TimerResolution.AddRef while actual emulation bridge
+is alive (including noaudio), release after emulation teardown in guaranteed
+finally. Do not request while waiting for an absent pad. This helper already
+opts out of Win11 timer-throttling when window invisible. Check before/after
+same probe and CPU sample. Don't claim performance only from nominal1ms setting.
+
+Alternative dedicated high-resolution waitable timers are more intrusive and
+need separate callback/disposal/customTimeProvider testing; unnecessary unless
+the scoped multimedia resolution fails to produce adequate observed cadence.
+
+Existing helper Restore releases timeBeginPeriod but does not reset process
+power-throttling flags; process exits restores OS-default naturally. Could be
+improved by preserving/restoring previous process state, but avoid overwriting
+another subsystem's policies while reference count or streams remain active.
+
+Primary docs:
+https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod
+https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-setprocessinformation

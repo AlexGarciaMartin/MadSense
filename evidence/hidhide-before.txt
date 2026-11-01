@@ -1,0 +1,5 @@
+--cloak-on
+--inv-off
+--dev-hide "HID\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002054C_PID&0CE6\8&7CE5E1A&0&0000"
+--app-reg "C:\Program Files\Nefarius Software Solutions\HidHide\x64\HidHideCLI.exe"
+--app-reg "C:\Program Files (x86)\Steam\steamapps\common\DSX\Main_v3_Beta\DSX.exe"

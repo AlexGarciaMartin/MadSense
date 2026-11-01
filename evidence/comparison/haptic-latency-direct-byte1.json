@@ -1,0 +1,139 @@
+{
+  "Label": "Direct-byte1-0x10",
+  "Timestamp": "2026-10-31T03:37:16.3592354+01:00",
+  "Details": {
+    "Mode": "direct",
+    "Lane": "0x36 combined audio\u002Bhaptics",
+    "SessionBufferBytes": "40,10,40,40,40",
+    "SpeakerTone": false,
+    "SustainMs": 0,
+    "Continuity": null,
+    "Metric": "Host timestamp of the hid_write of the first Bluetooth report carrying the impulse \u2192 first physical accelerometer sample deviating \u003E max(8\u03C3, 250) from baseline. No virtual device, no audio engine, no USB/IP: radio, firmware, actuator rise, input report and observer only. Lower bound for any bridge on this PC and pad."
+  },
+  "Impulse": {
+    "Frequency": 100,
+    "ImpulseMs": 60,
+    "Amplitude": 0.9,
+    "Channels": "haptic (rear) pair only"
+  },
+  "Trials": 10,
+  "Detected": 10,
+  "WriteToSpikeMs": {
+    "Count": 10,
+    "Min": 70.6554,
+    "Median": 72.4349,
+    "P95": 82.9495,
+    "Max": 82.9495,
+    "Mean": 75.08247000000001
+  },
+  "QueuedAheadMs": {
+    "Count": 10,
+    "Min": 0,
+    "Median": 0,
+    "P95": 0,
+    "Max": 0,
+    "Mean": 0
+  },
+  "PeakDeviation": {
+    "Count": 10,
+    "Min": 4405.344790834201,
+    "Median": 6254.23765556314,
+    "P95": 8075.744436306046,
+    "Max": 8075.744436306046,
+    "Mean": 6424.734675479127
+  },
+  "PerTrial": [
+    {
+      "Index": 0,
+      "WriteTick": 1180436849803,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 70.6554,
+      "Peak": 6921.209025211085,
+      "BaselineSigma": 16.586478358423356,
+      "BaselineSamples": 166
+    },
+    {
+      "Index": 1,
+      "WriteTick": 1180461489488,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 81.653,
+      "Peak": 4721.258314579785,
+      "BaselineSigma": 16.56095548390226,
+      "BaselineSamples": 136
+    },
+    {
+      "Index": 2,
+      "WriteTick": 1180486024001,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 71.9171,
+      "Peak": 6033.928278864453,
+      "BaselineSigma": 15.869148297084449,
+      "BaselineSamples": 138
+    },
+    {
+      "Index": 3,
+      "WriteTick": 1180510556153,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 72.4349,
+      "Peak": 6254.23765556314,
+      "BaselineSigma": 15.405297666910075,
+      "BaselineSamples": 163
+    },
+    {
+      "Index": 4,
+      "WriteTick": 1180535088120,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 80.418,
+      "Peak": 4405.344790834201,
+      "BaselineSigma": 16.488167538544253,
+      "BaselineSamples": 169
+    },
+    {
+      "Index": 5,
+      "WriteTick": 1180559624619,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 71.7526,
+      "Peak": 6128.568032338423,
+      "BaselineSigma": 16.18268124824372,
+      "BaselineSamples": 162
+    },
+    {
+      "Index": 6,
+      "WriteTick": 1180584155178,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 72.401,
+      "Peak": 6875.722358040307,
+      "BaselineSigma": 15.53131711440951,
+      "BaselineSamples": 156
+    },
+    {
+      "Index": 7,
+      "WriteTick": 1180608687177,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 82.9495,
+      "Peak": 6812.597817711662,
+      "BaselineSigma": 16.06116817956564,
+      "BaselineSamples": 154
+    },
+    {
+      "Index": 8,
+      "WriteTick": 1180633221551,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 73.2159,
+      "Peak": 8018.736045342164,
+      "BaselineSigma": 14.568291949249115,
+      "BaselineSamples": 134
+    },
+    {
+      "Index": 9,
+      "WriteTick": 1180657757276,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 73.4273,
+      "Peak": 8075.744436306046,
+      "BaselineSigma": 15.990235453164702,
+      "BaselineSamples": 152
+    }
+  ],
+  "Errors": [],
+  "Caveats": "Pad must rest untouched. Compare only runs made with this same tool and settings. Not a PS5 measurement."
+}

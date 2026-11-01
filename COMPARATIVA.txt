@@ -1,0 +1,87 @@
+MADSENSE0.3 / DSX3.2 BETA02 — COMPARACIÓN 31-10-2026
+
+ACTUALIZACIÓN 0.4 (03:50): la latencia háptica hasta el actuador se midió por
+fin con el acelerómetro del mando (evidence/comparison/haptic-latency-audit.txt).
+DSX 117–120 ms de mediana; MadSense con el mismo protocolo 109–114; MadSense 0.4
+final 72–79 gracias al byte de búfer háptico del bloque de sesión (0x20). Esto
+sustituye la frase "no se afirma que MadSense sea más rápida" de abajo para los
+hápticos; la entrada sigue siendo del mismo orden en ambas.
+
+CONCLUSIÓN
+La comparación detectó y corrigió una cadencia de entrada insuficiente cuando
+no sonaba audio. La entrada final queda en el mismo orden de magnitud que DSX
+en esta sonda. Eso NO mide cuándo se siente la vibración: el usuario detectó
+retraso háptico adicional y se corrigieron por separado calentamiento y colas.
+La última versión recibió una valoración del usuario de "notable alto".
+No se afirma que MadSense sea globalmente más rápida que DSX ni idéntica a PS5.
+
+ENTRADA: INFORME FÍSICO → INFORME VIRTUAL OBSERVADOS EN EL HOST
+Mismo DualSense Bluetooth y PC. Dos hilos leen handles independientes y emparejan
+la marca temporal de movimiento del mando. Se excluye el primer segundo.
+Los valores incluyen planificación del observador; no son botón→pantalla,
+latencia de radio aislada ni activación mecánica de un gatillo.
+
+                             Mediana          Percentil95
+DSX, Stellar Blade           0.064ms          0.221ms       1muestra15s
+MadSense0.3, Stellar Blade   0.051–0.055ms    0.113–0.127ms 3muestras15s
+MadSense0.2, sin audio       ~0.98–1.00ms     ~7ms          3muestras15s
+
+Las escenas/carga no fueron exactamente idénticas. Diferencias de centésimas de
+milisegundo no justifican declarar ganador. En0.2, además, el intervalo entre
+informes virtuales rondaba10ms sin audio; durante audio caía a~1.1ms. Se corrigió
+con una petición temporal de precisión durante toda la conexión y entrega
+asíncrona por eventos, manteniendo el temporizador de respaldo.
+Las muestras emparejadas de MadSense conservan el payload físico completo.
+Los estados de gatillos y valores brutos de sensores observados también pasan
+por DSX. Su informe virtual de calibración difiere del físico; MadSense copia
+el físico. No se midió el efecto perceptible de esa diferencia.
+
+SALIDA Y GATILLOS
+Se enviaron órdenes suaves idénticas al USB virtual y se observaron cambios
+del estado de gatillos devuelto por el mando físico y por el virtual, también
+con audio de cuatro canales. Esto verifica aplicación/retirada reportada por
+el dispositivo, NO fuerza, sensación ni tiempo mecánico medido.
+El eco de timestamp de salida funciona en MadSense; DSX no devolvió esos tags.
+Por ello no se comparan como si fueran tiempos equivalentes ni se atribuye
+latencia cero a los ecos ausentes. Las sondas posteriores al arranque del juego
+pueden competir con sus órdenes; sus tiempos de salida no se usan como una
+comparación causal de gatillos.
+
+HÁPTICOS: PRUEBA HUMANA Y CORRECCIÓN
+El usuario abrió Stellar Blade y probó salto, apuntado y disparo. El juego
+recuperó el mando al alternar DSX/MadSense sin reiniciar. Con MadSense se
+registraron audio/hápticos nativos y órdenes de gatillos activas sin errores.
+Primera valoración: hápticos y gatillos funcionan, pero vibración retrasada.
+DSX: también cierto retraso, considerablemente más cercano al tiempo real.
+Tras la corrección: "se siente bastante bien ... notable alto".
+Es una prueba subjetiva, no ciega, sin sensor de movimiento/sonido externo.
+
+Cambios:
+1) Los ocho paquetes de calentamiento de Opus ya no fuerzan hápticos a cero.
+   Los datos hápticos nativos pueden salir en el primer paquete.
+2) Se descarta contenido antiguo ANTES de seleccionar la siguiente muestra,
+   limitando la cola nativa a dos paquetes (~21.3ms de contenido total).
+   No se repite el último impulso y no se sintetiza desde el sonido del altavoz.
+3) Cuantización S16→S8 al más cercano/empates al par: preserva mejor señales
+   suaves. La mejora del error numérico está probada; no equivale a medir tacto.
+
+MARGEN RESTANTE
+Instrumentación ISO: URB de10paquetes, dosURB pendientes,~1000paquetes/s.
+USB/IP recibido→entrega de paquete:~15.1ms de media/~21.1ms máximo estable.
+Al arrancar se observó un pico aislado de53.4ms. No incluye búferes previos del
+juego/Windows, Bluetooth ni actuadores. Adelantar los datos sin adelantar sus
+completaciones podría reducir parte del arranque, pero puede trasladar la cola
+o recortar efectos y complicar cancelación. Se conserva la versión validada;
+no se introduce ese cambio experimental sin comprobar integridad de waveform.
+
+INSTALACIÓN DE STELLAR BLADE
+Los ejecutables normales no arrancaron. El usuario abrió después el juego.
+No se ejecutó el lanzador de hipervisor ni se alteraron protecciones de Windows.
+El juego se mantuvo abierto durante la prueba humana.
+
+EVIDENCIAS
+JSON y CSV por muestra en evidence/comparison. Los resultados 'dsx-trigger-3'
+y 'dsx-audio-trigger' coincidieron con el juego abierto: no son ensayos ociosos
+comparables. Las primeras tres muestras DSX idle y el primer DSX audio se
+recogieron antes de su arranque. Se conservan todos los registros, sin ocultar
+limitaciones. La autorización temporal de MadSenseProbe en HidHide se retiró.

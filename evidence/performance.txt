@@ -1,0 +1,15 @@
+{
+  "Timestamp": "2026-10-31T01:37:50.5385313+01:00",
+  "ProcessId": 45388,
+  "ElapsedSeconds": 15.0259041,
+  "CpuSeconds": 1.40625,
+  "OneCorePercent": 9.358837848565798,
+  "MachinePercent": 0.46794189242828993,
+  "LogicalProcessors": 20,
+  "WorkingSetMiB": 93.296875,
+  "PrivateMemoryMiB": 31.734375,
+  "MainWindowHandle": {
+    "value": 0
+  },
+  "Conditions": "MadSense final 0.2; Auto/native mode; physical DualSense Bluetooth connected and virtual USB ready; tray hidden; no re9 or DSX process; no game/audio workload; input device runs continuously. Approx 500Hz was established in earlier session, not newly measured in this sample. CPU process only, not driver kernel cost."
+}

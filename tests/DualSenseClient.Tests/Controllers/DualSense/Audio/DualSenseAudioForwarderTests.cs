@@ -1,0 +1,1274 @@
+using System.Diagnostics;
+using DualSenseClient.Controllers.DualSense.Audio;
+using DualSenseClient.Controllers.DualSense.Output;
+using DualSenseClient.Controllers.DualSense.Triggers;
+using DualSenseClient.Controllers.Emulation;
+using DualSenseClient.Hid;
+using DualSenseClient.Settings.Sections;
+
+namespace DualSenseClient.Tests.Controllers.DualSense.Audio;
+
+public class DualSenseAudioForwarderTests
+{
+    [TestCase(48)]
+    [TestCase(512)]
+    public void StrictNativeHapticsReachFirstWarmupPacket(int frames)
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null) { StrictNativeHaptics = true };
+        forwarder.Start();
+        forwarder.UpdateGameHaptics(MakeRearPcm(24, frames));
+        WaitUntil(() => output.HapticsFrames.Count >= 8, TimeSpan.FromSeconds(3));
+        var packets = output.HapticsFrames.ToArray();
+        Assert.That(packets.Length, Is.GreaterThanOrEqualTo(8));
+        Assert.That(packets[0].Count(b => b == 24), Is.EqualTo(frames / 16 * 2), "Native PCM must not wait for eight speaker warmup packets.");
+        Assert.That(packets.Skip(1).All(p => p.All(b => b == 0)), Is.True, "The finite impulse is consumed once, then silence.");
+    }
+
+    [Test]
+    public void StrictNativeBacklogSelectsRecentWaveformBeforeSending()
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null) { StrictNativeHaptics = true };
+        forwarder.Start();
+        var burst = Enumerable.Range(1, 6).SelectMany(value => MakeRearPcm((byte)value, 512)).ToArray();
+        forwarder.UpdateGameHaptics(burst);
+        WaitUntil(() => output.HapticsFrames.Count >= 8, TimeSpan.FromSeconds(3));
+        var packets = output.HapticsFrames.ToArray();
+        Assert.That(packets.Length, Is.GreaterThanOrEqualTo(8));
+        Assert.That(packets[0], Is.All.EqualTo((byte)5), "Discard stale backlog before choosing the first output.");
+        Assert.That(packets[1], Is.All.EqualTo((byte)6));
+        Assert.That(packets.Skip(2).All(p => p.All(b => b == 0)), Is.True);
+    }
+
+    [Test]
+    public void SpeakerAudioQueuedDuringWarmupIsTrimmedNotChopped()
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null);
+        forwarder.Start();
+        // Twelve distinct blocks arrive at once while the lane primes (eight warmup ticks).
+        for (int k = 1; k <= 12; k++) forwarder.FeedPcm(MakeAudioBlock(k / 16f));
+        WaitUntil(() => output.CombinedReportCount >= 11, TimeSpan.FromSeconds(3));
+        Thread.Sleep(100);
+        // Audio-derived haptics mirror each block's level (~8 per step), so they identify which blocks played.
+        int[] levels = output.HapticsFrames.Select(p => (int)(sbyte)p[0]).Where(v => v != 0).Distinct().ToArray();
+        Assert.That(levels.Length, Is.GreaterThanOrEqualTo(3), "The newest blocks must still play after the warmup.");
+        for (int i = 1; i < levels.Length; i++)
+        {
+            Assert.That(levels[i] - levels[i - 1], Is.InRange(6, 9), $"Blocks after warmup must play contiguously, never every other one: {string.Join(",", levels)}");
+        }
+    }
+
+    [Test]
+    public void SpeakerPreGainRidesTheRouteReportAndTheEmbeddedState()
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null) { SpeakerPreGain = 7 };
+        forwarder.Start();
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => output.CombinedReportCount >= 1, TimeSpan.FromSeconds(3));
+        Assert.Multiple(() =>
+        {
+            Assert.That(output.LastAppliedPreGain, Is.EqualTo((byte)7), "the route/volume report must carry the pre-gain");
+            Assert.That(output.LastPrimeStateBlock[37], Is.EqualTo((byte)7), "the init-prime state block carries audio control 2");
+            Assert.That(output.LastStateBlock[37], Is.EqualTo((byte)7), "every combined report carries audio control 2");
+        });
+    }
+
+    [Test]
+    public void WarmupDoesNotBlockGameCallbacksForTheWholePreroll()
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null) { StrictNativeHaptics = true };
+        forwarder.Start();
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => output.ReportCount > 0, TimeSpan.FromSeconds(3));
+        Assert.That(output.ReportCount, Is.GreaterThan(0));
+        var elapsed = Stopwatch.StartNew();
+        forwarder.UpdateGameHaptics(MakeRearPcm(24, 512));
+        elapsed.Stop();
+        TestContext.Out.WriteLine($"Callback during warmup: {elapsed.Elapsed.TotalMilliseconds:F3} ms");
+        Assert.That(elapsed.Elapsed.TotalMilliseconds, Is.LessThan(50), "Warmup waits must release the callback lock.");
+    }
+
+    [Test]
+    public void StrictNativeShortFinalImpulseIsFlushedOnceWithoutSpeakerAudio()
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null) { StrictNativeHaptics = true };
+        forwarder.Start();
+        forwarder.UpdateGameHaptics(MakeRearPcm(24, 48));
+        WaitUntil(() => output.AnyHapticsNonZero, TimeSpan.FromSeconds(3));
+        Assert.That(output.AnyHapticsNonZero, Is.True, "A sub-packet impulse must not be stranded forever.");
+        WaitUntil(() => output.ReportCount >= 8, TimeSpan.FromSeconds(3));
+        var count = output.ReportCount;
+        Thread.Sleep(200);
+        Assert.That(output.ReportCount, Is.EqualTo(count), "Finite input must not be repeated.");
+        Assert.That(output.HapticsFrames.Count(p => p.Any(b => b != 0)), Is.EqualTo(1));
+    }
+
+    [Test]
+    public void RestartDoesNotReplayBufferedSpeakerAudio()
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null);
+        forwarder.Start();
+        for (int i = 0; i < 20; i++) forwarder.FeedPcm(AudioBlock);
+        forwarder.Stop();
+        int count = output.ReportCount;
+        forwarder.Start();
+        Thread.Sleep(180);
+        Assert.That(output.ReportCount, Is.EqualTo(count));
+    }
+
+    [Test]
+    public void OutputStateIsAnOwnedSnapshot()
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null);
+        var raw = new byte[SetStateData.PayloadSize];
+        var state = new SetStateData(raw, 0) with { ValidFlag1 = ValidFlags.AllowLedColor, LedRed = 45 };
+        forwarder.UpdateGameOutputState(state);
+        Array.Clear(raw);
+        forwarder.Start();
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => output.PrimeCount > 0, TimeSpan.FromSeconds(3));
+        Assert.That(new SetStateData(output.LastPrimeStateBlock, 0).LedRed, Is.EqualTo(45));
+    }
+
+    [Test]
+    public void StrictNativeModeDoesNotTurnSpeakerSoundIntoHaptics()
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null) { StrictNativeHaptics = true };
+        Assert.That(forwarder.Start(), Is.True);
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => output.ReportCount >= 9, TimeSpan.FromSeconds(3));
+        Assert.That(output.AnyHapticsNonZero, Is.False);
+    }
+
+    [Test]
+    public void StrictNativeModeConsumesNativeWaveformThenRespectsSilence()
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null) { StrictNativeHaptics = true };
+        Assert.That(forwarder.Start(), Is.True);
+        forwarder.UpdateGameHaptics(MakeRearPcm(24, 512));
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => output.AnyHapticsNonZero, TimeSpan.FromSeconds(3));
+        forwarder.UpdateGameHaptics(MakeRearPcm(0, 512));
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => output.LastHapticsFrame.Length == 64 && output.LastHapticsFrame.All(x => x == 0), TimeSpan.FromSeconds(3));
+    }
+
+    /// <summary>
+    /// Fake physical-controller audio lane recording every call.
+    /// </summary>
+    private sealed class FakeAudioOutputs : IDualSenseAudioOutputs
+    {
+        public ConnectionType ConnectionType { get; init; } = ConnectionType.Bluetooth;
+
+        public bool NeedsOutputStateBlock { get; set; }
+
+        public int ResetCount { get; private set; }
+        public int PrimeCount { get; private set; }
+        public int CombinedReportCount { get; private set; }
+        public int AudioOnlyReportCount { get; private set; }
+        public int AudioOutputApplyCount { get; private set; }
+        public byte? LastAppliedSpeakerVolume { get; private set; }
+        public AudioControl? LastAppliedControl { get; private set; }
+        public byte LastOpusFrameLength { get; private set; }
+        public byte LastHapticsLength { get; private set; }
+        public byte[] LastHapticsFrame { get; private set; } = [];
+        public bool AnyHapticsNonZero { get; private set; }
+        public System.Collections.Concurrent.ConcurrentQueue<byte[]> HapticsFrames { get; } = new();
+
+        public int ReportCount
+        {
+            get
+            {
+                return CombinedReportCount + AudioOnlyReportCount;
+            }
+        }
+
+        public byte[] LastStateBlock { get; private set; } = new byte[SetStateData.PayloadSize];
+        public byte[] LastPrimeStateBlock { get; private set; } = new byte[SetStateData.PayloadSize];
+
+        public void SetVibration(byte left, byte right)
+        {
+        }
+
+        public void SendOutputState(SetStateData payload)
+        {
+        }
+
+        public void ResetBluetoothAudioStream() => ResetCount++;
+
+        public void SendBluetoothAudioPrime(SetStateData state)
+        {
+            PrimeCount++;
+            state.CopyTo(LastPrimeStateBlock, 0);
+        }
+
+        public void SendBluetoothAudioAndHaptics(SetStateData state, ReadOnlySpan<byte> opusFrame, ReadOnlySpan<byte> hapticsPcm, BluetoothAudioRoute route)
+        {
+            CombinedReportCount++;
+            state.CopyTo(LastStateBlock, 0);
+            LastOpusFrameLength = (byte)opusFrame.Length;
+            LastHapticsLength = (byte)hapticsPcm.Length;
+            LastHapticsFrame = hapticsPcm.ToArray();
+            HapticsFrames.Enqueue(LastHapticsFrame);
+            AnyHapticsNonZero |= LastHapticsFrame.Any(b => b != 0);
+        }
+
+        public void SendBluetoothAudio(ReadOnlySpan<byte> opusFrame, BluetoothAudioRoute route)
+        {
+            AudioOnlyReportCount++;
+            LastOpusFrameLength = (byte)opusFrame.Length;
+        }
+
+        public byte? LastAppliedPreGain { get; private set; }
+
+        public void SetAudioOutput(AudioControl outputControl, byte speakerVolume, byte headphoneVolume, byte preampGain = 0x02)
+        {
+            AudioOutputApplyCount++;
+            LastAppliedControl = outputControl;
+            LastAppliedSpeakerVolume = speakerVolume;
+            LastAppliedPreGain = preampGain;
+        }
+    }
+
+    private static readonly float[] AudioBlock = MakeAudioBlock(0.5f);
+
+    /// <summary>
+    /// Builds rear voice-coil PCM (2ch S16LE @48kHz) whose decimated s8 payload is
+    /// the given value on both channels: each frame is [0x00, value, 0x00, value].
+    /// </summary>
+    private static byte[] MakeRearPcm(byte s8value, int frames = 48)
+    {
+        byte[] pcm = new byte[frames * 4];
+        for (int f = 0; f < frames; f++)
+        {
+            pcm[f * 4] = 0x00;
+            pcm[f * 4 + 1] = s8value;
+            pcm[f * 4 + 2] = 0x00;
+            pcm[f * 4 + 3] = s8value;
+        }
+
+        return pcm;
+    }
+
+    /// <summary>
+    /// Builds one 512-frame stereo block with a constant amplitude on both channels.
+    /// </summary>
+    private static float[] MakeAudioBlock(float amplitude)
+    {
+        float[] block = new float[DualSenseBtAudioPipeline.FramesPerBlock * 2];
+        Array.Fill(block, amplitude);
+        return block;
+    }
+
+    /// <summary>
+    /// Polls <paramref name="condition"/> until it holds or the timeout elapses.
+    /// </summary>
+    private static void WaitUntil(Func<bool> condition, TimeSpan timeout)
+    {
+        Stopwatch sw = Stopwatch.StartNew();
+        while (!condition() && sw.Elapsed < timeout)
+        {
+            Thread.Sleep(5);
+        }
+    }
+
+    [Test]
+    public void Start_LeavesBluetoothLaneClosedUntilAudioIsFed()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+
+        Assert.That(forwarder.Start(), Is.True);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.ResetCount, Is.Zero, "Start must not open the Bluetooth audio lane");
+            Assert.That(fake.PrimeCount, Is.Zero, "Start must not open the Bluetooth audio lane");
+            Assert.That(fake.AudioOutputApplyCount, Is.Zero, "Start must not touch the audio configuration");
+            Assert.That(fake.ReportCount, Is.Zero, "Start must not send any reports");
+        });
+
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount >= 8 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.ResetCount, Is.EqualTo(1), "the first audio block must open the stream");
+            Assert.That(fake.PrimeCount, Is.EqualTo(1));
+            Assert.That(fake.AudioOutputApplyCount, Is.EqualTo(1));
+            Assert.That(fake.LastAppliedControl, Is.EqualTo(AudioControl.OutputPathSpeaker));
+            Assert.That(fake.LastAppliedSpeakerVolume, Is.EqualTo(0x50));
+            Assert.That(fake.ReportCount, Is.GreaterThanOrEqualTo(8), "the first block must warm up the stream with the 8 silence reports");
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void LongIdleGap_RePrimesTheStreamOnResume()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount > 0 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+
+        Thread.Sleep(400);
+
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.PrimeCount >= 2, TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.PrimeCount, Is.GreaterThanOrEqualTo(2), "resuming after a long idle gap must re-open the audio lane");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void Start_NoTransportReturnsFalse()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Usb
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+
+        Assert.That(forwarder.Start(), Is.False);
+    }
+
+    [Test]
+    public void Start_BluetoothOutputWithUsbTarget_DoesNotStartUsbTarget()
+    {
+        // The USB target is deliberately unusable: Start must short-circuit on the
+        // Bluetooth connection before touching it. A wired USB pad is the only case
+        // that may open a render endpoint, and opening the virtual controller's
+        // endpoint here would feed the forwarded audio back into the capture.
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        DualSenseUsbAudioTarget usbTarget = new DualSenseUsbAudioTarget(null!, null!);
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, usbTarget);
+
+        Assert.That(forwarder.Start(), Is.True);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(forwarder.IsActive, Is.True);
+            Assert.That(fake.ResetCount, Is.Zero, "the Bluetooth lane stays closed until audio is fed");
+        });
+    }
+
+    [Test]
+    public void FeedPcm_SendsCombinedAudioAndHapticsReports()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        // Blocks fed while the lane warms up are trimmed to the newest three, so feed the rest
+        // once the eight warmup reports are out.
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount >= 8, TimeSpan.FromSeconds(3));
+        for (int i = 0; i < 3; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        WaitUntil(() => fake.ReportCount >= 12, TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.ReportCount, Is.GreaterThanOrEqualTo(12), "8 preroll reports plus the 4 fed blocks must all be sent");
+            Assert.That(fake.CombinedReportCount, Is.EqualTo(fake.ReportCount), "haptics enabled must fold into the combined report");
+            Assert.That(fake.AudioOnlyReportCount, Is.Zero);
+            Assert.That(fake.LastOpusFrameLength, Is.EqualTo(200));
+            Assert.That(fake.LastHapticsLength, Is.EqualTo(64));
+            Assert.That(fake.AnyHapticsNonZero, Is.True, "a constant audio block must produce non-zero haptics");
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void FeedPcm_HapticsDisabledSendsAudioOnlyReports()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.HapticsEnabled = false;
+        forwarder.Start();
+
+        for (int i = 0; i < 3; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        WaitUntil(() => fake.ReportCount >= 11, TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.AudioOnlyReportCount, Is.GreaterThanOrEqualTo(11), "8 preroll reports plus the 3 fed blocks must all be sent audio-only");
+            Assert.That(fake.CombinedReportCount, Is.Zero);
+            Assert.That(fake.LastOpusFrameLength, Is.EqualTo(200));
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void FeedPcm_StateBlockNeededSendsCombinedReportsWithSilentHaptics()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth,
+            NeedsOutputStateBlock = true
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.HapticsEnabled = false;
+        forwarder.Start();
+
+        for (int i = 0; i < 3; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        WaitUntil(() => fake.ReportCount >= 11, TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.CombinedReportCount, Is.GreaterThanOrEqualTo(11), "the output-state block must ride the combined report");
+            Assert.That(fake.AudioOnlyReportCount, Is.Zero);
+            Assert.That(fake.LastHapticsLength, Is.EqualTo(64));
+            Assert.That(fake.LastHapticsFrame, Is.All.Zero, "haptics stay silent while disabled");
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void FeedPcm_PartialBlocksAreAccumulatedAndChunked()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        int halfBlock = DualSenseBtAudioPipeline.FramesPerBlock;
+        forwarder.FeedPcm(AudioBlock.AsSpan(0, halfBlock));
+        forwarder.FeedPcm(AudioBlock.AsSpan(0, halfBlock));
+        forwarder.FeedPcm(AudioBlock);
+
+        WaitUntil(() => fake.ReportCount >= 10, TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.ReportCount, Is.GreaterThanOrEqualTo(10), "two half blocks plus a full block must yield two reports on top of the 8-report preroll");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void FeedPcm_VolumeChangeAppliesWithinOneTick()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        forwarder.SpeakerVolume = 0x90;
+        forwarder.FeedPcm(AudioBlock);
+
+        WaitUntil(() => fake.AudioOutputApplyCount >= 1 && fake.LastAppliedSpeakerVolume == 0x90, TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.LastAppliedSpeakerVolume, Is.EqualTo(0x90), "the volume set before the first block must be applied when the stream opens");
+            Assert.That(fake.LastAppliedControl, Is.EqualTo(AudioControl.OutputPathSpeaker));
+        });
+
+        forwarder.SpeakerVolume = 0x70;
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.LastAppliedSpeakerVolume == 0x70, TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.LastAppliedSpeakerVolume, Is.EqualTo(0x70), "a volume change during streaming must be applied within one tick");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void Stop_NoFurtherReportsAreSent()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount > 8, TimeSpan.FromSeconds(3));
+        forwarder.Stop();
+        int countAtStop = fake.ReportCount;
+        Assert.That(countAtStop, Is.GreaterThan(8));
+
+        forwarder.FeedPcm(AudioBlock);
+        Thread.Sleep(150);
+
+        Assert.That(fake.ReportCount, Is.EqualTo(countAtStop), "feeding after stop must be ignored");
+    }
+
+    [Test]
+    public void Dispose_StopsThePumpAndReleases()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount > 8, TimeSpan.FromSeconds(3));
+        int reportsBeforeDispose = fake.ReportCount;
+        Assert.That(reportsBeforeDispose, Is.GreaterThan(8));
+
+        forwarder.Dispose();
+
+        Assert.That(forwarder.IsActive, Is.False);
+        forwarder.FeedPcm(AudioBlock);
+        Thread.Sleep(100);
+        Assert.That(fake.ReportCount, Is.EqualTo(reportsBeforeDispose), "no reports may be sent after dispose");
+    }
+
+    [Test]
+    public void UpdateGameOutputState_StateRidesTheCombinedAndPrimeReports()
+    {
+        byte[] right = new byte[11];
+        right[0] = (byte)TriggerEffectType.Weapon;
+        byte[] left = new byte[11];
+        left[0] = (byte)TriggerEffectType.Vibration;
+
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        forwarder.UpdateGameOutputState(new SetStateData
+        {
+            ValidFlag0 = ValidFlags.UseRumbleNotHaptics | ValidFlags.EnableRumbleEmulation
+                                                        | ValidFlags.AllowRightTriggerFfb | ValidFlags.AllowLeftTriggerFfb,
+            ValidFlag2 = ValidFlags.EnableImprovedRumbleEmu,
+            RumbleLeft = 0x90,
+            RumbleRight = 0x40,
+            MuteLedMode = 0x01,
+            PlayerLeds = (PlayerLedMask)0x0A,
+            LedRed = 0x12,
+            LedGreen = 0x34,
+            LedBlue = 0x56,
+            R2TriggerEffect = new TriggerEffectBlock(right, 0),
+            L2TriggerEffect = new TriggerEffectBlock(left, 0)
+        });
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount >= 8 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            byte[] prime = fake.LastPrimeStateBlock;
+            Assert.That(prime[0], Is.EqualTo(0xBC), "the init-prime must carry the merged flags (rumble bits cleared, triggers and audio enabled)");
+            Assert.That(prime[3], Is.EqualTo(0x90), "the init-prime must carry the game's rumble bytes");
+            Assert.That(prime[44], Is.EqualTo(0x12), "the init-prime must carry the lightbar");
+            Assert.That(prime[10], Is.EqualTo((byte)TriggerEffectType.Weapon), "the init-prime must carry the R2 trigger block");
+
+            byte[] state = fake.LastStateBlock;
+            Assert.That(state[0] & 0x03, Is.Zero, "the rumble-mode bits must be cleared while the audio lane is open");
+            Assert.That(state[0] & 0x0C, Is.EqualTo(0x0C), "the trigger enable bits must stay set so the pad applies the blocks");
+            Assert.That(state[0] & 0xB0, Is.EqualTo(0xB0), "the audio enable bits must be set");
+            Assert.That(state[38] & 0x04, Is.Zero, "improved rumble emulation must be cleared while the lane is open");
+            Assert.That(state[2], Is.EqualTo(0x40), "the rumble bytes must ride the combined state block");
+            Assert.That(state[3], Is.EqualTo(0x90));
+            Assert.That(state[8], Is.EqualTo(0x01), "the mic LED mode must ride the state block");
+            Assert.That(state[43], Is.EqualTo(0x0A), "the player LED mask must ride the state block");
+            Assert.That(state[44], Is.EqualTo(0x12), "the lightbar must ride the state block");
+            Assert.That(state[45], Is.EqualTo(0x34));
+            Assert.That(state[46], Is.EqualTo(0x56));
+            Assert.That(state[10], Is.EqualTo((byte)TriggerEffectType.Weapon), "the R2 trigger block must ride the state block");
+            Assert.That(state[21], Is.EqualTo((byte)TriggerEffectType.Vibration), "the L2 trigger block must ride the state block");
+            Assert.That(state[4], Is.EqualTo(0x3F), "the headphone volume must be overridden for the speaker route");
+            Assert.That(state[5], Is.EqualTo(0x50), "the speaker volume must be overridden");
+            Assert.That(state[7], Is.EqualTo((byte)AudioControl.OutputPathSpeaker), "the audio control must be overridden");
+            Assert.That(state[37], Is.EqualTo(0x02), "audio control 2 must be overridden");
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameOutputState_GameDisabledTriggerBitsStayClearInTheEmbeddedState()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        // The game stopped driving the triggers: its allow bits are clear, so the pad
+        // must retain its current effect instead of re-applying stale block bytes.
+        forwarder.UpdateGameOutputState(new SetStateData
+        {
+            ValidFlag0 = ValidFlags.AllowSpeakerVolume,
+            R2TriggerEffect = new TriggerEffectBlock([0x26, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0)
+        });
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount >= 8 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+
+        byte[] state = fake.LastStateBlock;
+        Assert.Multiple(() =>
+        {
+            Assert.That(state[0] & 0x0C, Is.Zero, "the game's cleared trigger allow bits must pass through unchanged");
+            Assert.That(state[10], Is.EqualTo(0x26), "the block bytes still ride the state block");
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void ApplyForwardingSettings_DisabledGameChannels_AreClearedInTheEmbeddedState()
+    {
+        byte[] right = new byte[11];
+        right[0] = (byte)TriggerEffectType.Weapon;
+        byte[] left = new byte[11];
+        left[0] = (byte)TriggerEffectType.Vibration;
+
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+        forwarder.ApplyForwardingSettings(new ForwardSettings
+        {
+            Triggers = false,
+            Lightbar = false,
+            PlayerLeds = false
+        });
+        forwarder.UpdateGameOutputState(new SetStateData
+        {
+            ValidFlag0 = ValidFlags.AllowRightTriggerFfb | ValidFlags.AllowLeftTriggerFfb,
+            PlayerLeds = (PlayerLedMask)0x0A,
+            LedRed = 0x12,
+            LedGreen = 0x34,
+            LedBlue = 0x56,
+            R2TriggerEffect = new TriggerEffectBlock(right, 0),
+            L2TriggerEffect = new TriggerEffectBlock(left, 0)
+        });
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount >= 8 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+
+        byte[] state = fake.LastStateBlock;
+        Assert.Multiple(() =>
+        {
+            Assert.That(state[0] & 0x0C, Is.EqualTo(0x0C), "the allow bits must stay set so the Off blocks release the triggers");
+            Assert.That(state[10], Is.EqualTo((byte)TriggerEffectType.Off), "the R2 effect must be cleared");
+            Assert.That(state[21], Is.EqualTo((byte)TriggerEffectType.Off), "the L2 effect must be cleared");
+            Assert.That(state[43], Is.Zero, "the player LEDs must be cleared");
+            Assert.That(state[41], Is.EqualTo(0x02), "the fade-out must clear a lightbar the pad may still hold");
+            Assert.That(state[44], Is.Zero, "the lightbar must be black");
+            Assert.That(state[45], Is.Zero);
+            Assert.That(state[46], Is.Zero);
+        });
+
+        // The cached game state must keep the host's own values so re-enabling restores them.
+        forwarder.ApplyForwardingSettings(new ForwardSettings());
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.LastStateBlock[10] == (byte)TriggerEffectType.Weapon, TimeSpan.FromSeconds(3));
+
+        state = fake.LastStateBlock;
+        Assert.Multiple(() =>
+        {
+            Assert.That(state[10], Is.EqualTo((byte)TriggerEffectType.Weapon));
+            Assert.That(state[21], Is.EqualTo((byte)TriggerEffectType.Vibration));
+            Assert.That(state[43], Is.EqualTo(0x0A));
+            Assert.That(state[44], Is.EqualTo(0x12));
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void ApplyForwardingSettings_RumbleDisabled_StopsGameRumbleInHaptics()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+        forwarder.ApplyForwardingSettings(new ForwardSettings
+        {
+            Rumble = false
+        });
+
+        forwarder.UpdateGameOutputState(new SetStateData
+        {
+            RumbleLeft = 0xFF,
+            RumbleRight = 0x00
+        });
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount >= 12, TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.LastHapticsFrame.Distinct().Count(), Is.EqualTo(1),
+            "disabled rumble must not add the 60 Hz sine to the audio-derived haptics");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void ApplyForwardingSettings_GameHapticsDisabled_FallsBackToAudioDerived()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+        forwarder.ApplyForwardingSettings(new ForwardSettings
+        {
+            HapticsEnabled = false
+        });
+
+        for (int i = 0; i < 8; i++)
+        {
+            forwarder.FeedPcm(MakeAudioBlock(0f));
+        }
+
+        WaitUntil(() => fake.ReportCount >= 8 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+        forwarder.UpdateGameHaptics(MakeRearPcm(0x10));
+        forwarder.FeedPcm(MakeAudioBlock(0f));
+        WaitUntil(() => fake.ReportCount >= 12, TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.LastHapticsFrame.All(b => b == 0), Is.True,
+            "the game's haptics must be ignored; silent audio derives to zeros");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void FeedPcm_WithoutGameStateHapticsFollowTheAudio()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        for (int i = 0; i < 3; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        WaitUntil(() => fake.ReportCount >= 11, TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.LastHapticsFrame.Distinct().Count(), Is.EqualTo(1),
+            "a constant audio block must produce a uniform haptics frame when no game rumble is mixed in");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameOutputState_GameRumbleIsSynthesizedIntoHapticsPcm()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        forwarder.UpdateGameOutputState(new SetStateData
+        {
+            ValidFlag0 = ValidFlags.EnableRumbleEmulation,
+            RumbleLeft = 0xFF,
+            RumbleRight = 0x00
+        });
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount >= 12, TimeSpan.FromSeconds(3));
+
+        byte[] frame = fake.LastHapticsFrame;
+        Assert.Multiple(() =>
+        {
+            Assert.That(frame.Distinct().Count(), Is.GreaterThan(8), "the 60 Hz rumble sine must make the haptics vary across the frame");
+            Assert.That(frame.Max(b => (sbyte)b), Is.GreaterThan(20), "the rumble must drive the voice coils");
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void Flush_DiscardsBufferedAudioAndClosesTheLane()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        // Warmup trims queued blocks to the newest three; feed the rest after the eight warmup reports.
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount >= 8, TimeSpan.FromSeconds(3));
+        for (int i = 0; i < 4; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        WaitUntil(() => fake.ReportCount >= 12, TimeSpan.FromSeconds(3));
+        int beforeFlush = fake.ReportCount;
+        Assert.That(beforeFlush, Is.GreaterThanOrEqualTo(12));
+
+        forwarder.Flush();
+        Thread.Sleep(100);
+
+        Assert.That(fake.ReportCount - beforeFlush, Is.LessThanOrEqualTo(2),
+            "the ring must be empty after Flush: the pump may only finish in-flight reports, not keep streaming buffered audio");
+
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ResetCount >= 2, TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.ResetCount, Is.GreaterThanOrEqualTo(2), "the next block must reopen the lane");
+            Assert.That(fake.PrimeCount, Is.GreaterThanOrEqualTo(2));
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void Flush_ForcesRePrimeEvenWhenAudioResumesWithinTheIdleWindow()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.ReportCount >= 10, TimeSpan.FromSeconds(3));
+
+        forwarder.Flush();
+        forwarder.FeedPcm(AudioBlock);
+        WaitUntil(() => fake.PrimeCount >= 2, TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.ResetCount, Is.GreaterThanOrEqualTo(2),
+            "resuming within the idle window must still re-prime after Flush (unlike a plain short gap)");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameHaptics_ReplacesAudioDerivedHaptics()
+    {
+        byte[] gamePcm = MakeRearPcm(0x10);
+
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        for (int i = 0; i < 8; i++)
+        {
+            forwarder.FeedPcm(MakeAudioBlock(0f));
+        }
+
+        WaitUntil(() => fake.ReportCount >= 8 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+
+        // Deliver the payload only after the stream is primed: the ~85 ms prime and
+        // preroll would otherwise age the payload past the 100 ms freshness window
+        // under load, falling back to the audio-derived haptics. In the field the
+        // callback fires continuously, so a post-prime delivery is the faithful shape.
+        forwarder.UpdateGameHaptics(gamePcm);
+        WaitUntil(() => fake.LastHapticsFrame is { Length: 64 } && fake.LastHapticsFrame.All(b => b == 0x10), TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.LastHapticsFrame.All(b => b == 0x10), Is.True,
+            "the game's haptics payload must replace the audio-derived haptics (silence would derive to zeros)");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameHaptics_WithoutAudioKeepsSendingTheHapticsLane()
+    {
+        byte[] gamePcm = MakeRearPcm(0x10);
+
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        // No audio is fed: this is the controller-audio-passthrough-off shape. Re-deliver
+        // while waiting because priming the lane takes ~85 ms and the payload is only
+        // fresh for 100 ms; in the field the game feeds the lane continuously.
+        WaitUntil(() =>
+        {
+            forwarder.UpdateGameHaptics(gamePcm);
+            return fake.LastHapticsFrame is { Length: 64 } && fake.LastHapticsFrame.All(b => b == 0x10);
+        }, TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.CombinedReportCount, Is.GreaterThan(0), "the haptics lane must open without audio");
+            Assert.That(fake.LastHapticsFrame.All(b => b == 0x10), Is.True,
+                "the game's haptics must reach the pad while audio passthrough is off");
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameHaptics_SilentPayloadReproducesSilence()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        // Prove the audio-derived haptics are active first: a loud block derives a
+        // constant 0x40 frame, so a later all-zero frame means the game payload won.
+        for (int i = 0; i < 8; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        WaitUntil(() => fake.AnyHapticsNonZero, TimeSpan.FromSeconds(3));
+        Assert.That(fake.AnyHapticsNonZero, Is.True,
+            "audio-derived haptics must be active before the silent payload");
+
+        // Drive a nonzero payload first: silence is authoritative only once the game
+        // has actually produced haptics.
+        WaitUntil(() =>
+        {
+            forwarder.UpdateGameHaptics(MakeRearPcm(0x10));
+            return fake.LastHapticsFrame is { Length: DualSenseBtAudioPipeline.HapticsBytes }
+                   && fake.LastHapticsFrame.All(b => b == 0x10);
+        }, TimeSpan.FromSeconds(3));
+        Assert.That(fake.LastHapticsFrame is { Length: DualSenseBtAudioPipeline.HapticsBytes }
+                    && fake.LastHapticsFrame.All(b => b == 0x10), Is.True,
+            "the nonzero game payload must reach the pad before silence can override it");
+
+        // Keep loud blocks queued so a zero frame can only mean the silent game payload
+        // suppressed the audio-derived haptics. Three reports skip any in-flight tick.
+        int before = fake.CombinedReportCount;
+        for (int i = 0; i < 8; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        WaitUntil(() =>
+        {
+            forwarder.UpdateGameHaptics(MakeRearPcm(0x00));
+            return fake.CombinedReportCount >= before + 3
+                   && fake.LastHapticsFrame.All(b => b == 0);
+        }, TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.CombinedReportCount, Is.GreaterThanOrEqualTo(before + 3),
+                "the reports after the silent payload must actually be produced");
+            Assert.That(fake.LastHapticsFrame, Has.Length.EqualTo(DualSenseBtAudioPipeline.HapticsBytes));
+            Assert.That(fake.LastHapticsFrame.All(b => b == 0), Is.True,
+                "a silent game payload must produce silence and not fall back to audio-derived haptics");
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameHaptics_SilentPayloadBeforeAnyGameHapticsKeepsAudioDerived()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        for (int i = 0; i < 8; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        WaitUntil(() => fake.AnyHapticsNonZero, TimeSpan.FromSeconds(3));
+        Assert.That(fake.AnyHapticsNonZero, Is.True, "audio-derived haptics must be active");
+
+        // The persona forwards an all-zero rear pair for every speaker packet, including
+        // before the game has ever driven haptics. That silence must not suppress the
+        // audio-derived haptics while loud audio is still flowing.
+        int before = fake.CombinedReportCount;
+        for (int i = 0; i < 8; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        WaitUntil(() =>
+        {
+            forwarder.UpdateGameHaptics(MakeRearPcm(0x00));
+            return fake.CombinedReportCount >= before + 3
+                   && fake.LastHapticsFrame.Any(b => b != 0);
+        }, TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.CombinedReportCount, Is.GreaterThanOrEqualTo(before + 3),
+                "the reports after the silent payload must actually be produced");
+            Assert.That(fake.LastHapticsFrame, Has.Length.EqualTo(DualSenseBtAudioPipeline.HapticsBytes));
+            Assert.That(fake.LastHapticsFrame.Any(b => b != 0), Is.True,
+                "an all-zero payload before the game has driven haptics must not suppress audio-derived haptics");
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameOutputState_UngatedRumbleBytesAreIgnored()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        // Stale motor bytes while rumble selector flags are clear (e.g. trigger-only write)
+        forwarder.UpdateGameOutputState(new SetStateData
+        {
+            ValidFlag0 = ValidFlags.AllowRightTriggerFfb,
+            RumbleLeft = 0x7F,
+            RumbleRight = 0x7F
+        });
+
+        // An all-clear flag report makes no field valid, so its motor bytes are stale too.
+        forwarder.UpdateGameOutputState(new SetStateData
+        {
+            RumbleLeft = 0x7F,
+            RumbleRight = 0x7F
+        });
+
+        for (int i = 0; i < 8; i++)
+        {
+            forwarder.FeedPcm(MakeAudioBlock(0f));
+        }
+
+        // Warmup keeps only the newest three queued blocks; let them drain before the next burst so
+        // the steady-state catch-up (one extra discard per tick above three) does not eat it.
+        WaitUntil(() => fake.ReportCount >= 11 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+
+        for (int i = 0; i < 3; i++)
+        {
+            forwarder.FeedPcm(MakeAudioBlock(0f));
+        }
+
+        WaitUntil(() => fake.ReportCount >= 14, TimeSpan.FromSeconds(3));
+
+        byte[] frame = fake.LastHapticsFrame;
+        Assert.Multiple(() =>
+        {
+            Assert.That(fake.ReportCount, Is.GreaterThanOrEqualTo(14),
+                "the reports after the stale motor bytes must actually be produced");
+            Assert.That(frame, Has.Length.EqualTo(DualSenseBtAudioPipeline.HapticsBytes));
+            Assert.That(frame.All(b => b == 0), Is.True,
+                "stale motor bytes when rumble is not selected must not be synthesized into haptics");
+        });
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameHaptics_StalePayloadFallsBackToAudioDerived()
+    {
+        byte[] gamePcm = MakeRearPcm(0x10);
+
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        forwarder.UpdateGameHaptics(gamePcm);
+        Thread.Sleep(150);
+
+        forwarder.FeedPcm(MakeAudioBlock(0f));
+        WaitUntil(() => fake.ReportCount >= 12, TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.LastHapticsFrame.All(b => b == 0), Is.True,
+            "a payload older than the freshness window must not be used (silence derives to zeros)");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameHaptics_InvalidReportIsIgnored()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        forwarder.UpdateGameHaptics([0x01, 0x02, 0x03]);
+        forwarder.FeedPcm(MakeAudioBlock(0f));
+        WaitUntil(() => fake.ReportCount >= 12, TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.LastHapticsFrame.All(b => b == 0), Is.True,
+            "a malformed PCM buffer must be rejected and the derived haptics kept");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameHaptics_AcceptsVariableFrameCounts()
+    {
+        // The realtime-haptics lane delivers the rear pair per host write, so frame counts vary.
+        // A 49-frame (392B 4ch -> 196B rear) write must still decimate to 0x10.
+        byte[] gamePcm = MakeRearPcm(0x10, 49);
+
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.Start();
+
+        for (int i = 0; i < 8; i++)
+        {
+            forwarder.FeedPcm(MakeAudioBlock(0f));
+        }
+
+        WaitUntil(() => fake.ReportCount >= 8 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+
+        forwarder.UpdateGameHaptics(gamePcm);
+        WaitUntil(() => fake.LastHapticsFrame is { Length: 64 } && fake.LastHapticsFrame.All(b => b == 0x10), TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.LastHapticsFrame.All(b => b == 0x10), Is.True,
+            "variable-length rear PCM must decimate to the s8 payload");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void UpdateGameHaptics_HapticStrengthScalesGamePayload()
+    {
+        byte[] gamePcm = MakeRearPcm(0x40);
+
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.HapticStrength = 0.5f;
+        forwarder.Start();
+
+        for (int i = 0; i < 8; i++)
+        {
+            forwarder.FeedPcm(MakeAudioBlock(0f));
+        }
+
+        WaitUntil(() => fake.ReportCount >= 8 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+
+        // Deliver post-prime and keep the pump ticking while the payload is fresh,
+        // mirroring UpdateGameHaptics_ReplacesAudioDerivedHaptics.
+        forwarder.UpdateGameHaptics(gamePcm);
+        for (int i = 0; i < 4; i++)
+        {
+            forwarder.FeedPcm(MakeAudioBlock(0f));
+        }
+
+        WaitUntil(() => fake.LastHapticsFrame is { Length: 64 } && fake.LastHapticsFrame.All(b => b == 0x20), TimeSpan.FromSeconds(3));
+
+        Assert.That(fake.LastHapticsFrame.All(b => b == 0x20), Is.True,
+            "the haptic strength must scale the game's own payload (0x40 at 50% derives to 0x20)");
+
+        forwarder.Stop();
+    }
+
+    [Test]
+    public void ForceAudioHaptics_IgnoresFreshGamePayload()
+    {
+        FakeAudioOutputs fake = new FakeAudioOutputs
+        {
+            ConnectionType = ConnectionType.Bluetooth
+        };
+        using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
+        forwarder.ForceAudioHaptics = true;
+        forwarder.Start();
+
+        for (int i = 0; i < 8; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        // Warmup keeps the newest three queued blocks; let them drain before the next burst.
+        WaitUntil(() => fake.ReportCount >= 11 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+        int framesBefore = fake.HapticsFrames.Count;
+
+        // A fresh game payload must still be ignored: deliver post-prime while audio
+        // keeps the pump ticking, so staleness cannot explain the fallback.
+        forwarder.UpdateGameHaptics(MakeRearPcm(0x10));
+        for (int i = 0; i < 3; i++)
+        {
+            forwarder.FeedPcm(AudioBlock);
+        }
+
+        WaitUntil(() => fake.ReportCount >= 14, TimeSpan.FromSeconds(3));
+
+        // Once the audio blocks are spent the fresh payload keeps the pump ticking on silent
+        // audio, so judge the frames produced while audio was still playing, not only the last.
+        byte[][] frames = fake.HapticsFrames.Skip(framesBefore).ToArray();
+        Assert.Multiple(() =>
+        {
+            Assert.That(frames.Any(f => f.All(b => b == 0x10)), Is.False,
+                "forced audio haptics must ignore the game's payload and derive from audio");
+            Assert.That(frames.Any(f => f.Any(b => b != 0)), Is.True,
+                "the audio-derived haptics must still drive the voice coils");
+        });
+
+        forwarder.Stop();
+    }
+}

@@ -1,0 +1,154 @@
+{
+  "Label": "Direct-BT-floor-session-0x08",
+  "Timestamp": "2026-10-31T03:33:53.2460952+01:00",
+  "Details": {
+    "Mode": "direct",
+    "Lane": "0x36 combined audio\u002Bhaptics",
+    "SessionBufferByte": "0x08",
+    "Metric": "Host timestamp of the hid_write of the first Bluetooth report carrying the impulse \u2192 first physical accelerometer sample deviating \u003E max(8\u03C3, 250) from baseline. No virtual device, no audio engine, no USB/IP: radio, firmware, actuator rise, input report and observer only. Lower bound for any bridge on this PC and pad."
+  },
+  "Impulse": {
+    "Frequency": 100,
+    "ImpulseMs": 60,
+    "Amplitude": 0.9,
+    "Channels": "haptic (rear) pair only"
+  },
+  "Trials": 12,
+  "Detected": 12,
+  "WriteToSpikeMs": {
+    "Count": 12,
+    "Min": 18.6275,
+    "Median": 33.9138,
+    "P95": 50.2611,
+    "Max": 53.0056,
+    "Mean": 34.44109166666667
+  },
+  "QueuedAheadMs": {
+    "Count": 12,
+    "Min": 0,
+    "Median": 0,
+    "P95": 0,
+    "Max": 0,
+    "Mean": 0
+  },
+  "PeakDeviation": {
+    "Count": 12,
+    "Min": 2973.008572194905,
+    "Median": 6891.701436419606,
+    "P95": 7262.664818077537,
+    "Max": 7637.388544181719,
+    "Mean": 6145.731020113802
+  },
+  "PerTrial": [
+    {
+      "Index": 0,
+      "WriteTick": 1178356655739,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 40.461,
+      "Peak": 7186.558846216902,
+      "BaselineSigma": 17.66360107022818,
+      "BaselineSamples": 170
+    },
+    {
+      "Index": 1,
+      "WriteTick": 1178381295629,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 32.6554,
+      "Peak": 6891.701436419606,
+      "BaselineSigma": 15.542183852324346,
+      "BaselineSamples": 141
+    },
+    {
+      "Index": 2,
+      "WriteTick": 1178405825128,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 23.452,
+      "Peak": 5958.34554019412,
+      "BaselineSigma": 16.103414083054428,
+      "BaselineSamples": 135
+    },
+    {
+      "Index": 3,
+      "WriteTick": 1178430358509,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 37.5693,
+      "Peak": 4591.487722942938,
+      "BaselineSigma": 16.17009222178319,
+      "BaselineSamples": 165
+    },
+    {
+      "Index": 4,
+      "WriteTick": 1178454894653,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 33.9138,
+      "Peak": 6910.401432679836,
+      "BaselineSigma": 16.13887440637143,
+      "BaselineSamples": 158
+    },
+    {
+      "Index": 5,
+      "WriteTick": 1178479426903,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 31.9166,
+      "Peak": 6667.070633608167,
+      "BaselineSigma": 15.050939017420887,
+      "BaselineSamples": 140
+    },
+    {
+      "Index": 6,
+      "WriteTick": 1178503959729,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 18.6275,
+      "Peak": 7637.388544181719,
+      "BaselineSigma": 16.751149154971124,
+      "BaselineSamples": 157
+    },
+    {
+      "Index": 7,
+      "WriteTick": 1178528493310,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 50.2611,
+      "Peak": 4098.820467222058,
+      "BaselineSigma": 14.370447627667344,
+      "BaselineSamples": 127
+    },
+    {
+      "Index": 8,
+      "WriteTick": 1178553027305,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 29.2752,
+      "Peak": 6380.675524912515,
+      "BaselineSigma": 15.10160747611851,
+      "BaselineSamples": 141
+    },
+    {
+      "Index": 9,
+      "WriteTick": 1178577558156,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 39.9093,
+      "Peak": 7190.648702715303,
+      "BaselineSigma": 16.736748612234663,
+      "BaselineSamples": 156
+    },
+    {
+      "Index": 10,
+      "WriteTick": 1178602089442,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 53.0056,
+      "Peak": 2973.008572194905,
+      "BaselineSigma": 17.397314746079342,
+      "BaselineSamples": 168
+    },
+    {
+      "Index": 11,
+      "WriteTick": 1178626623265,
+      "QueuedAheadMs": 0,
+      "WriteToSpikeMs": 22.2463,
+      "Peak": 7262.664818077537,
+      "BaselineSigma": 17.543917443443004,
+      "BaselineSamples": 164
+    }
+  ],
+  "Errors": [],
+  "Caveats": "Pad must rest untouched. Compare only runs made with this same tool and settings. Not a PS5 measurement."
+}

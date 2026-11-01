@@ -1,0 +1,29 @@
+MadSense UI validation — 2026-10-31
+
+Implemented MainWindow.cs, assets/madsense.svg and .ico; csproj ApplicationIcon added.
+Native WinForms UI, custom vector rendering, dark titlebar, purple/cyan visual identity.
+No WebView, raster textures or animation packages. Animation timer runs at 25 Hz only
+while visible, 1 Hz when hidden; bridge uses a serialized background worker.
+
+Visually inspected on the actual display with sky. Fixed double-scaled drawn fonts
+using GraphicsUnit.Pixel. At default window size, header, controller graphic, mode
+buttons, two-line helper and footer are readable without clipping. Resize drag did
+not change actual size, so minimum-size visual verification remains unconfirmed.
+
+UI smoke performed:
+- Automatically connected physical Bluetooth DualSense to native virtual USB.
+- Pause removed USB/IP virtual device; resume recreated it.
+- Xbox mode selected and engine reported Xbox360 running=True.
+- Native mode restored and engine reported DualSense running=True with audio.
+- Auto / Steam restored as saved setting.
+- Minimize hid main window; opening exe again restored same process.
+- --stop exited gracefully and virtual device was detached.
+
+Ready property now drives green status (requires verified HidHide as well as virtual
+attachment). Constructor/dispose exceptions are surfaced and written ui-error.log.
+All Bridge access occurs on a single worker. Tray exit cancels worker and awaits
+dispose before closing. Close/minimize keeps bridge alive; tray menu has explicit exit.
+
+Last build after root's Ready update failed in Program.cs:131 (IsAppWhitelisted
+method not present on HidHideService). Root notified; root owns fix and final build.
+No MadSense process left running when UI handoff completed.

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector" Version="10.1.0">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+        <PackageReference Include="NUnit" Version="5.0.0" />
+        <PackageReference Include="NUnit.Analyzers" Version="4.15.0">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="NUnit3TestAdapter" Version="6.3.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="NUnit.Framework"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\vendor\DualSenseClient\DualSenseClient.Core\DualSenseClient.Core.csproj"/>
+        <ProjectReference Include="..\..\vendor\DualSenseClient\DualSenseClient.Hid\DualSenseClient.Hid.csproj" />
+        <ProjectReference Include="..\..\vendor\DualSenseClient\DualSenseClient.Logging\DualSenseClient.Logging.csproj"/>
+        <ProjectReference Include="..\..\vendor\DualSenseClient\DualSenseClient.Settings\DualSenseClient.Settings.csproj"/>
+        <ProjectReference Include="..\..\vendor\DualSenseClient\DualSenseClient.Controllers\DualSenseClient.Controllers.csproj" />
+        <ProjectReference Include="..\..\vendor\DualSenseClient\DualSenseClient.Bluetooth\DualSenseClient.Bluetooth.csproj" />
+        <ProjectReference Include="..\..\vendor\DualSenseClient\DualSenseClient.Emulation\DualSenseClient.Emulation.csproj" />
+    </ItemGroup>
+
+</Project>
+

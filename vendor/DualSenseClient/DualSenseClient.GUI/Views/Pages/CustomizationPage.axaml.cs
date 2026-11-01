@@ -1,0 +1,240 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
+using Microsoft.Extensions.DependencyInjection;
+using DualSenseClient.GUI.Models.Items;
+using DualSenseClient.GUI.Services;
+using DualSenseClient.GUI.ViewModels.Pages;
+
+namespace DualSenseClient.GUI.Views.Pages;
+
+/// <summary>
+/// Customization page hosting the profiles manager and the special actions editor for
+/// the controller selected in the title bar combobox.
+/// </summary>
+/// <remarks>
+/// Resolves <see cref="CustomizationPageViewModel"/> from the DI container and sets it as
+/// the <see cref="UserControl.DataContext"/>. The page is hosted in a frame with
+/// <c>CacheSize=0</c>, so a fresh instance (and fresh selection subscription) is created
+/// on each navigation. <see cref="OnLoaded"/> refreshes the ViewModel so the displayed
+/// profiles match the current profile service state on every navigation.
+/// </remarks>
+public partial class CustomizationPage : UserControl
+{
+    /// <summary>
+    /// The ViewModel driving the page.
+    /// </summary>
+    private readonly CustomizationPageViewModel _viewModel;
+
+    /// <summary>
+    /// Initializes the page, resolving the ViewModel from DI.
+    /// </summary>
+    public CustomizationPage()
+    {
+        InitializeComponent();
+        _viewModel = App.Services.GetRequiredService<CustomizationPageViewModel>();
+        DataContext = _viewModel;
+    }
+
+    /// <summary>
+    /// Resynchronizes the ViewModel with the current profile file and controller selection.
+    /// </summary>
+    /// <param name="e">The routed event arguments.</param>
+    protected override void OnLoaded(RoutedEventArgs e)
+    {
+        base.OnLoaded(e);
+        _viewModel.Refresh();
+    }
+
+    /// <summary>
+    /// Opens the platform file picker for a sound action and stores the chosen file on the
+    /// action's item.
+    /// </summary>
+    /// <summary>
+    /// Turns off any active output-test effects (vibration / adaptive triggers) when the
+    /// page is unloaded so the controller is not left buzzing or with trigger force applied.
+    /// </summary>
+    protected override void OnUnloaded(RoutedEventArgs e)
+    {
+        _viewModel.MonitorState?.ResetTestOutputs();
+        base.OnUnloaded(e);
+    }
+
+    /// <summary>
+    /// Applies an executable picked with the file browser for the audio forwarder.
+    /// </summary>
+    private async void OnBrowseAudioAppClick(object? sender, RoutedEventArgs e)
+    {
+        TopLevel? top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is not { } provider)
+        {
+            return;
+        }
+
+        IReadOnlyList<IStorageFile> files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = LocalizationService.GetText("AudioSource.Executable.Picker"),
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType(LocalizationService.GetText("AudioSource.Executable.FileType"))
+                {
+                    Patterns = ["*.exe"]
+                }
+            ]
+        });
+
+        if (files.Count > 0)
+        {
+            _viewModel.SelectAudioApplication(files[0].Path.LocalPath);
+        }
+    }
+
+    private async void OnBrowseSoundClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.DataContext is not SpecialActionItem item)
+        {
+            return;
+        }
+
+        TopLevel? top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is not { } provider)
+        {
+            return;
+        }
+
+        IReadOnlyList<IStorageFile> files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = LocalizationService.GetText("CustomizationPage.SpecialActions.Sound.PickTitle"),
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType(LocalizationService.GetText("EmulationPage.Audio.FileType"))
+                {
+                    Patterns = ["*.wav", "*.mp3", "*.flac", "*.aac", "*.m4a", "*.ogg", "*.wma", "*.aiff", "*.mp4"]
+                }
+            ]
+        });
+
+        if (files.Count > 0)
+        {
+            item.SetSoundFile(files[0].Path.LocalPath);
+        }
+    }
+
+    /// <summary>
+    /// Opens the platform file picker for a special actions export file and imports the
+    /// actions from the chosen file.
+    /// </summary>
+    private async void OnImportSpecialActionsClick(object? sender, RoutedEventArgs e)
+    {
+        TopLevel? top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is not { } provider)
+        {
+            return;
+        }
+
+        IReadOnlyList<IStorageFile> files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = LocalizationService.GetText("CustomizationPage.SpecialActions.Import.Picker"),
+            AllowMultiple = false,
+            FileTypeFilter = [SpecialActionJsonFileType]
+        });
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        await _viewModel.ImportSpecialActions(files[0].Path.LocalPath);
+    }
+
+    /// <summary>
+    /// Opens the platform save picker and exports all special actions to the chosen file.
+    /// </summary>
+    private async void OnExportSpecialActionsClick(object? sender, RoutedEventArgs e)
+    {
+        TopLevel? top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is not { } provider)
+        {
+            return;
+        }
+
+        IStorageFile? file = await provider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = LocalizationService.GetText("CustomizationPage.SpecialActions.Export.Picker"),
+            SuggestedFileName = "special_actions.json",
+            DefaultExtension = "json",
+            FileTypeChoices = [SpecialActionJsonFileType]
+        });
+        if (file is null)
+        {
+            return;
+        }
+
+        await _viewModel.ExportSpecialActions(file.Path.LocalPath);
+    }
+
+    /// <summary>
+    /// Opens the platform save picker and exports the special action of the clicked button's
+    /// data context to the chosen file.
+    /// </summary>
+    private async void OnExportSpecialActionClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.DataContext is not SpecialActionItem item)
+        {
+            return;
+        }
+
+        TopLevel? top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is not { } provider)
+        {
+            return;
+        }
+
+        IStorageFile? file = await provider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = LocalizationService.GetText("CustomizationPage.SpecialActions.Export.One.Picker"),
+            SuggestedFileName = SanitizeFileName(item.Name) + ".json",
+            DefaultExtension = "json",
+            FileTypeChoices = [SpecialActionJsonFileType]
+        });
+        if (file is null)
+        {
+            return;
+        }
+
+        await _viewModel.ExportSpecialAction(item, file.Path.LocalPath);
+    }
+
+    /// <summary>
+    /// Replaces characters that are not allowed in file names with underscores.
+    /// </summary>
+    private static string SanitizeFileName(string name)
+    {
+        char[] invalid = Path.GetInvalidFileNameChars();
+        char[] result = new char[name.Length];
+        for (int i = 0; i < name.Length; i++)
+        {
+            result[i] = Array.IndexOf(invalid, name[i]) >= 0 ? '_' : name[i];
+        }
+
+        return new string(result);
+    }
+
+    /// <summary>
+    /// The JSON file type filter used by the import and export pickers.
+    /// </summary>
+    private static FilePickerFileType SpecialActionJsonFileType
+    {
+        get
+        {
+            return new FilePickerFileType(LocalizationService.GetText("CustomizationPage.SpecialActions.Import.FileType"))
+            {
+                Patterns = ["*.json"]
+            };
+        }
+    }
+}

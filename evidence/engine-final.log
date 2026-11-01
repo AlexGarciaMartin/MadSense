@@ -1,0 +1,439 @@
+2026-10-31T01:01:58.3997109+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:01:58.4751452+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:01:58.4878629+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:63808.
+2026-10-31T01:01:58.4880676+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:01:58.5090406+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:01:58.5101174+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:01:58.7305321+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:01:58.7327909+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:01:58.7329963+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:01:58.7367058+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:02:04.5837938+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:02:04.5864287+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:02:04.5915568+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:02:21.6669553+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:02:21.7502962+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:02:21.7653307+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:57962.
+2026-10-31T01:02:21.7655745+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:02:21.7844796+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:02:21.7859039+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:02:21.9965141+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:02:21.9983525+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:02:21.9985279+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:02:22.0020813+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:02:27.8343392+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:02:27.8367168+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:02:27.8422465+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:02:41.4014773+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:02:41.4763688+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:02:41.4880669+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:57970.
+2026-10-31T01:02:41.4882613+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:02:41.5051600+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:02:41.5063678+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:02:41.7287899+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:02:41.7306256+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:02:41.7308127+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:02:41.7340088+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:03:01.9460907+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:03:01.9488430+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:03:01.9549955+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:04:03.7670694+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:04:03.8439046+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:04:03.8559794+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:54204.
+2026-10-31T01:04:03.8562215+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:04:03.8749609+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:04:03.8762212+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:04:04.0916475+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:04:04.0936925+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:04:04.0939037+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:04:04.0977616+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:04:04.8582889+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 94/96 non-zero; head 00 00 00 00 00 00 00 00 29 00 29 00 29 00 29 00
+2026-10-31T01:04:04.8594457+01:00 Info [DualSenseAudioForwarder] Game haptics active: the pad now reproduces the game's own haptics payload
+2026-10-31T01:04:09.0041890+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:04:09.0061940+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:04:09.0125342+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:04:13.4333918+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:04:13.5112268+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:04:13.5237852+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:54209.
+2026-10-31T01:04:13.5240236+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:04:13.5420640+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:04:13.5433699+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:04:13.7602262+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:04:13.7619969+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:04:13.7621710+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:04:13.7655371+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:04:20.8709199+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 0/96 non-zero; head 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+2026-10-31T01:04:20.8719536+01:00 Info [DualSenseAudioForwarder] Game haptics active: the pad now reproduces the game's own haptics payload
+2026-10-31T01:05:11.5615078+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:05:11.5636768+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:05:11.5705741+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:05:13.3087935+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:05:13.3870745+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:05:13.4010269+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:55537.
+2026-10-31T01:05:13.4013093+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:05:13.4247236+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:05:13.4260569+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:05:13.6444924+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:05:13.6463709+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:05:13.6465722+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:05:13.6514324+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:05:14.6190072+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 0/96 non-zero; head 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+2026-10-31T01:05:14.6199358+01:00 Info [DualSenseAudioForwarder] Game haptics active: the pad now reproduces the game's own haptics payload
+2026-10-31T01:07:58.8998568+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:07:58.9023769+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:07:58.9112418+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:08:00.5841824+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:08:00.6644017+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:08:00.6767858+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:61065.
+2026-10-31T01:08:00.6769844+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:08:00.6974975+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:08:00.6988728+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:08:00.9162791+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:08:00.9185192+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:08:00.9187461+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:08:00.9228031+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:08:01.6706334+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 0/96 non-zero; head 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+2026-10-31T01:08:01.6717587+01:00 Info [DualSenseAudioForwarder] Game haptics active: the pad now reproduces the game's own haptics payload
+2026-10-31T01:10:40.2902828+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:10:40.2927891+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:10:40.2996939+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:11:07.6393365+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:11:07.7171720+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:11:07.7302829+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:64430.
+2026-10-31T01:11:07.7305558+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:11:07.7501721+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:11:07.7515461+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:11:07.9632967+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:11:07.9652248+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:11:07.9653963+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:11:07.9690836+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:11:08.6764721+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 94/96 non-zero; head 00 00 00 00 00 00 00 00 29 00 29 00 29 00 29 00
+2026-10-31T01:11:08.6774923+01:00 Info [DualSenseAudioForwarder] Game haptics active: the pad now reproduces the game's own haptics payload
+2026-10-31T01:11:12.8194144+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:11:12.8217958+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:11:12.8281581+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:14:10.8566855+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:14:10.9318533+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:14:10.9440342+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:64531.
+2026-10-31T01:14:10.9442352+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:14:10.9623548+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:14:10.9636677+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:14:11.1815634+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:14:11.1835490+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:14:11.1837472+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:14:11.1877671+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:14:45.6683927+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:14:45.6708080+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:14:45.6825654+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:15:11.9696423+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:15:12.0425337+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:15:12.0547048+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:64591.
+2026-10-31T01:15:12.0549094+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:15:12.0721265+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:15:12.0732467+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:15:12.2931967+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:15:12.2950927+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:15:12.2952839+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:15:12.2990258+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:15:32.5018581+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:15:32.5041315+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:15:32.5115951+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:15:32.7247728+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:15:32.7989380+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:15:32.8113562+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:64598.
+2026-10-31T01:15:32.8115752+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:15:32.8314233+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:15:32.8326049+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:15:33.0791869+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:15:33.0813746+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:15:33.0815592+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:15:33.0848355+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:15:33.7862625+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 94/96 non-zero; head 00 00 00 00 00 00 00 00 29 00 29 00 29 00 29 00
+2026-10-31T01:15:33.7874141+01:00 Info [DualSenseAudioForwarder] Game haptics active: the pad now reproduces the game's own haptics payload
+2026-10-31T01:15:37.9275469+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:15:37.9297845+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:15:37.9358408+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:18:27.9571088+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:18:28.0330119+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:18:28.0456809+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:59395.
+2026-10-31T01:18:28.0459642+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:18:28.0650879+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:18:28.0663381+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:18:28.2882664+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:18:28.2902119+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:18:28.2903713+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:18:28.2937125+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:18:48.4976090+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:18:48.4998753+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:18:48.5071406+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:18:48.6983672+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:18:48.7755510+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:18:48.7879309+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:61864.
+2026-10-31T01:18:48.7881808+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:18:48.8061600+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:18:48.8072730+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:18:49.0266860+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:18:49.0292049+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:18:49.0295557+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:18:49.0333536+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:19:00.6608610+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:19:00.6633532+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:19:00.6694045+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:20:43.4368771+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:20:43.5109155+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:20:43.5233264+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:49770.
+2026-10-31T01:20:43.5235389+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:20:43.5407586+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:20:43.5420123+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:20:43.7465505+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:20:43.7485552+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:20:43.7487095+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:20:43.7519301+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:21:03.9706369+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:21:03.9730063+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:21:03.9800882+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:21:04.3491818+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:21:04.4230069+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:21:04.4351293+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:49775.
+2026-10-31T01:21:04.4353551+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:21:04.4625719+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:21:04.4638551+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:21:04.6838248+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:21:04.6858085+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:21:04.6860035+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:21:04.6894186+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:21:05.4119834+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 94/96 non-zero; head 00 00 00 00 00 00 00 00 29 00 29 00 29 00 29 00
+2026-10-31T01:21:09.5386633+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:21:09.5409631+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:21:09.5472547+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:21:15.6500965+01:00 Info [Controllers] Loading controller info from 'C:\Users\<usuario>\Documents\Codex\2026-10-31\que-tal-vamos-a-tirarnos-d\outputs\SenseBridge\app\controllers.json'
+2026-10-31T01:21:15.7299309+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:21:15.7429263+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:49843.
+2026-10-31T01:21:15.7431760+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:21:15.7603574+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:21:15.7617052+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:21:15.9837302+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:21:15.9855638+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:21:15.9857523+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:21:15.9893648+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:21:19.1259196+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 0/96 non-zero; head 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+2026-10-31T01:21:35.9905248+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:21:35.9930758+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:21:36.0004537+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:31:35.5160183+01:00 Info [HidHide] App is not on the HidHide whitelist, adding <MadSense>\app\MadSense.exe
+2026-10-31T01:31:35.5485123+01:00 Info [HidHide] Added app to HidHide whitelist: <MadSense>\app\MadSense.exe
+2026-10-31T01:31:35.6640322+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:31:35.7400570+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:31:35.7525250+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:50637.
+2026-10-31T01:31:35.7527708+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:31:35.7771814+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:31:35.7786100+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:31:35.9988545+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:31:36.0011953+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:31:36.0014334+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:31:36.0052583+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:32:05.8656566+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:32:05.8680268+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:32:05.8706768+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:33:02.9045400+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:33:02.9828818+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:33:02.9952116+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:50702.
+2026-10-31T01:33:02.9954779+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:33:03.0344767+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:33:03.0356272+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:33:03.2453920+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:33:03.2475965+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:33:03.2478444+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:33:03.2513706+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:33:11.1126181+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:33:11.1151654+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:33:11.1177852+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:33:18.2853385+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:33:18.2858309+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:50715.
+2026-10-31T01:33:18.2859870+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:33:18.2943059+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:33:18.2944273+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:33:18.5174808+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:33:18.5178758+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:33:18.5180124+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:33:18.5181677+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:33:22.3314096+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:33:22.3321385+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:33:22.3325644+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:33:22.4078847+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller Xbox360 running=False (creating)
+2026-10-31T01:33:22.4083376+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:50719.
+2026-10-31T01:33:22.4085050+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:33:22.4101097+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:33:22.4101870+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:33:22.4107214+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller Xbox360 running=True (ok)
+2026-10-31T01:33:31.5451845+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:33:31.5459032+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:33:31.6454220+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:33:31.6459478+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:50729.
+2026-10-31T01:33:31.6461089+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:33:31.6540840+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:33:31.6541248+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:33:31.8785151+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:33:31.8789045+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:33:31.8790580+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:33:31.8792011+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:33:38.7294532+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:33:38.7301630+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:33:38.7305110+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:33:38.7987246+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:33:38.7991975+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:50741.
+2026-10-31T01:33:38.7993536+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:33:38.8091441+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:33:38.8091818+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:33:39.0397263+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:33:39.0400205+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:33:39.0401564+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:33:39.0403175+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:34:11.8784348+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:34:11.8791506+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:34:11.8795698+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:35:15.1865701+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:35:15.2520706+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:35:15.2661768+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:54703.
+2026-10-31T01:35:15.2664445+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:35:15.2943015+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:35:15.2956283+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:35:15.5201475+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:35:15.5223183+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:35:15.5225240+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:35:15.5259647+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:35:35.9599975+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:35:35.9628862+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:35:35.9694955+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:35:36.2294794+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:35:36.2979168+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:35:36.3118109+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:54717.
+2026-10-31T01:35:36.3121972+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:35:36.3481988+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:35:36.3494861+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:35:36.5637012+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:35:36.5660104+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:35:36.5662731+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:35:36.5702227+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:35:37.2836917+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 94/96 non-zero; head 00 00 00 00 00 00 00 00 29 00 29 00 29 00 29 00
+2026-10-31T01:35:45.3513575+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:35:45.3539022+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:35:45.3594731+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:35:45.5967148+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:35:45.6686006+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller Xbox360 running=False (creating)
+2026-10-31T01:35:45.6833703+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:54719.
+2026-10-31T01:35:45.6836780+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:35:45.7013625+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:35:45.7024122+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:35:45.7062519+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller Xbox360 running=True (ok)
+2026-10-31T01:35:47.8306750+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:35:47.8367543+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:36:30.5620855+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:36:30.6329577+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:36:30.6471583+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:61905.
+2026-10-31T01:36:30.6474771+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:36:30.6946774+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:36:30.6960040+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:36:30.9042816+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:36:30.9071756+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:36:30.9074773+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:36:30.9115896+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:36:51.3524478+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:36:51.3556641+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:36:51.3636861+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:36:51.6496543+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:36:51.7233922+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:36:51.7391763+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:61102.
+2026-10-31T01:36:51.7395480+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:36:51.7671819+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:36:51.7686098+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:36:51.9853136+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:36:51.9876177+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:36:51.9878973+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:36:51.9918716+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:36:52.7705891+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 94/96 non-zero; head 00 00 00 00 00 00 00 00 29 00 29 00 29 00 29 00
+2026-10-31T01:37:00.8407333+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:37:00.8433200+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:37:00.8516986+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:37:01.1045796+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:37:01.1792709+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller Xbox360 running=False (creating)
+2026-10-31T01:37:01.1937618+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:60703.
+2026-10-31T01:37:01.1941151+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:37:01.2118708+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:37:01.2130058+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:37:01.2163626+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller Xbox360 running=True (ok)
+2026-10-31T01:37:03.3530227+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:37:03.3588897+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:37:18.1312119+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:37:18.2189196+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:37:18.2339299+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:60709.
+2026-10-31T01:37:18.2342642+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:37:18.2635639+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:37:18.2648334+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:37:18.4649315+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:37:18.4871290+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:37:18.4874548+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:37:18.4917496+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:37:57.9383327+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:37:57.9409771+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:37:57.9438641+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:37:58.2857636+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:37:58.3718459+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:37:58.3859152+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:60722.
+2026-10-31T01:37:58.3862374+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:37:58.4154583+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:37:58.4178808+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:37:58.6269768+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:37:58.6292602+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:37:58.6294794+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:37:58.6328308+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:38:01.6865041+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 0/96 non-zero; head 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+2026-10-31T01:39:27.5614878+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:39:27.5638446+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:39:27.5705896+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:39:44.0710776+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:39:44.1173391+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:39:44.1307319+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:62641.
+2026-10-31T01:39:44.1310330+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:39:44.1551142+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:39:44.1563232+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:39:44.3757655+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:39:44.3779250+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:39:44.3781754+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:39:44.3819701+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:40:04.7877262+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:40:04.7908745+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:40:04.7985172+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:40:05.0382095+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:40:05.0834409+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:40:05.0973494+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:62653.
+2026-10-31T01:40:05.0976264+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:40:05.1243674+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:40:05.1256884+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:40:05.3355980+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:40:05.3380300+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:40:05.3382684+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:40:05.3417708+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})
+2026-10-31T01:40:06.1517323+01:00 Info [EmulationDualSenseAudioCapture] Emulation audio capture first chunk: 384 bytes, 96 stereo samples, 94/96 non-zero; head 00 00 00 00 00 00 00 00 29 00 29 00 29 00 29 00
+2026-10-31T01:40:14.1999014+01:00 Info [DualSenseAudioForwarder] Audio forwarding stopped
+2026-10-31T01:40:14.2021475+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:40:14.2083666+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:40:14.4383745+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:40:14.4877204+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller Xbox360 running=False (creating)
+2026-10-31T01:40:14.5024779+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:62655.
+2026-10-31T01:40:14.5028319+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:40:14.5198514+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:40:14.5206042+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:40:14.5237777+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller Xbox360 running=True (ok)
+2026-10-31T01:40:16.6321493+01:00 Info [Emulation] usbip-win2 detached bus id '1-1' from vhci port 1.
+2026-10-31T01:40:16.6387237+01:00 Info [Emulation] USB/IP server stopped.
+2026-10-31T01:40:42.5442715+01:00 Info [Controllers] Loading controller info from '<MadSense>\app\controllers.json'
+2026-10-31T01:40:42.5917786+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=False (creating)
+2026-10-31T01:40:42.6052824+01:00 Info [Emulation] USB/IP server listening on 127.0.0.1:51853.
+2026-10-31T01:40:42.6056056+01:00 Info [EmulationService] Emulation server ready
+2026-10-31T01:40:42.6296033+01:00 Info [Emulation] usbip-win2 attached bus id '1-1' on vhci port 1.
+2026-10-31T01:40:42.6308171+01:00 Info [Emulation] Device "1-1" imported.
+2026-10-31T01:40:42.8450167+01:00 Info [EmulationService] Discovered virtual device candidate: \\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
+2026-10-31T01:40:42.8621986+01:00 Info [DualSenseAudioForwarder] Audio forwarding started (bluetooth)
+2026-10-31T01:40:42.8625184+01:00 Info [EmulationService] Host audio forwarding started for DualSense Wireless Controller
+2026-10-31T01:40:42.8667129+01:00 Info [EmulationService] Emulation status: DualSense Wireless Controller DualSense running=True (\\?\HID#VID_054C&PID_0CE6&MI_03#4&b696fed&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})

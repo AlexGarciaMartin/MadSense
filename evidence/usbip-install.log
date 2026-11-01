@@ -1,0 +1,252 @@
+2026-10-31 01:00:16.958   Log opened. (Time zone: UTC+01:00)
+2026-10-31 01:00:16.958   Setup version: Inno Setup version 7.1.0 (32-bit)
+2026-10-31 01:00:16.958   Original Setup EXE: <work>\USBip-0.9.8.1-x64.exe
+2026-10-31 01:00:16.958   Setup command line: /SL5="$90AB2,24784926,890880,<work>\USBip-0.9.8.1-x64.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="<work>\usbip-install.log"
+2026-10-31 01:00:16.958   Compatibility mode: Yes (DetectorsAppHealth Installer)
+2026-10-31 01:00:16.958   Windows version: 10.0.26200
+2026-10-31 01:00:16.958   Windows architecture: x64 (64-bit)
+2026-10-31 01:00:16.958   Machine types supported by system: x86 x64
+2026-10-31 01:00:16.958   User privileges: Administrative
+2026-10-31 01:00:16.977   Administrative install mode: Yes
+2026-10-31 01:00:16.977   Install mode root key: HKEY_LOCAL_MACHINE
+2026-10-31 01:00:16.977   64-bit install mode: Yes
+2026-10-31 01:00:16.977   RedirectionGuard status for current process: Enabled in enforcing mode
+2026-10-31 01:00:16.978   Created protected temporary directory: C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp
+2026-10-31 01:00:16.986   -- DLL function import --
+2026-10-31 01:00:16.986   Function and DLL name: NtQuerySystemInformation@ntdll.dll
+2026-10-31 01:00:16.986   Importing the DLL function. Dest DLL name: ntdll.dll
+2026-10-31 01:00:16.986   Successfully imported the DLL function. Delay loaded? No
+2026-10-31 01:00:17.387   Found 6 files to register with RestartManager.
+2026-10-31 01:00:17.387   Calling RestartManager's RmGetList.
+2026-10-31 01:00:17.400   RmGetList finished successfully.
+2026-10-31 01:00:17.400   RestartManager found no applications using one of our files.
+2026-10-31 01:00:17.400   Starting the installation process.
+2026-10-31 01:00:17.402   Creating directory: \\?\C:\Program Files\USBip
+2026-10-31 01:00:17.402   Directory for uninstall files: C:\Program Files\USBip
+2026-10-31 01:00:17.402   Creating new uninstall log: C:\Program Files\USBip\unins000.dat
+2026-10-31 01:00:17.419   -- File entry --
+2026-10-31 01:00:17.419   Dest filename: C:\Program Files\USBip\unins000.exe
+2026-10-31 01:00:17.419   Non-default bitness: 32-bit
+2026-10-31 01:00:17.420   Time stamp of our file: 2026-10-31T00:00:16.771Z
+2026-10-31 01:00:17.420   Installing the file.
+2026-10-31 01:00:17.429   Successfully installed the file.
+2026-10-31 01:00:17.429   -- File entry --
+2026-10-31 01:00:17.429   Dest filename: \\?\C:\Program Files\USBip\Readme.md
+2026-10-31 01:00:17.429   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.429   Installing the file.
+2026-10-31 01:00:17.429   Successfully installed the file.
+2026-10-31 01:00:17.429   -- File entry --
+2026-10-31 01:00:17.429   Dest filename: \\?\C:\Program Files\USBip\usbip.exe
+2026-10-31 01:00:17.429   Time stamp of our file: 2026-09-26T14:23:42.000Z
+2026-10-31 01:00:17.429   Installing the file.
+2026-10-31 01:00:17.453   Successfully installed the file.
+2026-10-31 01:00:17.453   -- File entry --
+2026-10-31 01:00:17.453   Dest filename: \\?\C:\Program Files\USBip\devnode.exe
+2026-10-31 01:00:17.453   Time stamp of our file: 2026-09-26T14:23:44.000Z
+2026-10-31 01:00:17.453   Installing the file.
+2026-10-31 01:00:17.453   Successfully installed the file.
+2026-10-31 01:00:17.453   -- File entry --
+2026-10-31 01:00:17.453   Dest filename: \\?\C:\Program Files\USBip\libusbip.dll
+2026-10-31 01:00:17.453   Time stamp of our file: 2026-09-26T13:01:14.000Z
+2026-10-31 01:00:17.453   Installing the file.
+2026-10-31 01:00:17.472   Successfully installed the file.
+2026-10-31 01:00:17.472   -- File entry --
+2026-10-31 01:00:17.472   Dest filename: \\?\C:\Program Files\USBip\resources.dll
+2026-10-31 01:00:17.472   Time stamp of our file: 2026-09-26T13:00:44.000Z
+2026-10-31 01:00:17.472   Installing the file.
+2026-10-31 01:00:17.473   Successfully installed the file.
+2026-10-31 01:00:17.473   -- File entry --
+2026-10-31 01:00:17.473   Dest filename: \\?\C:\Program Files\USBip\include\usbip\dllspec.h
+2026-10-31 01:00:17.473   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.473   Installing the file.
+2026-10-31 01:00:17.473   Creating directory: \\?\C:\Program Files\USBip\include
+2026-10-31 01:00:17.473   Creating directory: \\?\C:\Program Files\USBip\include\usbip
+2026-10-31 01:00:17.473   Successfully installed the file.
+2026-10-31 01:00:17.473   -- File entry --
+2026-10-31 01:00:17.474   Dest filename: \\?\C:\Program Files\USBip\include\usbip\format_message.h
+2026-10-31 01:00:17.474   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.474   Installing the file.
+2026-10-31 01:00:17.474   Successfully installed the file.
+2026-10-31 01:00:17.474   -- File entry --
+2026-10-31 01:00:17.474   Dest filename: \\?\C:\Program Files\USBip\include\usbip\generic_handle.h
+2026-10-31 01:00:17.474   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.474   Installing the file.
+2026-10-31 01:00:17.475   Successfully installed the file.
+2026-10-31 01:00:17.475   -- File entry --
+2026-10-31 01:00:17.475   Dest filename: \\?\C:\Program Files\USBip\include\usbip\generic_handle_ex.h
+2026-10-31 01:00:17.475   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.475   Installing the file.
+2026-10-31 01:00:17.476   Successfully installed the file.
+2026-10-31 01:00:17.476   -- File entry --
+2026-10-31 01:00:17.476   Dest filename: \\?\C:\Program Files\USBip\include\usbip\output.h
+2026-10-31 01:00:17.476   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.476   Installing the file.
+2026-10-31 01:00:17.476   Successfully installed the file.
+2026-10-31 01:00:17.476   -- File entry --
+2026-10-31 01:00:17.476   Dest filename: \\?\C:\Program Files\USBip\include\usbip\persistent.h
+2026-10-31 01:00:17.476   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.476   Installing the file.
+2026-10-31 01:00:17.477   Successfully installed the file.
+2026-10-31 01:00:17.477   -- File entry --
+2026-10-31 01:00:17.477   Dest filename: \\?\C:\Program Files\USBip\include\usbip\remote.h
+2026-10-31 01:00:17.477   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.477   Installing the file.
+2026-10-31 01:00:17.478   Successfully installed the file.
+2026-10-31 01:00:17.478   -- File entry --
+2026-10-31 01:00:17.478   Dest filename: \\?\C:\Program Files\USBip\include\usbip\vhci.h
+2026-10-31 01:00:17.478   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.478   Installing the file.
+2026-10-31 01:00:17.478   Successfully installed the file.
+2026-10-31 01:00:17.478   -- File entry --
+2026-10-31 01:00:17.478   Dest filename: \\?\C:\Program Files\USBip\include\usbip\win_handle.h
+2026-10-31 01:00:17.478   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.478   Installing the file.
+2026-10-31 01:00:17.479   Successfully installed the file.
+2026-10-31 01:00:17.479   -- File entry --
+2026-10-31 01:00:17.479   Dest filename: \\?\C:\Program Files\USBip\include\usbip\win_socket.h
+2026-10-31 01:00:17.479   Time stamp of our file: 2026-09-26T12:38:44.000Z
+2026-10-31 01:00:17.479   Installing the file.
+2026-10-31 01:00:17.479   Successfully installed the file.
+2026-10-31 01:00:17.479   -- File entry --
+2026-10-31 01:00:17.479   Dest filename: \\?\C:\Program Files\USBip\include\usbip\messages.h
+2026-10-31 01:00:17.480   Time stamp of our file: 2026-09-26T13:00:44.000Z
+2026-10-31 01:00:17.480   Installing the file.
+2026-10-31 01:00:17.480   Successfully installed the file.
+2026-10-31 01:00:17.480   -- File entry --
+2026-10-31 01:00:17.480   Dest filename: \\?\C:\Program Files\USBip\lib\libusbip.lib
+2026-10-31 01:00:17.480   Time stamp of our file: 2026-09-26T13:01:12.000Z
+2026-10-31 01:00:17.480   Installing the file.
+2026-10-31 01:00:17.480   Creating directory: \\?\C:\Program Files\USBip\lib
+2026-10-31 01:00:17.481   Successfully installed the file.
+2026-10-31 01:00:17.481   -- File entry --
+2026-10-31 01:00:17.481   Dest filename: \\?\C:\Program Files\USBip\devnode.pdb
+2026-10-31 01:00:17.481   Time stamp of our file: 2026-09-26T13:01:32.000Z
+2026-10-31 01:00:17.481   Installing the file.
+2026-10-31 01:00:17.549   Successfully installed the file.
+2026-10-31 01:00:17.549   -- File entry --
+2026-10-31 01:00:17.549   Dest filename: \\?\C:\Program Files\USBip\libdrv.pdb
+2026-10-31 01:00:17.549   Time stamp of our file: 2026-09-26T13:00:46.000Z
+2026-10-31 01:00:17.549   Installing the file.
+2026-10-31 01:00:17.555   Successfully installed the file.
+2026-10-31 01:00:17.555   -- File entry --
+2026-10-31 01:00:17.555   Dest filename: \\?\C:\Program Files\USBip\resources.pdb
+2026-10-31 01:00:17.555   Time stamp of our file: 2026-09-26T13:00:44.000Z
+2026-10-31 01:00:17.555   Installing the file.
+2026-10-31 01:00:17.557   Successfully installed the file.
+2026-10-31 01:00:17.557   -- File entry --
+2026-10-31 01:00:17.557   Dest filename: \\?\C:\Program Files\USBip\usbip.pdb
+2026-10-31 01:00:17.557   Time stamp of our file: 2026-09-26T13:01:30.000Z
+2026-10-31 01:00:17.557   Installing the file.
+2026-10-31 01:00:17.622   Successfully installed the file.
+2026-10-31 01:00:17.622   -- File entry --
+2026-10-31 01:00:17.622   Dest filename: \\?\C:\Program Files\USBip\usbip2_filter.pdb
+2026-10-31 01:00:17.622   Time stamp of our file: 2026-09-26T13:00:50.000Z
+2026-10-31 01:00:17.622   Installing the file.
+2026-10-31 01:00:17.640   Successfully installed the file.
+2026-10-31 01:00:17.640   -- File entry --
+2026-10-31 01:00:17.641   Dest filename: \\?\C:\Program Files\USBip\usbip2_ude.pdb
+2026-10-31 01:00:17.641   Time stamp of our file: 2026-09-26T13:00:56.000Z
+2026-10-31 01:00:17.641   Installing the file.
+2026-10-31 01:00:17.662   Successfully installed the file.
+2026-10-31 01:00:17.662   -- File entry --
+2026-10-31 01:00:17.662   Dest filename: \\?\C:\Program Files\USBip\libusbip.pdb
+2026-10-31 01:00:17.662   Time stamp of our file: 2026-09-26T13:01:14.000Z
+2026-10-31 01:00:17.662   Installing the file.
+2026-10-31 01:00:17.718   Successfully installed the file.
+2026-10-31 01:00:17.718   -- File entry --
+2026-10-31 01:00:17.718   Dest filename: \\?\C:\Program Files\USBip\wusbip.exe
+2026-10-31 01:00:17.718   Time stamp of our file: 2026-09-26T14:23:48.000Z
+2026-10-31 01:00:17.718   Installing the file.
+2026-10-31 01:00:17.853   Successfully installed the file.
+2026-10-31 01:00:17.853   -- File entry --
+2026-10-31 01:00:17.853   Dest filename: \\?\C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp\vc_redist.x64.exe
+2026-10-31 01:00:17.853   Time stamp of our file: 2026-07-02T21:36:18.000Z
+2026-10-31 01:00:17.853   Installing the file.
+2026-10-31 01:00:17.970   Successfully installed the file.
+2026-10-31 01:00:17.970   -- File entry --
+2026-10-31 01:00:17.970   Dest filename: \\?\C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp\usbip2_filter.cat
+2026-10-31 01:00:17.970   Time stamp of our file: 2026-09-26T14:17:30.000Z
+2026-10-31 01:00:17.970   Installing the file.
+2026-10-31 01:00:17.971   Successfully installed the file.
+2026-10-31 01:00:17.971   -- File entry --
+2026-10-31 01:00:17.972   Dest filename: \\?\C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp\usbip2_filter.inf
+2026-10-31 01:00:17.972   Time stamp of our file: 2026-09-26T14:17:30.000Z
+2026-10-31 01:00:17.972   Installing the file.
+2026-10-31 01:00:17.972   Successfully installed the file.
+2026-10-31 01:00:17.972   -- File entry --
+2026-10-31 01:00:17.973   Dest filename: \\?\C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp\usbip2_filter.sys
+2026-10-31 01:00:17.973   Time stamp of our file: 2026-09-26T14:17:30.000Z
+2026-10-31 01:00:17.973   Installing the file.
+2026-10-31 01:00:17.975   Successfully installed the file.
+2026-10-31 01:00:17.975   -- File entry --
+2026-10-31 01:00:17.975   Dest filename: \\?\C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp\usbip2_ude.cat
+2026-10-31 01:00:17.975   Time stamp of our file: 2026-09-26T14:17:30.000Z
+2026-10-31 01:00:17.975   Installing the file.
+2026-10-31 01:00:17.976   Successfully installed the file.
+2026-10-31 01:00:17.976   -- File entry --
+2026-10-31 01:00:17.976   Dest filename: \\?\C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp\usbip2_ude.inf
+2026-10-31 01:00:17.976   Time stamp of our file: 2026-09-26T14:17:30.000Z
+2026-10-31 01:00:17.976   Installing the file.
+2026-10-31 01:00:17.977   Successfully installed the file.
+2026-10-31 01:00:17.977   -- File entry --
+2026-10-31 01:00:17.978   Dest filename: \\?\C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp\usbip2_ude.sys
+2026-10-31 01:00:17.978   Time stamp of our file: 2026-09-26T14:17:30.000Z
+2026-10-31 01:00:17.978   Installing the file.
+2026-10-31 01:00:17.983   Successfully installed the file.
+2026-10-31 01:00:17.983   -- Icon entry --
+2026-10-31 01:00:17.983   Dest filename: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\USBip\USBip.lnk
+2026-10-31 01:00:17.983   Creating directory: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\USBip
+2026-10-31 01:00:17.986   Creating the icon.
+2026-10-31 01:00:18.267   Successfully created the icon.
+2026-10-31 01:00:18.286   -- Icon entry --
+2026-10-31 01:00:18.286   Dest filename: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\USBip\Uninstall USBip.lnk
+2026-10-31 01:00:18.286   Creating the icon.
+2026-10-31 01:00:18.364   Successfully created the icon.
+2026-10-31 01:00:18.377   -- Icon entry --
+2026-10-31 01:00:18.377   Dest filename: C:\Users\Public\Desktop\USBip.lnk
+2026-10-31 01:00:18.377   Creating the icon.
+2026-10-31 01:00:18.377   Successfully created the icon.
+2026-10-31 01:00:18.397   Saving uninstall information.
+2026-10-31 01:00:18.397   Writing uninstaller messages: C:\Program Files\USBip\unins000.msg
+2026-10-31 01:00:18.397   Creating new uninstall key: HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\{199505b0-b93d-4521-a8c7-897818e0205a}_is1
+2026-10-31 01:00:18.397   Writing uninstall key values.
+2026-10-31 01:00:18.397   Detected previous non administrative install? No
+2026-10-31 01:00:18.397   Detected previous administrative 32-bit install? No
+2026-10-31 01:00:18.397   Installation process succeeded.
+2026-10-31 01:00:18.408   -- Run entry --
+2026-10-31 01:00:18.408   Run as: Current user
+2026-10-31 01:00:18.408   Type: Exec
+2026-10-31 01:00:18.408   Filename: C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp\vc_redist.x64.exe
+2026-10-31 01:00:18.408   Parameters: /quiet /norestart
+2026-10-31 01:00:19.400   Process exit code: 0
+2026-10-31 01:00:19.400   -- Run entry --
+2026-10-31 01:00:19.400   Run as: Current user
+2026-10-31 01:00:19.400   Type: Exec
+2026-10-31 01:00:19.400   Filename: C:\WINDOWS\system32\pnputil.exe
+2026-10-31 01:00:19.400   Parameters: /add-driver "C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp\usbip2_filter.inf" /install
+2026-10-31 01:00:19.463   Output:
+2026-10-31 01:00:19.463   Utilidad PnP de Microsoft
+2026-10-31 01:00:19.463   
+2026-10-31 01:00:19.463   Agregando paquete de controladores:  usbip2_filter.inf
+2026-10-31 01:00:19.967   El paquete de controladores se agreg� correctamente.
+2026-10-31 01:00:19.967   Nombre publicado:         oem67.inf
+2026-10-31 01:00:28.435   Es necesario reiniciar el sistema para completar las operaciones de instalaci�n.
+2026-10-31 01:00:28.720   Paquete de controladores instalado en el dispositivo: USB\ROOT_HUB30\1&2b53a856&0&0
+2026-10-31 01:00:28.972   Paquete de controladores instalado en el dispositivo: USB\ROOT_HUB30\4&35a04662&0&0
+2026-10-31 01:00:28.972   
+2026-10-31 01:00:28.972   Paquetes de controladores totales:  1
+2026-10-31 01:00:28.972   Paquetes de controladores agregados:  1
+2026-10-31 01:00:28.972   Es necesario reiniciar el sistema para completar las operaciones de instalaci�n.
+2026-10-31 01:00:28.972   Process exit code: 3010
+2026-10-31 01:00:28.972   -- Run entry --
+2026-10-31 01:00:28.972   Run as: Current user
+2026-10-31 01:00:28.972   Type: Exec
+2026-10-31 01:00:28.972   Filename: C:\Program Files\USBip\devnode.exe
+2026-10-31 01:00:28.972   Parameters: install "C:\Users\<usuario>\AppData\Local\Temp\is-TN28VD1CSH.tmp\usbip2_ude.inf" ROOT\USBIP_WIN2\UDE
+2026-10-31 01:00:30.298   Process exit code: 0
+2026-10-31 01:00:30.300   Registering detach task: USBip Detach All On Reboot Or Shutdown
+2026-10-31 01:00:30.392   Detach task registered successfully
+2026-10-31 01:00:30.392   Need to restart Windows? Yes
+2026-10-31 01:00:30.392   Will not restart Windows automatically.
+2026-10-31 01:00:30.392   Deinitializing Setup.
+2026-10-31 01:00:30.408   Log closed.

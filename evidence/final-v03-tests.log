@@ -1,0 +1,246 @@
+  Determinando los proyectos que se van a restaurar...
+  Todos los proyectos están actualizados para la restauración.
+  DualSenseClient.Emulation -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Emulation\bin\Release\net10.0\DualSenseClient.Emulation.dll
+  DualSenseClient.Logging -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Logging\bin\Release\net10.0\DualSenseClient.Logging.dll
+  DualSenseClient.Bluetooth -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Bluetooth\bin\Release\net10.0\DualSenseClient.Bluetooth.dll
+  DualSenseClient.Hid -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Hid\bin\Release\net10.0\DualSenseClient.Hid.dll
+  DualSenseClient.Core -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Core\bin\Release\net10.0\DualSenseClient.Core.dll
+  DualSenseClient.Settings -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Settings\bin\Release\net10.0\DualSenseClient.Settings.dll
+  DualSenseClient.Controllers -> <MadSense>\vendor\DualSenseClient\DualSenseClient.Controllers\bin\Release\net10.0\DualSenseClient.Controllers.dll
+  DualSenseClient.Tests -> <MadSense>\tests\DualSenseClient.Tests\bin\Release\net10.0\DualSenseClient.Tests.dll
+Serie de pruebas para <MadSense>\tests\DualSenseClient.Tests\bin\Release\net10.0\DualSenseClient.Tests.dll (.NETCoreApp,Version=v10.0)
+1 archivos de prueba en total coincidieron con el patrón especificado.
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] ===== Exception Report Start =====
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] Timestamp (local): 2026-10-31T02:11:09.7945287+01:00
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] Exception Level: 0
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] Type: System.Net.Sockets.SocketException
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] Message: Solo se permite un uso de cada dirección de socket (protocolo/dirección de red/puerto)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] Source: System.Net.Sockets
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] HResult: -2147467259
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] StackTrace:
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632]      at System.Net.Sockets.Socket.UpdateStatusAfterSocketErrorAndThrowException(SocketError error, Boolean disconnectOnFailure, String callerName)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632]      at System.Net.Sockets.Socket.DoBind(EndPoint endPointSnapshot, SocketAddress socketAddress)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632]      at System.Net.Sockets.Socket.Bind(EndPoint localEP)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632]      at System.Net.Sockets.TcpListener.Start(Int32 backlog)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632]      at DualSenseClient.Emulation.UsbIp.UsbIpServer.Start() in <MadSense>\vendor\DualSenseClient\DualSenseClient.Emulation\UsbIp\UsbIpServer.cs:line 213
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632]      at DualSenseClient.Emulation.EmulationServer.Start() in <MadSense>\vendor\DualSenseClient\DualSenseClient.Emulation\EmulationServer.cs:line 98
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632]      at DualSenseClient.Controllers.Emulation.EmulationService.EnsureEmulationServerLocked() in <MadSense>\vendor\DualSenseClient\DualSenseClient.Controllers\Emulation\EmulationService.cs:line 1628
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] TargetSite: Void UpdateStatusAfterSocketErrorAndThrowException(System.Net.Sockets.SocketError, Boolean, System.String)
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] === System Information ===
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] Machine Name: PC
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] OS Version: Microsoft Windows NT 10.0.26200.0
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] .NET Runtime: .NET 10.0.14
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] Process Architecture: X64
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] Current Directory: <MadSense>\tests\DualSenseClient.Tests\bin\Release\net10.0
+[
+CRITICAL
+]
+[
+EmulationService
+]
+EmulationService.cs
+:
+1632
+[EmulationService.EnsureEmulationServerLocked:1632] ===== Exception Report End =====
+ADVERTENCIA: Se sobrescribirá el archivo de resultados: <MadSense>\test-results\validation.trx
+Archivo de resultados: <MadSense>\test-results\validation.trx
+
+Correctas! - Con error:     0, Superado:   362, Omitido:     0, Total:   362, Duración: 23 s - DualSenseClient.Tests.dll (net10.0)

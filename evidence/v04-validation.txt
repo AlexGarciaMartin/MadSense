@@ -1,0 +1,63 @@
+MADSENSE 0.4 — VALIDACIÓN 31-10-2026 (02:30–02:50)
+
+Entorno: mismo PC (20 procesadores lógicos), DualSense estándar por Bluetooth,
+Stellar Blade abierto en segundo plano durante toda la sesión, DSX cerrado.
+Ningún lanzador ni ajuste de seguridad de Windows modificado.
+
+PRUEBAS AUTOMÁTICAS
+Línea base (0.3 antes de tocar nada): 1724 superadas, 1 fallida, 35 omitidas.
+  La fallida: ControllerInfo_Serialization_RoundTripsVariantsAndAudioOutput,
+  por la opción StrictNativeHaptics serializada en PascalCase. Corregido con
+  [JsonPropertyName("strict_native_haptics")]; MadSense reescribe esa opción
+  en cada conexión, así que controllers.json antiguos no cambian de comportamiento.
+Final 0.4: 1727 superadas, 0 fallidas, 35 omitidas (las omitidas son las de
+  hardware/integración gated por EMULATION_INTEGRATION). validation.trx.
+  Nuevo: PrecisionWaitTests (nunca despierta antes; desvío medio 0,268 ms y
+  peor caso 0,526 ms en 60 ticks de 10,667 ms con resolución de 1 ms activa).
+
+HARDWARE (timestamps de madsense.log, hora local)
+Arranque 0.3 → 0.4 (primera publicación, sin despertar por StateChanged):
+  exe lanzado 02:43:06.124 · "Bluetooth conectado" 06.846 · "Listo" 07.816 → 1,7 s
+Arranque 0.4 final:
+  exe lanzado 02:47:21.954 · conectado 22.716 · listo 22.935 → 1,0 s
+Pausar / Reanudar por UI Automation:
+  clic Reanudar 02:43:35.258 → "Bluetooth conectado" 35.313 (55 ms) → listo 36.267
+Cambio de modo por UI Automation:
+  clic Xbox 02:43:39.277 → "Modo Xbox" 39.294 (17 ms) → listo como Xbox 39.362
+  clic DualSense 02:43:43.288 → "Modo DualSense" 43.296 → listo 44.297
+  En 0.3 cada comando esperaba hasta 1 s al bucle del worker.
+--stop ordenado: 605 / 598 / 860 ms hasta que el proceso desaparece.
+--tray: arranca sin ventana (MainWindowHandle = 0), conecta y queda listo igual;
+  volver a abrir el exe devuelve código 2 y muestra la ventana existente.
+Prioridades observadas: proceso AboveNormal; hilo lector de entrada en
+  prioridad base 17 (MMCSS "Games"); bomba Bluetooth en 24 (MMCSS "Pro Audio").
+engine.log: 0 avisos y 0 errores durante toda la sesión.
+
+CPU / MEMORIA (tools/measure-process.ps1, 15 s, proceso solo, sin coste de driver)
+0.3 ventana visible, puente activo:        19,8 % de un núcleo · 0,99 % máquina · WS 109 MiB
+0.4 ventana visible (antes de PrecisionWait): 24,5 % · 1,22 % · WS 109 MiB
+0.4 en bandeja (antes de PrecisionWait):   22,6 % · bomba BT 6,8 % de un núcleo (giro Yield a prioridad 24)
+0.4 en bandeja (final):                    24,6 % · 1,23 % · WS 96,9 MiB · bomba fuera del top (<1,7 %)
+Lectura honesta: el consumo total queda en el mismo rango que 0.3 (la muestra
+oficial de 0.3 en bandeja era 24,2 %); las muestras de 15 s varían ±3–5 puntos
+con el juego de fondo. El giro de la bomba se ha eliminado de forma verificable;
+lo que domina ahora son los hilos del pool (temporizador ISO a 1 kHz y socket
+USB/IP, ~4.000 operaciones/s), inherentes al transporte USB/IP.
+
+UI
+evidence/ui-v03-before.png y evidence/ui-v04-ready.png (PrintWindow, DPI 150 %).
+Lámparas HÁPTICOS / GATILLOS / AUDIO en la franja LINK; AUDIO encendida con
+Stellar Blade abierto (stream del altavoz activo) y las otras dos en reposo sin
+interacción. Línea inferior con hora y mensaje "Listo para jugar…".
+
+NO PROBADO FÍSICAMENTE EN ESTA SESIÓN
+- Llegada del mando al pulsar PS (el despertar por WM_DEVICECHANGE se ejercitó
+  con las altas/bajas del mando virtual; para el mando real queda el reintento
+  de 3 s como respaldo, igual que en 0.3).
+- Apagar el mando (detección por fallo de lectura; el respaldo de 5 s sigue).
+- Aviso de batería baja (el mando estaba al 75 %).
+- Conmutador "Iniciar con Windows" (solo se comprobó que por defecto no escribe
+  nada en HKCU\...\Run y que --tray funciona).
+- Jack de auriculares, DualSense Edge.
+- Sensación táctil: no se ha cambiado nada en la cola nativa, la cadencia ni el
+  protocolo Bluetooth; la latencia háptica es la de 0.3 (ver COMPARATIVA.txt).
