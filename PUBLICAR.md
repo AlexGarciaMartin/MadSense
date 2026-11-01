@@ -1,5 +1,20 @@
 # Publicar MadSense en GitHub
 
+El repositorio vive en https://github.com/AlexGarciaMartin/MadSense (público, rama `main`, GPL-3.0) y la primera versión instalable está en su Release `v0.4`. Se publicó el 1 de noviembre de 2026 con Git y GitHub CLI (`gh`), ya instalados e identificados en este PC.
+
+## Publicar una versión nueva (resumen)
+
+```powershell
+app\MadSense.exe --stop
+tools\build-release.ps1
+git add -A
+git commit -m "MadSense 0.5: ..."
+git push
+gh release create v0.5 dist\MadSense-0.5-win-x64.zip dist\MadSense-0.5-win-x64.zip.sha256 --title "MadSense 0.5" --notes-file dist\release-notes-0.5.md --latest
+```
+
+Antes, sube `<Version>` en `src/MadSense.csproj` y la etiqueta "VERSIÓN" de la ventana. Lo que sigue es la guía completa, por si hay que repetirlo en otro PC.
+
 Pasos para subir este repositorio y publicar la versión instalable. Todo se hace desde PowerShell en la carpeta del proyecto.
 
 ## 1. Git
