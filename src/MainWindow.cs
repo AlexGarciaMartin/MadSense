@@ -29,6 +29,9 @@ sealed class MainWindow : Form
     readonly ToolStripMenuItem autostart;
     readonly ToolStripMenuItem openItem = new(), pauseItem = new(), speakerMenu = new(), languageMenu = new(), quitItem = new();
     readonly ToolStripMenuItem checkUpdatesItem = new(), downloadUpdateItem = new();
+    readonly ToolStripMenuItem gamesItem = new();
+    readonly RoundedButton gamesButton = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 10, 0) };
+    Games.GamesWindow? gamesWindow;
     readonly Dictionary<string, ToolStripMenuItem> languageItems = new();
     readonly HeaderPanel header = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
     readonly Label section = CreateSection(), speakerSection = CreateSection();
@@ -141,21 +144,24 @@ sealed class MainWindow : Form
         for (int i = 0; i < 3; i++) speaker.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 3));
         AddSpeaker("Alto", 0); AddSpeaker("Bajo", 1); AddSpeaker("Off", 2);
         layout.Controls.Add(speaker, 0, 5);
-        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
         activity.Font = new Font(Font.FontFamily, 8);
         footer.Controls.Add(activity, 0, 0);
         details.Click += (_, _) => { if (previewOnly) return; try { Process.Start(new ProcessStartInfo("explorer.exe", AppContext.BaseDirectory) { UseShellExecute = true }); } catch (Exception e) { ShowActivity(UiMessage.FromException(e)); } };
-        footer.Controls.Add(details, 1, 0);
+        gamesButton.Click += (_, _) => OpenGames();
+        footer.Controls.Add(gamesButton, 1, 0);
+        footer.Controls.Add(details, 2, 0);
         pause.Dock = DockStyle.Fill; pause.Margin = Padding.Empty;
         pause.Click += (_, _) => TogglePause();
-        footer.Controls.Add(pause, 2, 0);
+        footer.Controls.Add(pause, 3, 0);
         layout.Controls.Add(footer, 0, 6);
         Controls.Add(layout);
         header.DownloadRequested += (_, _) => OpenUpdateDownload();
 
         var menu = new ContextMenuStrip();
         openItem.Click += (_, _) => RestoreWindow(); menu.Items.Add(openItem);
+        gamesItem.Click += (_, _) => OpenGames(); menu.Items.Add(gamesItem);
         pauseItem.Click += (_, _) => TogglePause(); menu.Items.Add(pauseItem);
         foreach (var level in SpeakerLevels.All)
         {
@@ -241,6 +247,13 @@ sealed class MainWindow : Form
         catch (Exception e) { ShowActivity(L.Message("Ui.LanguageError", UiMessage.FromException(e))); }
     }
 
+    void OpenGames()
+    {
+        if (gamesWindow is { IsDisposed: false }) { gamesWindow.Show(); gamesWindow.Activate(); return; }
+        gamesWindow = new Games.GamesWindow();
+        gamesWindow.Show(this);
+    }
+
     void LanguageChanged()
     {
         if (IsDisposed || Disposing || quitting) return;
@@ -254,6 +267,7 @@ sealed class MainWindow : Form
         var culture = CultureInfo.GetCultureInfo(L.CurrentLanguage);
         section.Text = L.Text("Ui.ModeSection"); speakerSection.Text = L.Text("Ui.SpeakerSection");
         details.Text = L.Text("Ui.Logs"); details.AccessibleDescription = L.Text("Ui.LogsDescription");
+        gamesButton.Text = gamesItem.Text = L.Text("Games.Title");
         pause.Text = L.Text(paused ? "Ui.Resume" : "Ui.Pause");
         modeButtons["Auto"].Text = L.Text("Ui.NativeMode"); modeButtons["Xbox"].Text = L.Text("Ui.XboxMode");
         modeButtons["Auto"].AccessibleDescription = L.Text("Ui.NativeDescription");

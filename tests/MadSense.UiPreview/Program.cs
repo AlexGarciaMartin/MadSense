@@ -15,6 +15,12 @@ internal static class Program
         Directory.SetCurrentDirectory(options.DataDirectory);
         ApplicationConfiguration.Initialize();
         L.Use(options.Language);
+        if (options.View != "main")
+        {
+            using var library = new MadSenseApp::MadSense.Games.GamesWindow(options.View == "mods");
+            Application.Run(library);
+            return;
+        }
         using var window = new MainWindow(previewOnly: true);
         window.Text = "MadSense · UI PREVIEW";
         var signals = options.State switch
@@ -42,11 +48,11 @@ internal static class Program
 
     static Options ParseOptions(string[] args)
     {
-        const string usage = "Usage: MadSense.UiPreview --data-dir <absolute isolated folder> [--language en|es|fr|de|it|pt-BR|auto] [--state waiting|native|xbox|paused] [--update-version 0.4.6]";
+        const string usage = "Usage: MadSense.UiPreview --data-dir <absolute isolated folder> [--language en|es|fr|de|it|pt-BR|auto] [--state waiting|native|xbox|paused] [--update-version 0.4.6] [--view main|games|mods]";
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var index = 0; index < args.Length; index += 2)
         {
-            if (index + 1 >= args.Length || args[index] is not ("--data-dir" or "--language" or "--state" or "--update-version") || !values.TryAdd(args[index], args[index + 1]))
+            if (index + 1 >= args.Length || args[index] is not ("--data-dir" or "--language" or "--state" or "--update-version" or "--view") || !values.TryAdd(args[index], args[index + 1]))
                 throw new ArgumentException(usage);
         }
         if (!values.TryGetValue("--data-dir", out var directory) || !Path.IsPathFullyQualified(directory))
@@ -57,8 +63,10 @@ internal static class Program
         if (state is not ("waiting" or "native" or "xbox" or "paused")) throw new ArgumentException(usage);
         var updateVersion = values.GetValueOrDefault("--update-version");
         if (updateVersion is not null && !Version.TryParse(updateVersion, out _)) throw new ArgumentException(usage);
-        return new Options(Path.GetFullPath(directory), language, state, updateVersion);
+        var view = values.GetValueOrDefault("--view", "main");
+        if (view is not ("main" or "games" or "mods")) throw new ArgumentException(usage);
+        return new Options(Path.GetFullPath(directory), language, state, updateVersion, view);
     }
 
-    sealed record Options(string DataDirectory, string Language, string State, string? UpdateVersion);
+    sealed record Options(string DataDirectory, string Language, string State, string? UpdateVersion, string View);
 }
