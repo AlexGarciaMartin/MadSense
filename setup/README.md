@@ -1,6 +1,6 @@
 # Instalador de Windows de MadSense
 
-Trabajo de la rama `feature/windows_installer`. La versión de la app se mantiene en `0.4.0`. Este código genera `MadSense-0.4.0-Setup.exe`; no publica una release ni sustituye automáticamente el ZIP público anterior.
+La versión de la app se mantiene en `0.4.0`. Este código genera `MadSense-0.4.0-Setup.exe`, distribuido en la release `v0.4.0`. La compilación no publica una release ni cambia automáticamente la descarga de la web.
 
 ## Diseño y alcance
 

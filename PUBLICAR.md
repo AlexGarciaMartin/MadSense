@@ -1,10 +1,10 @@
 # Preparar y publicar el instalador de MadSense
 
-El repositorio es [AlexGarciaMartin/MadSense](https://github.com/AlexGarciaMartin/MadSense), GPL-3.0. La release pública `v0.4` conserva el ZIP publicado el 1 de noviembre de 2026. El trabajo de `feature/windows_installer` añade un `Setup.exe`; **compilarlo no publica una release ni modifica la descarga de la web**.
+El repositorio es [AlexGarciaMartin/MadSense](https://github.com/AlexGarciaMartin/MadSense), GPL-3.0. La distribución actual es el instalador `MadSense-0.4.0-Setup.exe` de la release `v0.4.0`; `v0.4` conserva el ZIP histórico. **Compilar no publica una release ni modifica la descarga de la web**: esos pasos se realizan por separado.
 
 ## Preparar el artefacto
 
-Trabaja en esta rama o en un worktree dedicado. Necesitas Windows x64 y .NET SDK 10. No hace falta cerrar la copia de desarrollo para compilar el instalador:
+Trabaja en una rama o un worktree dedicado. Necesitas Windows x64 y .NET SDK 10. No hace falta cerrar la copia de desarrollo para compilar el instalador:
 
 ```powershell
 git status --short
@@ -44,13 +44,13 @@ Parámetros de `tools/build-installer.ps1`:
 5. Desinstala desde Aplicaciones instaladas y verifica que se conserve la configuración del usuario, que no se quiten drivers compartidos ni otras autorizaciones de HidHide, y que un fallo de recuperación bloquee el borrado.
 6. Comprueba el hash del EXE final después de cualquier firma o modificación. No distribuyas el archivo `-TEST.exe`.
 
-La rama no declara por sí sola que esta matriz esté superada. Registra resultados, sistema utilizado y limitaciones; mantén como pendientes las pruebas que no se hayan realizado. Firmar el EXE es un paso independiente: compilar con Inno Setup no le añade una firma Authenticode.
+La publicación no declara por sí sola que toda esta matriz esté superada. Registra resultados, sistema utilizado y limitaciones; mantén como pendientes las pruebas que no se hayan realizado. Los resultados del instalador `v0.4.0`, incluida la reinstalación de ambos drivers y el primer arranque tras reiniciar, están en `setup/README.md`. Firmar el EXE es un paso independiente: compilar con Inno Setup no le añade una firma Authenticode.
 
-## Publicación posterior
+## Publicar próximas versiones
 
 Cuando se apruebe la versión, elige su número y actualiza `src/MadSense.csproj` y la versión visible de la app, si procede. No sobrescribas silenciosamente el ZIP existente ni reutilices su hash para el EXE nuevo.
 
-Sube la rama para revisión, integra los cambios cuando corresponda y publica el instalador, su hash y las notas de esa versión en una nueva release o prerelease. No marques el artefacto como estable ni cambies la descarga de la web mientras la validación siga incompleta. Conserva el código exacto correspondiente a los binarios distribuidos bajo GPL-3.0.
+Sube la rama para revisión, integra los cambios cuando corresponda y publica el instalador, su hash y las notas de esa versión en una nueva release o prerelease. Identifica en las notas las comprobaciones realizadas y las pendientes; no presentes como probados otros equipos o escenarios. Actualiza después los enlaces e instrucciones de la web y verifica que el SHA-256 publicado coincide con el EXE. Conserva el código exacto correspondiente a los binarios distribuidos bajo GPL-3.0.
 
 ## Licencias y atribución
 

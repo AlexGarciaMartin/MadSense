@@ -2,6 +2,30 @@ MadSense Windows installer validation — 2026-11-02
 Branch: feature/windows_installer
 App version: 0.4.0
 
+FINAL VALIDATION UPDATE — supersedes pending items in the earlier notes below
+- MadSense, USBip and HidHide were removed from the development PC, Windows was
+  restarted, and absence of app files, driver services and driver packages verified.
+- Production Setup installed both drivers, registered the app for the user and
+  requested a restart without launching MadSense. Driver helper: Success=1,
+  RebootRequired=1. Its initial Setup process exit code was not captured.
+- After the second restart, Start Menu launched the installed app unelevated with
+  fresh preferences. PS connected the Bluetooth pad automatically. An external
+  process saw exactly one virtual USB DualSense; audio forwarding was operational.
+- The speaker test returned 0 and the user confirmed hearing its tones on the pad.
+- Xbox exposed one XInput slot. Pause removed the virtual, exposed the physical
+  Bluetooth pad and restored the exact HidHide baseline without a recovery journal.
+- Final package e367003 updated the running app safely, preserved preferences,
+  returned 0 without another restart and reconnected on relaunch (Auto / Alto).
+- Tested production EXE SHA-256:
+  2d152ce9f14f7bd9b4e43342d55af3060570fc7e5d6b1aed44886bf0b824f561
+- Restart instructions and clipped intermediate headings were corrected and
+  checked with isolated TEST scenarios, including back/forward navigation.
+- Still not validated: a virgin Windows installation, another administrator's
+  credentials, other hardware, the full DPI matrix, or physical effects/game
+  latency remeasurement during this installer cycle. MadSense Setup is unsigned.
+- The owner authorized integration and distribution as v0.4.0. The following
+  entries are historical checks, not the current publication or validation state.
+
 Completed on the existing Windows development machine:
 - Existing default core suite: 364 passed, 0 failed, 0 skipped.
 - Installer maintenance/recovery/protocol .NET suite: 22 passed.

@@ -2,7 +2,7 @@
 
 Abre MadSense, enciende tu DualSense y abre el juego. La app espera al mando, conecta por Bluetooth y recupera la conexión automáticamente. Debe estar emparejado previamente en Windows. Esta versión controla un mando y es 100 % Bluetooth: por cable el juego usa el DualSense en nativo sin necesitar MadSense.
 
-> **Rama `feature/windows_installer`.** Esta rama prepara un instalador de Windows nuevo. No sustituye todavía la descarga pública `v0.4`, que sigue siendo el ZIP anterior. El nombre `MadSense-0.4.0-Setup.exe` identifica el artefacto generado aquí; no implica que exista ya una nueva release ni que se haya validado en un PC limpio.
+**[Descargar el instalador de Windows](https://github.com/AlexGarciaMartin/MadSense/releases/download/v0.4.0/MadSense-0.4.0-Setup.exe)** · [Notas y SHA-256](https://github.com/AlexGarciaMartin/MadSense/releases/tag/v0.4.0)
 
 ## Novedades de 0.4
 
@@ -26,7 +26,7 @@ El nuevo instalador requiere **Windows 10 22H2 o Windows 11, x64 (Intel o AMD)**
 - **USBip** (usbip-win2 0.9.8.1, BSD-2): presenta el DualSense virtual por USB.
 - **HidHide** (Nefarius 1.5.230, MIT): oculta el mando físico para que el juego no lo vea dos veces.
 
-1. Ejecuta **`MadSense-0.4.0-Setup.exe`**, generado desde esta rama. No necesitas descomprimir carpetas ni ejecutar un `.cmd`.
+1. Descarga y ejecuta **`MadSense-0.4.0-Setup.exe`**. No necesitas descomprimir carpetas ni ejecutar un `.cmd`.
 2. Elige si quieres un acceso directo en el escritorio y pulsa **Instalar**. La aplicación se instala para tu usuario en `%LOCALAPPDATA%\Programs\MadSense`; también aparece en el menú Inicio.
 3. Si los controladores necesitan instalación o reparación, Windows pide permiso de administrador solo para ese paso. Se comprueban sus versiones, estado, SHA-256 y firmas antes de ejecutar los paquetes oficiales. Si cambia USBip o HidHide, el asistente pide reiniciar antes de abrir MadSense.
 4. Empareja el DualSense por Bluetooth en Windows (Configuración → Bluetooth y dispositivos).
@@ -35,7 +35,7 @@ Para desinstalar, abre **Configuración → Aplicaciones → Aplicaciones instal
 
 Actualizar no debe cerrar otra copia de desarrollo: el mantenimiento se dirige a la ruta concreta que se va a modificar. Si esa copia antigua no admite el cierre seguro, el asistente pide cerrarla desde la bandeja antes de continuar. No abre otra MadSense al terminar si ya hay una abierta.
 
-La release pública `v0.4` mantiene sus instrucciones históricas de ZIP/`Instalar.cmd`. No uses esas instrucciones como prueba del instalador de esta rama. La matriz de validación antes de publicar está en [`setup/README.md`](setup/README.md).
+La release `v0.4.0` distribuye el instalador de Windows. El ZIP de `v0.4` se conserva como descarga histórica. Las pruebas realizadas y sus límites están en [`setup/README.md`](setup/README.md).
 
 ## Uso
 
