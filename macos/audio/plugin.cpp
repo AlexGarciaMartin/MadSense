@@ -152,8 +152,6 @@ OSStatus propertySize(AudioObjectID id, const AudioObjectPropertyAddress* addr,
         case kAudioDevicePropertyNominalSampleRate: *size = sizeof(Float64); return noErr;
         case kAudioDevicePropertyAvailableNominalSampleRates: *size = sizeof(AudioValueRange); return noErr;
         case kAudioDevicePropertyPreferredChannelsForStereo: *size = 2 * sizeof(UInt32); return noErr;
-        case kAudioDevicePropertyStreamConfiguration:
-            *size = addr->mScope == kAudioObjectPropertyScopeInput ? offsetof(AudioBufferList, mBuffers) : sizeof(AudioBufferList); return noErr;
         case kAudioObjectPropertyCustomPropertyInfoList: *size = sizeof(customProperties); return noErr;
         case kOwner:
         case kRead: *size = sizeof(CFPropertyListRef); return noErr;
@@ -239,12 +237,6 @@ OSStatus getProperty(AudioServerPlugInDriverRef, AudioObjectID id, pid_t pid,
         case kAudioDevicePropertyAvailableNominalSampleRates: return copyValue(AudioValueRange{kSampleRate, kSampleRate}, capacity, written, out);
         case kAudioDevicePropertyPreferredChannelsForStereo: {
             UInt32 stereo[] = {1, 2}; std::memcpy(out, stereo, sizeof(stereo)); *written = sizeof(stereo); return noErr;
-        }
-        case kAudioDevicePropertyStreamConfiguration: {
-            auto list = static_cast<AudioBufferList*>(out);
-            list->mNumberBuffers = addr->mScope == kAudioObjectPropertyScopeInput ? 0 : 1;
-            if (list->mNumberBuffers) list->mBuffers[0] = {kChannels, 0, nullptr};
-            *written = required; return noErr;
         }
         case kAudioStreamPropertyVirtualFormat:
         case kAudioStreamPropertyPhysicalFormat: return copyValue(format(), capacity, written, out);

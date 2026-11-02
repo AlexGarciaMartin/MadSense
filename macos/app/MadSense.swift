@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Darwin
 
 // The backend alone decides whether the bridge is usable. A running child process,
 // an open physical controller or an available library never implies "Ready".
@@ -72,6 +73,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var pendingOutput = Data()
     private var session = UUID()
     private var quitting = false
+    private var terminationReplied = false
     private var paused = false
     private var restarts = 0
     private var recovering = false
@@ -101,14 +103,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
             if Date().timeIntervalSince(self.lastStatusTime) > 15, !self.recovering {
                 self.recovering = true
-                let token = self.session
                 self.appendLog("Backend status timed out; requesting a restart.\n")
-                self.send("quit")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                    guard let self = self, self.session == token, self.recovering else { return }
-                    // A terminated process releases its exclusive controller handle.
-                    self.process?.terminate()
-                }
+                if let child = self.process { self.stopBackend(child, token: self.session) }
             }
         }
     }
@@ -244,7 +240,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 guard let self = self, self.session == token else { return }
                 self.input = nil
                 self.process = nil
-                if self.quitting { NSApp.reply(toApplicationShouldTerminate: true); return }
+                if self.quitting { self.finishTermination(); return }
                 self.setState(tr("Bridge stopped", "Puente detenido"), detail: tr("Reconnecting…", "Reconectando…"), ready: false)
                 self.appendLog("Backend exited: \(child.terminationStatus)\n")
                 self.restarts += 1
@@ -339,6 +335,54 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         catch { appendLog("Command failed: \(error)\n") }
     }
 
+    private func owns(_ child: Process, token: UUID) -> Bool {
+        session == token && process === child
+    }
+
+    private func finishTermination() {
+        guard quitting, !terminationReplied, process?.isRunning != true else { return }
+        terminationReplied = true
+        NSApp.reply(toApplicationShouldTerminate: true)
+    }
+
+    private func stopBackend(_ child: Process, token: UUID) {
+        guard owns(child, token: token), child.isRunning else { return }
+        send("quit")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self = self, self.owns(child, token: token), child.isRunning else { return }
+            self.appendLog("Backend did not exit after quit; sending SIGTERM to its child process.\n")
+            child.terminate()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self = self, self.owns(child, token: token), child.isRunning else { return }
+            // A native IOKit/CoreAudio call can block managed cancellation. Only
+            // the captured, still-running child may be killed; never look up a
+            // process by name or signal a newer backend session.
+            let pid = child.processIdentifier
+            guard pid > 0 else { return }
+            self.appendLog("Backend remained blocked after SIGTERM; sending SIGKILL to child \(pid).\n")
+            if Darwin.kill(pid, SIGKILL) != 0 {
+                self.appendLog("SIGKILL failed for the backend child (errno \(errno)).\n")
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 7) { [weak self] in
+            guard let self = self, self.quitting, !self.terminationReplied,
+                  self.session == token, self.process == nil || self.process === child else { return }
+            if !child.isRunning {
+                // Normally the termination handler replies first. This covers
+                // an exit whose notification was delayed or not delivered.
+                self.finishTermination()
+            } else if self.owns(child, token: token) {
+                // SIGKILL has already been sent. If even kernel process exit
+                // has not completed, do not leave the GUI waiting forever or
+                // report graceful shutdown. OS termination releases HID handles.
+                let message = Data("MadSense: backend did not exit after SIGKILL; GUI exits with failure.\n".utf8)
+                try? FileHandle.standardError.write(contentsOf: message)
+                Darwin._exit(EXIT_FAILURE)
+            }
+        }
+    }
+
     private func refreshPause() {
         let title = paused ? tr("Resume bridge", "Reanudar puente") : tr("Pause bridge", "Pausar puente")
         pauseButton.title = title
@@ -413,14 +457,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         healthTimer?.invalidate()
-        guard process?.isRunning == true else { return .terminateNow }
+        guard let child = process, child.isRunning else { return .terminateNow }
+        if quitting { return .terminateLater }
         quitting = true
-        send("quit")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self = self else { return }
-            if self.process?.isRunning == true { self.process?.terminate() }
-            NSApp.reply(toApplicationShouldTerminate: true)
-        }
+        stopBackend(child, token: session)
         return .terminateLater
     }
 }

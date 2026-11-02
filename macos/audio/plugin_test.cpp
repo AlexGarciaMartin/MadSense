@@ -52,9 +52,10 @@ int main() {
     require((*driver)->AddDeviceClient(driver, kDevice, &client) == noErr, "register client");
     require((*driver)->StartIO(driver, kDevice, client.mClientID) == noErr, "start IO");
     float frames[64 * kChannels];
+    AudioServerPlugInIOCycleInfo cycle{};
     for (uint32_t i = 0; i < 64 * kChannels; ++i) frames[i] = static_cast<float>(i) / 512;
     require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
-        kAudioServerPlugInIOOperationWriteMix, 64, nullptr, frames, nullptr) == noErr, "write mix");
+        kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "write mix");
     addr = address(kRead);
     CFDataRef data = nullptr;
     require((*driver)->GetPropertyData(driver, kDevice, getpid() + 100000, &addr, 0, nullptr,

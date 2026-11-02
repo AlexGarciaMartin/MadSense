@@ -17,7 +17,7 @@ internal sealed class BridgeSession : IDisposable
     private readonly HidDevice hid;
     private readonly MacAudioCapture? audio;
     private readonly string? audioUnavailable;
-    private readonly long started = Environment.TickCount64;
+    private readonly long started;
     private long reports;
     private string? fault;
     private int stopping;
@@ -64,6 +64,7 @@ internal sealed class BridgeSession : IDisposable
             try { audio = new MacAudioCapture(outputs, adapter); }
             catch (Exception e) { audioUnavailable = e.Message; Console.Error.WriteLine(e.Message); }
             physical.InputReportReceived += OnInput;
+            started = Environment.TickCount64;
         }
         catch
         {

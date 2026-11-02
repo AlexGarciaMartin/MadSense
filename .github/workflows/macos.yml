@@ -44,10 +44,10 @@ jobs:
           mkdir -p dist/macos
           codesign --force --sign - --entitlements macos/native/virtual-hid.entitlements .build/native/madsense_hid_tests
           set +e
-          .build/native/madsense_hid_tests --require-device > dist/macos/native-loopback.json 2> dist/macos/native-loopback.stderr
+          .build/native/madsense_hid_tests --require-device > dist/macos/native-loopback.stdout 2> dist/macos/native-loopback.stderr
           result=$?
           echo "$result" > dist/macos/native-loopback.exit-code
-          cat dist/macos/native-loopback.json
+          cat dist/macos/native-loopback.stdout
           echo "Signed native loopback exit code: $result" >> "$GITHUB_STEP_SUMMARY"
           exit 0
       - name: Managed protocol tests
@@ -60,6 +60,7 @@ jobs:
           --filter 'FullyQualifiedName~HidMacPortabilityTests|FullyQualifiedName~MacScheduling|FullyQualifiedName~HidStringMarshalTests|FullyQualifiedName~DualSenseRawReportTests|FullyQualifiedName~DualSenseFeature|FullyQualifiedName~VirtualDualSenseController|FullyQualifiedName~BluetoothAudioReportBuilderTests|FullyQualifiedName~NativeHapticsQueueTests|FullyQualifiedName~DualSenseBtAudioPipelineTests|FullyQualifiedName~DualSenseAudioForwarderTests'
           --logger 'trx;LogFileName=shared.trx' --results-directory test-results
       - name: Package native app
+        id: package
         run: bash macos/package.sh '${{ matrix.rid }}' dist/macos
       - name: Check packaged runtime
         run: |
@@ -105,7 +106,7 @@ jobs:
           log show --last 2m --style compact --predicate 'process == "coreaudiod"' > dist/macos/coreaudio.stdout
           exit 1
       - name: Native virtual-device access report
-        if: always()
+        if: always() && steps.package.outcome == 'success'
         run: |
           set +e
           dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --probe-native > dist/macos/native-probe.json 2> dist/macos/native-probe.stderr

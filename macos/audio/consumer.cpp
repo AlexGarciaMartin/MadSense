@@ -7,7 +7,7 @@
 #include <new>
 
 namespace {
-struct Handle { AudioDeviceID device; };
+struct AudioConsumerHandle { AudioDeviceID device; };
 AudioObjectPropertyAddress address(AudioObjectPropertySelector selector) {
     return {selector, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
 }
@@ -36,7 +36,7 @@ extern "C" int ms_audio_open(void** out, char* error, uint32_t capacity) {
         return fail(error, capacity, "MadSenseAudio.driver is not installed or not loaded", result);
     result = owner(device, true);
     if (result) return fail(error, capacity, "Cannot acquire the MadSense audio endpoint", result);
-    auto handle = new (std::nothrow) Handle{device};
+    auto handle = new (std::nothrow) AudioConsumerHandle{device};
     if (!handle) { owner(device, false); return fail(error, capacity, "Out of memory", -1); }
     *out = handle;
     return 0;
@@ -46,7 +46,7 @@ extern "C" int ms_audio_read(void* pointer, float* samples, uint32_t capacity,
                               uint32_t* frames, uint64_t* dropped, uint32_t* active) {
     if (!pointer || !samples || !frames || !dropped || !active || capacity < madsense::kReadFrames) return -1;
     *frames = 0; *dropped = 0; *active = 0;
-    auto handle = static_cast<Handle*>(pointer);
+    auto handle = static_cast<AudioConsumerHandle*>(pointer);
     auto addr = address(madsense::kRead);
     CFDataRef data = nullptr;
     UInt32 size = sizeof(data);
@@ -70,7 +70,7 @@ extern "C" int ms_audio_read(void* pointer, float* samples, uint32_t capacity,
 
 extern "C" void ms_audio_close(void* pointer) {
     if (!pointer) return;
-    auto handle = static_cast<Handle*>(pointer);
+    auto handle = static_cast<AudioConsumerHandle*>(pointer);
     owner(handle->device, false);
     delete handle;
 }
