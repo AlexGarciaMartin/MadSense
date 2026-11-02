@@ -9,6 +9,9 @@ namespace madsense {
 constexpr uint32_t kChannels = 4;
 constexpr uint32_t kSampleRate = 48000;
 constexpr uint32_t kReadFrames = 480;
+// A normal HAL block may be 512 or 1024 frames. The reader's RPC packet size is
+// not a latency/drop threshold: preserve complete blocks across multiple reads.
+constexpr uint32_t kBacklogFrames = 1024;
 constexpr uint32_t kRingFrames = 2048;
 
 // One HAL mix producer and one serialized property-reader consumer. Neither side
@@ -35,6 +38,7 @@ public:
         return accepted;
     }
     uint32_t popLatest(float* samples, uint32_t capacity) noexcept {
+        if (!capacity) return 0;
         uint64_t read = read_.load(std::memory_order_relaxed);
         const uint64_t write = write_.load(std::memory_order_acquire);
         const uint64_t overrun = overrun_.load(std::memory_order_acquire);
@@ -45,11 +49,13 @@ public:
             return 0;
         }
         const uint32_t max = std::min(capacity, kReadFrames);
-        if (write - read > max) {
-            dropped_.fetch_add(write - read - max, std::memory_order_relaxed);
-            read = write - max;
+        // Normal delivery is FIFO, including the tail of 512/1024-frame writes.
+        // Only an actual backlog beyond 21.33 ms jumps to the newest 10 ms.
+        if (write - read > kBacklogFrames) {
+            dropped_.fetch_add(write - read - kReadFrames, std::memory_order_relaxed);
+            read = write - kReadFrames;
         }
-        const auto count = static_cast<uint32_t>(write - read);
+        const auto count = static_cast<uint32_t>(std::min<uint64_t>(write - read, max));
         for (uint32_t i = 0; i < count; ++i)
             std::memcpy(samples + i * kChannels,
                         &data_[((read + i) % kRingFrames) * kChannels], kChannels * sizeof(float));

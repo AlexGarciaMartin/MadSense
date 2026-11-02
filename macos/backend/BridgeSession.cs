@@ -51,6 +51,7 @@ internal sealed class BridgeSession : IDisposable
             hid = opened;
             pad = edge ? new DualSenseEdgeDevice(opened, info) : new PhysicalPad(opened, info);
             physical = pad;
+            physical.ThrowOnAudioWriteFailure = true;
             physical.BluetoothAudioSessionBufferLengths = [0x40, 0x40, 0x40, 0x40, 0x20];
             // Reading calibration also switches the controller into full Bluetooth report mode.
             byte[] calibration = physical.GetFeatureReport(0x05, 41);
@@ -61,7 +62,7 @@ internal sealed class BridgeSession : IDisposable
             // Publish only after calibration and output delivery are ready: host
             // drivers can cache features and send effects during enumeration.
             virtualHid = published = new MacVirtualHid(persona, edge, () => Fault != null);
-            try { audio = new MacAudioCapture(outputs, adapter); }
+            try { audio = new MacAudioCapture(outputs, adapter, () => outputs.AudioFault); }
             catch (Exception e) { audioUnavailable = e.Message; Console.Error.WriteLine(e.Message); }
             physical.InputReportReceived += OnInput;
             started = Environment.TickCount64;

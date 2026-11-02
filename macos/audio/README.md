@@ -52,17 +52,34 @@ directory and restart CoreAudio after closing audio apps. Preserve other plugins
 
 ## Consumer contract and privacy
 
-Call `ms_audio_open` once, then `ms_audio_read` on a normal worker about every 5 ms.
+First require `ms_audio_abi_version()` to return 2; a missing export or any other
+version is incompatible. Call `ms_audio_open` once, then `ms_audio_read` on a normal
+worker about every 5 ms.
 Supply room for at least 480 frames × four float32 samples. Close with
 `ms_audio_close` after joining the reader worker. The functions are not safe to
 call concurrently on the same handle. The backend must separately forward the
 four channels into its Bluetooth audio pipeline; the consumer does not synthesize
 haptics from speaker channels.
 
+The final `ms_audio_read` output is a `uint64_t` stream generation. Discard any
+partially assembled PCM when it changes, before processing the returned frames.
+The generation advances and the native ring is cleared on the first IO start after
+all clients have stopped, including a stop/start completed between consumer polls.
+Ownership transfer or recovery after lease expiry also advances the generation.
+An increased dropped-frame count denotes a queue discontinuity and likewise
+requires flushing partially assembled PCM before accepting subsequent frames.
+The CFData packet protocol is version 2; package the matching plugin, consumer
+library, and backend together. An older protocol is rejected by the consumer.
+
 The plugin's realtime callback only copies into a lock-free bounded SPSC queue.
 The ordinary CoreAudio property thread serializes reads and marshals supported
-`CFData` property lists. A read returns at most the most recent 10 ms in the queue;
-producer overruns invalidate queued audio so stalls do not play old effects.
+`CFData` property lists. Each read returns at most 480 frames (10 ms), in FIFO order.
+Normal 512- and 1024-frame HAL blocks are preserved across successive reads,
+including their final 32 or 64 frames. The caller should read again immediately
+after a full 480-frame packet. Only a backlog above 1024 frames (21.33 ms) is
+trimmed to the most recent 480 frames. Producer overruns invalidate all queued
+audio so a stalled reader does not replay an old full queue. The owner lease also
+flushes queued audio after a read stall of at least one second.
 
 One process owns the consumer. CoreAudio supplies the actual client PID; the
 plugin verifies its UID and process birth time with `proc_pidinfo`. Only the owner

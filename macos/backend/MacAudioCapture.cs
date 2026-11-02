@@ -32,19 +32,23 @@ internal sealed class MacAudioCapture : IDisposable
 {
     private readonly DualSenseAudioForwarder forwarder;
     private readonly VirtualDualSenseController adapter;
+    private readonly Func<string?>? transportFault;
     private readonly CancellationTokenSource stop = new();
     private readonly Thread worker;
     private IntPtr handle;
     private string? fault;
     private long dropped;
     private int active;
-    public string? Fault => Volatile.Read(ref fault);
+    public string? Fault => Volatile.Read(ref fault) ?? transportFault?.Invoke() ?? forwarder.LastFault;
     public long DroppedFrames => Interlocked.Read(ref dropped);
     public int ActiveClients => Volatile.Read(ref active);
     public bool PlayToHeadset { set => forwarder.PlayToHeadset = value; }
 
-    public MacAudioCapture(IDualSenseAudioOutputs outputs, VirtualDualSenseController adapter)
+    public MacAudioCapture(IDualSenseAudioOutputs outputs, VirtualDualSenseController adapter,
+        Func<string?>? transportFault = null)
     {
+        this.transportFault = transportFault;
+        if (AbiVersion() != 2) throw new IOException("The MadSense CoreAudio bridge ABI is incompatible; reinstall its matching package.");
         byte[] error = new byte[2048];
         int result = Open(out handle, error, (uint)error.Length);
         if (result != 0 || handle == IntPtr.Zero)
@@ -80,18 +84,32 @@ internal sealed class MacAudioCapture : IDisposable
         float[] stereo = new float[480 * 2];
         byte[] haptics = new byte[480 * 4];
         bool wasActive = false;
+        ulong? previousGeneration = null;
+        ulong previousDropped = 0;
         try
         {
             while (!stop.IsCancellationRequested)
             {
-                int result = Read(handle, quad, 480, out uint frames, out ulong droppedFrames, out uint clients);
+                // The Bluetooth writer is a separate worker. Its failure must
+                // stop capture and mark optional audio unavailable without
+                // tearing down the otherwise usable HID bridge.
+                if ((transportFault?.Invoke() ?? forwarder.LastFault) is { } failure)
+                    throw new IOException(failure);
+                int result = Read(handle, quad, 480, out uint frames, out ulong droppedFrames, out uint clients, out ulong generation);
                 if (result != 0) throw new IOException($"CoreAudio capture failed (0x{result:x8}).");
                 if (frames > 480) throw new IOException("CoreAudio returned an oversized frame block.");
+                // A stop/start can occur entirely between polls. Native stream
+                // generation and drop counters expose that boundary; discard
+                // partial PCM before feeding samples from the new generation.
+                if (previousGeneration != generation || previousDropped != droppedFrames)
+                    forwarder.Flush(preserveGameOutputState: true);
+                previousGeneration = generation;
+                previousDropped = droppedFrames;
                 Interlocked.Exchange(ref dropped, (long)Math.Min(droppedFrames, (ulong)long.MaxValue));
                 Volatile.Write(ref active, (int)Math.Min(clients, int.MaxValue));
                 if (clients == 0)
                 {
-                    if (wasActive) forwarder.Flush();
+                    if (wasActive) forwarder.Flush(preserveGameOutputState: true);
                     wasActive = false;
                 }
                 else if (frames > 0)
@@ -124,8 +142,10 @@ internal sealed class MacAudioCapture : IDisposable
 
     [DllImport("madsense_audio", EntryPoint = "ms_audio_open", CallingConvention = CallingConvention.Cdecl)]
     private static extern int Open(out IntPtr handle, byte[] error, uint capacity);
+    [DllImport("madsense_audio", EntryPoint = "ms_audio_abi_version", CallingConvention = CallingConvention.Cdecl)]
+    private static extern uint AbiVersion();
     [DllImport("madsense_audio", EntryPoint = "ms_audio_read", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int Read(IntPtr handle, [Out] float[] samples, uint capacityFrames, out uint frames, out ulong droppedFrames, out uint activeClients);
+    private static extern int Read(IntPtr handle, [Out] float[] samples, uint capacityFrames, out uint frames, out ulong droppedFrames, out uint activeClients, out ulong generation);
     [DllImport("madsense_audio", EntryPoint = "ms_audio_close", CallingConvention = CallingConvention.Cdecl)]
     private static extern void Close(IntPtr handle);
 }

@@ -67,26 +67,13 @@ jobs:
           dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --protocol-check
           dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --diagnose > dist/macos/diagnostic.json
       - name: Native GUI startup and shutdown smoke test
-        run: |
-          "$PWD/dist/macos/MadSense.app/Contents/MacOS/MadSense" --smoke-test > dist/macos/gui.stdout 2> dist/macos/gui.stderr &
-          gui_pid=$!
-          trap 'kill "$gui_pid" 2>/dev/null || true' EXIT
-          sleep 4
-          kill -0 "$gui_pid"
-          if ! screencapture -x dist/macos/ui.png 2> dist/macos/screenshot.stderr; then
-            echo "GUI screenshot unavailable in this runner session; see screenshot.stderr." >> "$GITHUB_STEP_SUMMARY"
-          fi
-          wait "$gui_pid"
-          trap - EXIT
-          sleep 1
-          if pgrep -f '/MadSense.app/Contents/Resources/backend/MadSense.Backend --service'; then
-            echo "Backend remained running after normal GUI termination." >&2
-            exit 1
-          fi
-          echo "Native GUI started and stopped; no backend process remained. This is not a controller hardware test." >> "$GITHUB_STEP_SUMMARY"
+        timeout-minutes: 2
+        run: python3 macos/tests/gui_smoke.py "$PWD/dist/macos/MadSense.app/Contents/MacOS/MadSense" dist/macos
       - name: Packaged service lifecycle
+        if: always() && steps.package.outcome == 'success'
         run: python3 macos/tests/service_smoke.py "$PWD/dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend" > dist/macos/service.stdout
       - name: Installed CoreAudio end-to-end test on disposable runner
+        if: always() && steps.package.outcome == 'success'
         run: |
           test ! -e /Library/Audio/Plug-Ins/HAL/MadSenseAudio.driver
           codesign --force --sign - .build/audio/MadSenseAudio.driver

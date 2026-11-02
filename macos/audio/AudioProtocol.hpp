@@ -9,7 +9,7 @@ constexpr AudioObjectID kDevice = 3;
 constexpr AudioObjectID kStream = 4;
 constexpr AudioObjectPropertySelector kOwner = 'msow';
 constexpr AudioObjectPropertySelector kRead = 'msrd';
-constexpr uint32_t kProtocolVersion = 1;
+constexpr uint32_t kProtocolVersion = 2;
 constexpr const char* kDeviceUID = "org.madsense.audio.dualsense.v1";
 // Custom properties use CFData, a supported CFPropertyList type. No pointers or
 // shared-memory names cross the HAL host boundary. Both endpoints are local ABI.
@@ -17,6 +17,7 @@ struct AudioPacket {
     uint32_t version;
     uint32_t frames;
     uint64_t droppedFrames;
+    uint64_t generation;
     uint32_t activeClients;
     uint32_t reserved;
     float samples[kReadFrames * kChannels];

@@ -26,6 +26,29 @@ private func tr(_ english: String, _ spanishText: String) -> String {
     language == "es" ? spanishText : translations[english]?[language] ?? english
 }
 
+private let backendDetailKeys: Set<String> = [
+    "Pair a DualSense in Bluetooth settings, then press PS.",
+    "Waiting for a paired Bluetooth DualSense.",
+    "Controller released.",
+    "Controller disconnected. Waiting to reconnect.",
+    "Waiting for the first controller input report.",
+    "USB controller detected. Use it natively, or unplug it to bridge Bluetooth.",
+    "HID bridge active. Dedicated four-channel CoreAudio capture available; game association requires validation.",
+    "HID bridge active. The optional CoreAudio endpoint is unavailable. XInput is not supported on macOS."
+]
+private func localizeBackendDetail(_ detail: String) -> String {
+    // Exact stable protocol messages only. Native errors and diagnostic text
+    // retain their original spelling, codes and context for troubleshooting.
+    guard backendDetailKeys.contains(detail) else { return detail }
+    return translations[detail]?[language] ?? detail
+}
+
+private func smokeLog(_ message: String) {
+    guard CommandLine.arguments.contains("--smoke-test") else { return }
+    let line = "MadSense GUI smoke [\(ISO8601DateFormatter().string(from: Date()))]: \(message)\n"
+    try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
+}
+
 private final class BrandView: NSView {
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
@@ -84,15 +107,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var healthTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        smokeLog("applicationDidFinishLaunching")
         buildWindow()
         buildMenu()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         startBackend()
+        smokeLog("window visible; backend startup requested")
         if CommandLine.arguments.contains("--smoke-test") {
             // Exercise the real startup/shutdown path in a graphical CI session.
             // There is no mock controller and no fabricated connected state.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { NSApp.terminate(nil) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                smokeLog("+4 seconds: capturing live content view")
+                self?.captureSmokeSnapshot()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                smokeLog("+8 seconds: requesting normal application termination")
+                NSApp.terminate(nil)
+            }
         }
         healthTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             guard let self = self, self.process?.isRunning == true, !self.quitting else { return }
@@ -106,6 +138,35 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 self.appendLog("Backend status timed out; requesting a restart.\n")
                 if let child = self.process { self.stopBackend(child, token: self.session) }
             }
+        }
+    }
+
+    private func captureSmokeSnapshot() {
+        guard let path = ProcessInfo.processInfo.environment["MADSENSE_SMOKE_SCREENSHOT"], !path.isEmpty else {
+            smokeLog("snapshot skipped: MADSENSE_SMOKE_SCREENSHOT is unset")
+            return
+        }
+        guard let view = window?.contentView else {
+            smokeLog("snapshot failed: the native window has no content view")
+            return
+        }
+        // Render this application's own live NSView. This never reads another
+        // window or the display and does not require Screen Recording permission.
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            smokeLog("snapshot failed: could not create the native bitmap")
+            return
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
+            smokeLog("snapshot failed: PNG encoding failed")
+            return
+        }
+        do {
+            try png.write(to: URL(fileURLWithPath: path), options: .atomic)
+            smokeLog("snapshot saved: \(path) (\(bitmap.pixelsWide)x\(bitmap.pixelsHigh))")
+        } catch {
+            smokeLog("snapshot failed: \(error)")
         }
     }
 
@@ -240,6 +301,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 guard let self = self, self.session == token else { return }
                 self.input = nil
                 self.process = nil
+                smokeLog("backend child exited with status \(child.terminationStatus)")
                 if self.quitting { self.finishTermination(); return }
                 self.setState(tr("Bridge stopped", "Puente detenido"), detail: tr("Reconnecting…", "Reconectando…"), ready: false)
                 self.appendLog("Backend exited: \(child.terminationStatus)\n")
@@ -294,7 +356,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                          "paused": tr("Paused", "En pausa"), "connecting": tr("Connecting", "Conectando"),
                          "error": tr("Needs attention", "Requiere atención"), "blocked": tr("Setup required", "Falta configuración"),
                          "starting": tr("Starting", "Iniciando"), "stopped": tr("Stopped", "Detenido")]
-            setState(names[state] ?? rawState, detail: status["detail"] as? String ?? "", ready: ready)
+            setState(names[state] ?? rawState, detail: localizeBackendDetail(status["detail"] as? String ?? ""), ready: ready)
             paused = state == "paused"
             refreshPause()
             var parts: [String] = []
@@ -342,15 +404,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func finishTermination() {
         guard quitting, !terminationReplied, process?.isRunning != true else { return }
         terminationReplied = true
+        smokeLog("backend exited; replying to application termination")
         NSApp.reply(toApplicationShouldTerminate: true)
     }
 
     private func stopBackend(_ child: Process, token: UUID) {
         guard owns(child, token: token), child.isRunning else { return }
+        smokeLog("sending quit to backend child \(child.processIdentifier)")
         send("quit")
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             guard let self = self, self.owns(child, token: token), child.isRunning else { return }
             self.appendLog("Backend did not exit after quit; sending SIGTERM to its child process.\n")
+            smokeLog("backend quit grace expired; sending SIGTERM")
             child.terminate()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
@@ -361,6 +426,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             let pid = child.processIdentifier
             guard pid > 0 else { return }
             self.appendLog("Backend remained blocked after SIGTERM; sending SIGKILL to child \(pid).\n")
+            smokeLog("backend SIGTERM grace expired; sending SIGKILL to child \(pid)")
             if Darwin.kill(pid, SIGKILL) != 0 {
                 self.appendLog("SIGKILL failed for the backend child (errno \(errno)).\n")
             }
@@ -456,6 +522,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showWindow(); return true }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        smokeLog("applicationShouldTerminate: backend running=\(process?.isRunning == true), already quitting=\(quitting)")
         healthTimer?.invalidate()
         guard let child = process, child.isRunning else { return .terminateNow }
         if quitting { return .terminateLater }
@@ -463,10 +530,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         stopBackend(child, token: session)
         return .terminateLater
     }
+    func applicationWillTerminate(_ notification: Notification) {
+        smokeLog("applicationWillTerminate")
+    }
 }
 
+smokeLog("creating NSApplication")
 let app = NSApplication.shared
 private let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.regular)
+smokeLog("entering AppKit run loop")
 app.run()
+smokeLog("AppKit run loop returned")

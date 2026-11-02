@@ -15,17 +15,32 @@ internal sealed class TrackedOutputs(DualSenseDevice device, Action<string> reco
 {
     private readonly Lock writeLock = new();
     private string? fault;
+    private string? audioFault;
 
     public ConnectionType ConnectionType => device.ConnectionType;
     // The Mac bridge does not run profile-light or special-action overrides.
     public bool NeedsOutputStateBlock => false;
     public string? Fault => Volatile.Read(ref fault);
+    public string? AudioFault => Volatile.Read(ref audioFault);
 
     public void SetVibration(byte left, byte right)
     {
         lock (writeLock)
         {
-            try { EnsureLive(); device.SetVibration(left, right); }
+            try
+            {
+                EnsureLive();
+                // The device's convenience SetVibration logs and swallows HID
+                // errors. Use its same minimal state through the observable
+                // SendOutputState primitive so the session can react to failure.
+                device.SendOutputState(new SetStateData
+                {
+                    ValidFlag0 = ValidFlags.UseRumbleNotHaptics |
+                        (device.UsesVibrationV2 ? ValidFlags.None : ValidFlags.EnableRumbleEmulation),
+                    ValidFlag2 = device.UsesVibrationV2 ? ValidFlags.EnableImprovedRumbleEmu : ValidFlags.None,
+                    RumbleLeft = left, RumbleRight = right
+                });
+            }
             catch (Exception e) { Record(e); throw; }
         }
     }
@@ -44,7 +59,7 @@ internal sealed class TrackedOutputs(DualSenseDevice device, Action<string> reco
         lock (writeLock)
         {
             try { EnsureLive(); device.ResetBluetoothAudioStream(); }
-            catch (Exception e) { Record(e); throw; }
+            catch (Exception e) { RecordAudio(e); throw; }
         }
     }
 
@@ -53,7 +68,7 @@ internal sealed class TrackedOutputs(DualSenseDevice device, Action<string> reco
         lock (writeLock)
         {
             try { EnsureLive(); device.SendBluetoothAudioPrime(state); }
-            catch (Exception e) { Record(e); throw; }
+            catch (Exception e) { RecordAudio(e); throw; }
         }
     }
 
@@ -63,7 +78,7 @@ internal sealed class TrackedOutputs(DualSenseDevice device, Action<string> reco
         lock (writeLock)
         {
             try { EnsureLive(); device.SendBluetoothAudioAndHaptics(state, opusFrame, hapticsPcm, route); }
-            catch (Exception e) { Record(e); throw; }
+            catch (Exception e) { RecordAudio(e); throw; }
         }
     }
 
@@ -72,7 +87,7 @@ internal sealed class TrackedOutputs(DualSenseDevice device, Action<string> reco
         lock (writeLock)
         {
             try { EnsureLive(); device.SendBluetoothAudio(opusFrame, route); }
-            catch (Exception e) { Record(e); throw; }
+            catch (Exception e) { RecordAudio(e); throw; }
         }
     }
 
@@ -82,11 +97,14 @@ internal sealed class TrackedOutputs(DualSenseDevice device, Action<string> reco
         lock (writeLock)
         {
             try { EnsureLive(); device.SetAudioOutput(outputControl, speakerVolume, headphoneVolume, preampGain); }
-            catch (Exception e) { Record(e); throw; }
+            catch (Exception e) { RecordAudio(e); throw; }
         }
     }
 
     private void EnsureLive() => ObjectDisposedException.ThrowIf(device.IsDisposed, device);
+
+    private void RecordAudio(Exception error) =>
+        Interlocked.CompareExchange(ref audioFault, $"Controller audio failed: {error.Message}", null);
 
     private void Record(Exception error)
     {

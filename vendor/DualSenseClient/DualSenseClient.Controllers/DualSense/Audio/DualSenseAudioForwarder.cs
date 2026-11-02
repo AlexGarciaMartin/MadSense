@@ -117,6 +117,11 @@ public sealed class DualSenseAudioForwarder : IAudioPcmSink, IDisposable
     /// </summary>
     private static readonly DualSenseClientLogger _log = DualSenseClientLogger.For("DualSenseAudioForwarder");
 
+    private string? _lastFault;
+    /// <summary>The most recent pump failure; cleared when a new pump starts.</summary>
+    public string? LastFault => Volatile.Read(ref _lastFault);
+    public bool HasFailed => LastFault is not null;
+
     /// <summary>
     /// The physical controller's Bluetooth audio lane, or <c>null</c> when the pad is
     /// not Bluetooth-connected.
@@ -489,6 +494,7 @@ public sealed class DualSenseAudioForwarder : IAudioPcmSink, IDisposable
             _audioRing.Clear();
             _lastGameHapticsTimestamp = 0;
             _prerollRemaining = 0;
+            Volatile.Write(ref _lastFault, null);
             var cts = new CancellationTokenSource();
             _cts = cts;
             // MadSense: a dedicated thread, never a ThreadPool worker. The pump is a long-running
@@ -690,7 +696,13 @@ public sealed class DualSenseAudioForwarder : IAudioPcmSink, IDisposable
     /// shallow receive buffer. Safe to call from the virtual controller's speaker-reset callback
     /// thread.
     /// </summary>
-    public void Flush()
+    public void Flush() => Flush(false);
+
+    /// <summary>Discards buffered PCM, optionally retaining the current game rumble.</summary>
+    /// <param name="preserveGameOutputState">Retain active rumble targets when
+    /// only captured PCM changes generation. The default retains the existing
+    /// USB-interface-reset behavior, which also resets rumble interpolation.</param>
+    public void Flush(bool preserveGameOutputState)
     {
         lock (_sync)
         {
@@ -700,10 +712,13 @@ public sealed class DualSenseAudioForwarder : IAudioPcmSink, IDisposable
             _prerollRemaining = 0;
             _lastGameHapticsTimestamp = 0;
             _gameHapticsActive = false;
-            _rumbleLeftTarget = 0;
-            _rumbleRightTarget = 0;
-            _rumbleLeftMagnitude = 0;
-            _rumbleRightMagnitude = 0;
+            if (!preserveGameOutputState)
+            {
+                _rumbleLeftTarget = 0;
+                _rumbleRightTarget = 0;
+                _rumbleLeftMagnitude = 0;
+                _rumbleRightMagnitude = 0;
+            }
         }
     }
 
@@ -723,14 +738,13 @@ public sealed class DualSenseAudioForwarder : IAudioPcmSink, IDisposable
     {
         _log.Debug("Pump loop started");
         bool timerRequested = false;
-        WaitHandle[] wake = [_dataReady, ct.WaitHandle];
-        // MadSense: the pad's receive buffer is shallow and every tick is a 10.667 ms deadline.
-        // MMCSS "Pro Audio" keeps the cadence while the game saturates the CPU.
-        Thread.CurrentThread.Name ??= "DualSense BT Audio Pump";
-        Thread.CurrentThread.Priority = ThreadPriority.Highest;
-        using IDisposable? mmcss = MultimediaThread.Enter("Pro Audio");
         try
         {
+            WaitHandle[] wake = [_dataReady, ct.WaitHandle];
+            // Scheduling setup is also part of the worker's observable health.
+            Thread.CurrentThread.Name ??= "DualSense BT Audio Pump";
+            Thread.CurrentThread.Priority = ThreadPriority.Highest;
+            using IDisposable? mmcss = MultimediaThread.Enter("Pro Audio");
             long tickPeriodTicks = (long)(Stopwatch.Frequency * TickInterval.TotalSeconds);
             long nextTick = Stopwatch.GetTimestamp();
             while (!ct.IsCancellationRequested)
@@ -797,12 +811,17 @@ public sealed class DualSenseAudioForwarder : IAudioPcmSink, IDisposable
                         else ProcessBlock(ct);
                     }
                 }
-                catch (OperationCanceledException) { break; }
-                catch (Exception ex) { _log.LogExceptionDetails(ex); break; }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
 
                 nextTick = Math.Max(nextTick + tickPeriodTicks, Stopwatch.GetTimestamp());
                 WaitUntil(nextTick);
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            Volatile.Write(ref _lastFault, ex.Message);
+            _log.LogExceptionDetails(ex);
         }
         finally
         {

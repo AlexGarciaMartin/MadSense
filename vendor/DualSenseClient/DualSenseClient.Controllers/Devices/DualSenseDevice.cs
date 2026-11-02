@@ -119,6 +119,14 @@ public class DualSenseDevice : ControllerDevice
     private int _linkLost;
 
     /// <summary>
+    /// Allows an owner with an optional audio transport to observe write failures
+    /// and disable that transport while keeping ordinary HID input/feedback.
+    /// False retains the existing Windows log-and-continue behavior.
+    /// Set before starting any audio writer.
+    /// </summary>
+    public bool ThrowOnAudioWriteFailure { get; set; }
+
+    /// <summary>
     /// Whether the controller's input link dropped.
     /// </summary>
     private bool IsLinkLost
@@ -843,6 +851,7 @@ public class DualSenseDevice : ControllerDevice
         catch (HidException ex)
         {
             _log.Error($"Failed to set audio output: {ex.Message}");
+            if (ThrowOnAudioWriteFailure) throw;
         }
     }
 
@@ -880,6 +889,7 @@ public class DualSenseDevice : ControllerDevice
         catch (HidException ex)
         {
             _log.Error($"Failed to send audio report 0x{report[0]:X2}: {ex.Message}");
+            if (ThrowOnAudioWriteFailure) throw;
         }
     }
 

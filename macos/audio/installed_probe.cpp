@@ -20,6 +20,7 @@ OSStatus output(AudioDeviceID, const AudioTimeStamp*, const AudioBufferList*, co
     return noErr;
 }
 int main() {
+    if (ms_audio_abi_version() != 2) { std::cerr << "Incompatible audio consumer ABI\n"; return 1; }
     void* consumer = nullptr;
     char error[512]{};
     int result = ms_audio_open(&consumer, error, sizeof(error));
@@ -35,9 +36,9 @@ int main() {
     bool received = false;
     for (int attempt = 0; !result && attempt < 200; ++attempt) {
         float samples[madsense::kReadFrames * madsense::kChannels];
-        uint32_t frames = 0, active = 0; uint64_t dropped = 0;
-        result = ms_audio_read(consumer, samples, madsense::kReadFrames, &frames, &dropped, &active);
-        if (frames >= 1 && active >= 1 && std::abs(samples[0] - 0.001f) < 0.00001f &&
+        uint32_t frames = 0, active = 0; uint64_t dropped = 0, generation = 0;
+        result = ms_audio_read(consumer, samples, madsense::kReadFrames, &frames, &dropped, &active, &generation);
+        if (frames >= 1 && active >= 1 && generation > 0 && std::abs(samples[0] - 0.001f) < 0.00001f &&
             std::abs(samples[3] - 0.004f) < 0.00001f) { received = true; break; }
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }

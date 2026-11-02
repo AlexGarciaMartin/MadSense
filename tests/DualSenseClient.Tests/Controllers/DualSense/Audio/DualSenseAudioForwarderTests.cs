@@ -870,6 +870,35 @@ public class DualSenseAudioForwarderTests
         forwarder.Stop();
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Flush_OnlyPreservesActiveRumbleWhenRequested(bool preserveGameOutputState)
+    {
+        var output = new FakeAudioOutputs();
+        using var forwarder = new DualSenseAudioForwarder(output, null) { StrictNativeHaptics = true };
+        forwarder.UpdateGameOutputState(new SetStateData
+        {
+            ValidFlag0 = ValidFlags.EnableRumbleEmulation,
+            ValidFlag1 = ValidFlags.AllowLedColor,
+            RumbleLeft = 0xFF,
+            LedRed = 45
+        });
+        // A PCM generation boundary must retain ordinary game feedback. The
+        // parameterless Windows interface-reset path keeps its previous reset.
+        if (preserveGameOutputState) forwarder.Flush(true);
+        else forwarder.Flush();
+        Assert.That(forwarder.Start(), Is.True);
+        forwarder.FeedPcm(MakeAudioBlock(0f));
+        WaitUntil(() => output.ReportCount >= 9, TimeSpan.FromSeconds(3));
+        forwarder.Stop();
+
+        Assert.That(output.ReportCount, Is.GreaterThanOrEqualTo(9));
+        Assert.That(output.HapticsFrames.Any(frame => frame.Any(sample => sample != 0)),
+            Is.EqualTo(preserveGameOutputState), "only the explicit PCM flush must retain rumble synthesis");
+        Assert.That(new SetStateData(output.LastStateBlock, 0).LedRed, Is.EqualTo(45),
+            "both reset modes must retain the game output snapshot");
+    }
+
     [Test]
     public void Flush_ForcesRePrimeEvenWhenAudioResumesWithinTheIdleWindow()
     {

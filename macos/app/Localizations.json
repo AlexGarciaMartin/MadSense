@@ -33,5 +33,61 @@
   "exclusive capture": {"fr":"capture exclusive", "de":"exklusiver Zugriff", "it":"acquisizione esclusiva", "pt":"captura exclusiva"},
   "CoreAudio endpoint active": {"fr":"périphérique CoreAudio actif", "de":"CoreAudio-Gerät aktiv", "it":"dispositivo CoreAudio attivo", "pt":"dispositivo CoreAudio ativo"},
   "PCM forwarding active": {"fr":"transfert PCM actif", "de":"PCM-Weiterleitung aktiv", "it":"inoltro PCM attivo", "pt":"encaminhamento PCM ativo"},
-  "Implemented: ": {"fr":"Implémenté : ", "de":"Implementiert: ", "it":"Implementato: ", "pt":"Implementado: "}
+  "Implemented: ": {"fr":"Implémenté : ", "de":"Implementiert: ", "it":"Implementato: ", "pt":"Implementado: "},
+  "Pair a DualSense in Bluetooth settings, then press PS.": {
+    "es":"Empareja un DualSense en los ajustes de Bluetooth y pulsa PS.",
+    "fr":"Associez un DualSense dans les réglages Bluetooth, puis appuyez sur PS.",
+    "de":"Kopple einen DualSense in den Bluetooth-Einstellungen und drücke dann PS.",
+    "it":"Abbina un DualSense nelle impostazioni Bluetooth, poi premi PS.",
+    "pt":"Emparelhe um DualSense nos ajustes de Bluetooth e pressione PS."
+  },
+  "Waiting for a paired Bluetooth DualSense.": {
+    "es":"Esperando a un DualSense emparejado por Bluetooth.",
+    "fr":"En attente d’un DualSense associé en Bluetooth.",
+    "de":"Warten auf einen über Bluetooth gekoppelten DualSense.",
+    "it":"In attesa di un DualSense abbinato via Bluetooth.",
+    "pt":"Aguardando um DualSense emparelhado por Bluetooth."
+  },
+  "Controller released.": {
+    "es":"Mando liberado.",
+    "fr":"Manette libérée.",
+    "de":"Controller freigegeben.",
+    "it":"Controller rilasciato.",
+    "pt":"Controle liberado."
+  },
+  "Controller disconnected. Waiting to reconnect.": {
+    "es":"Mando desconectado. Esperando para reconectar.",
+    "fr":"Manette déconnectée. En attente de reconnexion.",
+    "de":"Controller getrennt. Warten auf erneute Verbindung.",
+    "it":"Controller disconnesso. In attesa di riconnessione.",
+    "pt":"Controle desconectado. Aguardando reconexão."
+  },
+  "Waiting for the first controller input report.": {
+    "es":"Esperando el primer informe de entrada del mando.",
+    "fr":"En attente du premier rapport d’entrée de la manette.",
+    "de":"Warten auf den ersten Eingabebericht des Controllers.",
+    "it":"In attesa del primo rapporto di input del controller.",
+    "pt":"Aguardando o primeiro relatório de entrada do controle."
+  },
+  "USB controller detected. Use it natively, or unplug it to bridge Bluetooth.": {
+    "es":"Mando USB detectado. Úsalo directamente o desconéctalo para usar el puente Bluetooth.",
+    "fr":"Manette USB détectée. Utilisez-la directement ou débranchez-la pour utiliser le pont Bluetooth.",
+    "de":"USB-Controller erkannt. Nutze ihn direkt oder ziehe das Kabel ab, um die Bluetooth-Verbindung zu verwenden.",
+    "it":"Rilevato un controller USB. Usalo direttamente oppure scollegalo per usare il collegamento Bluetooth.",
+    "pt":"Controle USB detectado. Use-o diretamente ou desconecte o cabo para usar a conexão Bluetooth."
+  },
+  "HID bridge active. Dedicated four-channel CoreAudio capture available; game association requires validation.": {
+    "es":"Puente HID activo. Captura CoreAudio dedicada de cuatro canales disponible; falta validar la asociación con los juegos.",
+    "fr":"Pont HID actif. Capture CoreAudio dédiée à quatre canaux disponible ; l’association aux jeux reste à valider.",
+    "de":"HID-Verbindung aktiv. Dedizierte CoreAudio-Aufnahme mit vier Kanälen verfügbar; die Zuordnung zu Spielen muss noch geprüft werden.",
+    "it":"Collegamento HID attivo. Acquisizione CoreAudio dedicata a quattro canali disponibile; l’associazione ai giochi richiede verifica.",
+    "pt":"Conexão HID ativa. Captura CoreAudio dedicada de quatro canais disponível; a associação aos jogos precisa ser validada."
+  },
+  "HID bridge active. The optional CoreAudio endpoint is unavailable. XInput is not supported on macOS.": {
+    "es":"Puente HID activo. El dispositivo CoreAudio opcional no está disponible. XInput no está soportado en macOS.",
+    "fr":"Pont HID actif. Le périphérique CoreAudio facultatif est indisponible. XInput n’est pas pris en charge sur macOS.",
+    "de":"HID-Verbindung aktiv. Das optionale CoreAudio-Gerät ist nicht verfügbar. XInput wird unter macOS nicht unterstützt.",
+    "it":"Collegamento HID attivo. Il dispositivo CoreAudio facoltativo non è disponibile. XInput non è supportato su macOS.",
+    "pt":"Conexão HID ativa. O dispositivo CoreAudio opcional está indisponível. XInput não é compatível com macOS."
+  }
 }

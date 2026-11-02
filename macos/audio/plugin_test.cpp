@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <chrono>
+#include <thread>
 
 extern "C" void* MadSenseAudio_Create(CFAllocatorRef, CFUUIDRef);
 void require(bool condition, const char* reason) {
@@ -65,11 +67,55 @@ int main() {
     AudioPacket packet{};
     std::memcpy(&packet, CFDataGetBytePtr(data), CFDataGetLength(data));
     CFRelease(data);
-    require(packet.version == 1 && packet.frames == 64 && packet.activeClients == 1 &&
+    require(packet.version == kProtocolVersion && packet.frames == 64 && packet.activeClients == 1 && packet.generation > 0 &&
         packet.samples[17] == frames[17], "audio payload");
+    uint64_t firstGeneration = packet.generation;
+    // Queue an unread tail, stop/start before the next poll, then deliver new
+    // audio. Active clients stays 1 across reads, so only the generation reveals
+    // that managed partial blocks must be flushed as well as this native ring.
+    require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
+        kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "queue previous stream tail");
+    require((*driver)->StopIO(driver, kDevice, client.mClientID) == noErr, "rapid stop");
+    require((*driver)->StartIO(driver, kDevice, client.mClientID) == noErr, "rapid restart");
+    for (float& value : frames) value = 0.75f;
+    require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
+        kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "new stream write");
+    data = nullptr;
+    require((*driver)->GetPropertyData(driver, kDevice, getpid(), &addr, 0, nullptr,
+        sizeof(data), &written, &data) == noErr && data, "new stream read");
+    packet = {};
+    std::memcpy(&packet, CFDataGetBytePtr(data), CFDataGetLength(data));
+    CFRelease(data);
+    require(packet.frames == 64 && packet.activeClients == 1 && packet.generation != firstGeneration,
+        "rapid restart must change generation and discard previous frames");
+    for (uint32_t i = 0; i < packet.frames * kChannels; ++i)
+        require(packet.samples[i] == 0.75f, "old PCM crossed a stream generation");
+    uint64_t restartedGeneration = packet.generation;
+    require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
+        kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "queue before lease expiry");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    data = nullptr;
+    require((*driver)->GetPropertyData(driver, kDevice, getpid(), &addr, 0, nullptr,
+        sizeof(data), &written, &data) == noErr && data, "resume expired lease");
+    packet = {};
+    std::memcpy(&packet, CFDataGetBytePtr(data), CFDataGetLength(data));
+    CFRelease(data);
+    require(packet.frames == 0 && packet.activeClients == 1 && packet.generation != restartedGeneration,
+        "lease expiry must discard queued PCM and change generation");
+    require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
+        kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "write after lease renewal");
+    uint64_t resumedGeneration = packet.generation;
+    data = nullptr;
+    require((*driver)->GetPropertyData(driver, kDevice, getpid(), &addr, 0, nullptr,
+        sizeof(data), &written, &data) == noErr && data, "read after lease renewal");
+    packet = {};
+    std::memcpy(&packet, CFDataGetBytePtr(data), CFDataGetLength(data));
+    CFRelease(data);
+    require(packet.frames == 64 && packet.generation == resumedGeneration && packet.samples[0] == 0.75f,
+        "lease renewal must recover without repeated generation changes");
     Float64 sample = 0; UInt64 ticks = 0, seed = 0;
     require((*driver)->GetZeroTimeStamp(driver, kDevice, client.mClientID, &sample, &ticks, &seed) == noErr &&
-        ticks > 0 && seed > 0, "device clock");
+        ticks > 0 && seed == packet.generation, "device clock generation");
     require((*driver)->StopIO(driver, kDevice, client.mClientID) == noErr, "stop IO");
     require((*driver)->RemoveDeviceClient(driver, kDevice, &client) == noErr, "remove client");
     addr = address(kOwner); claim = kCFBooleanFalse;

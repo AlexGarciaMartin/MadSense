@@ -22,6 +22,8 @@ int fail(char* error, uint32_t capacity, const char* message, OSStatus status) {
 }
 }
 
+extern "C" uint32_t ms_audio_abi_version(void) { return 2; }
+
 extern "C" int ms_audio_open(void** out, char* error, uint32_t capacity) {
     if (!out) return -1;
     *out = nullptr;
@@ -43,9 +45,10 @@ extern "C" int ms_audio_open(void** out, char* error, uint32_t capacity) {
 }
 
 extern "C" int ms_audio_read(void* pointer, float* samples, uint32_t capacity,
-                              uint32_t* frames, uint64_t* dropped, uint32_t* active) {
-    if (!pointer || !samples || !frames || !dropped || !active || capacity < madsense::kReadFrames) return -1;
-    *frames = 0; *dropped = 0; *active = 0;
+                              uint32_t* frames, uint64_t* dropped, uint32_t* active,
+                              uint64_t* generation) {
+    if (!pointer || !samples || !frames || !dropped || !active || !generation || capacity < madsense::kReadFrames) return -1;
+    *frames = 0; *dropped = 0; *active = 0; *generation = 0;
     auto handle = static_cast<AudioConsumerHandle*>(pointer);
     auto addr = address(madsense::kRead);
     CFDataRef data = nullptr;
@@ -65,6 +68,7 @@ extern "C" int ms_audio_read(void* pointer, float* samples, uint32_t capacity,
         length != static_cast<CFIndex>(madsense::kPacketHeaderSize + packet.frames * madsense::kChannels * sizeof(float))) return -1;
     std::memcpy(samples, packet.samples, packet.frames * madsense::kChannels * sizeof(float));
     *frames = packet.frames; *dropped = packet.droppedFrames; *active = packet.activeClients;
+    *generation = packet.generation;
     return 0;
 }
 

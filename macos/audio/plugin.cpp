@@ -253,12 +253,16 @@ OSStatus getProperty(AudioServerPlugInDriverRef, AudioObjectID id, pid_t pid,
             std::lock_guard<std::mutex> lock(stateMutex);
             if (!isOwner(pid)) return kAudioHardwareIllegalOperationError;
             uint64_t now = mach_absolute_time();
-            if (now >= leaseDeadline.load(std::memory_order_acquire)) ring.discard();
+            if (now >= leaseDeadline.load(std::memory_order_acquire)) {
+                ring.discard();
+                timestampSeed.fetch_add(1, std::memory_order_release);
+            }
             leaseDeadline.store(now + leaseTicks, std::memory_order_release);
             AudioPacket packet{};
             packet.version = kProtocolVersion;
             packet.frames = ring.popLatest(packet.samples, kReadFrames);
             packet.droppedFrames = ring.dropped();
+            packet.generation = timestampSeed.load(std::memory_order_acquire);
             packet.activeClients = running.load(std::memory_order_acquire);
             CFDataRef data = CFDataCreate(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(&packet),
                 kPacketHeaderSize + packet.frames * kChannels * sizeof(float));
@@ -289,7 +293,10 @@ OSStatus setProperty(AudioServerPlugInDriverRef, AudioObjectID id, pid_t pid,
         if (!mine) for (const auto& entry : clients)
             if (entry.second.active && entry.second.identity.uid != caller.uid)
                 return kAudioHardwareIllegalOperationError;
-        if (!mine || now >= leaseDeadline.load()) ring.discard();
+        if (!mine || now >= leaseDeadline.load()) {
+            ring.discard();
+            timestampSeed.fetch_add(1, std::memory_order_release);
+        }
         owner = caller;
         leaseDeadline.store(now + leaseTicks, std::memory_order_release);
     } else {
@@ -338,7 +345,14 @@ OSStatus startIO(AudioServerPlugInDriverRef, AudioObjectID id, UInt32 clientID) 
         !sameIdentity(current, client->second.identity) || !owner.pid || current.uid != owner.uid ||
         mach_absolute_time() >= leaseDeadline.load()) return kAudioHardwareIllegalOperationError;
     if (!client->second.active) {
-        if (running.fetch_add(1) == 0) { anchor.store(mach_absolute_time()); timestampSeed.fetch_add(1); }
+        if (running.load() == 0) {
+            // Start a fresh PCM generation even if StopIO/StartIO happened
+            // entirely between two consumer polls. No old tail may cross it.
+            ring.discard();
+            anchor.store(mach_absolute_time());
+            timestampSeed.fetch_add(1, std::memory_order_release);
+        }
+        running.fetch_add(1);
         client->second.active = true;
     }
     return noErr;
