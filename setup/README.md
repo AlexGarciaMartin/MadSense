@@ -1,6 +1,6 @@
 # Instalador de Windows de MadSense
 
-El paquete `0.4.3` genera `MadSense-0.4.3-Setup.exe`, con la app y la instalación en seis idiomas. Esta revisión deja el cambio manual de idioma en la bandeja y despeja la parte inferior de la ventana, sin cambiar el procesamiento del mando. La compilación no publica una release ni cambia automáticamente la descarga de la web.
+El paquete `0.4.4` genera `MadSense-0.4.4-Setup.exe`, con la app y la instalación en seis idiomas. Esta revisión corrige el repintado al redimensionar o maximizar la ventana: el recuadro Bluetooth/versión ya no deja copias ni fragmentos en pantalla. Mantiene el diseño y el funcionamiento del mando. La compilación no publica una release ni cambia automáticamente la descarga de la web.
 
 ## Diseño y alcance
 
@@ -116,7 +116,7 @@ Para probar el asistente completo sin modificar los drivers:
 
 ```powershell
 .\tools\build-installer.ps1 -InstallerTestBuild
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-setup.ps1 -Installer .\dist\installer\MadSense-0.4.3-Setup-TEST.exe
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-setup.ps1 -Installer .\dist\installer\MadSense-0.4.4-Setup-TEST.exe
 ```
 
 El build `TEST` usa identidad, nombre y carpeta distintos, simula el helper de controladores y no abre la app al terminar. La prueba **sí copia y elimina sus propios archivos, crea su acceso de Inicio y registra su propio desinstalador en HKCU**. Verifica hash y metadatos del EXE de prueba antes de lanzarlo; rechaza el EXE normal.

@@ -471,7 +471,12 @@ sealed class MainWindow : Form
     // All artwork is native vector drawing: no textures, browser or animation framework.
     sealed class HeaderPanel : Panel
     {
-        public HeaderPanel() { DoubleBuffered = true; }
+        public HeaderPanel()
+        {
+            DoubleBuffered = true;
+            // Right-aligned artwork moves on resize; invalidate its old position too.
+            SetStyle(ControlStyles.ResizeRedraw, true);
+        }
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e); var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -508,7 +513,11 @@ sealed class MainWindow : Form
         public float Phase;
         /// <summary>Live feedback lamps; <c>null</c> hides the row (not connected).</summary>
         public BridgeSignals? Signals;
-        public HeroPanel() { DoubleBuffered = true; Margin = Padding.Empty; }
+        public HeroPanel()
+        {
+            DoubleBuffered = true; Margin = Padding.Empty;
+            SetStyle(ControlStyles.ResizeRedraw, true);
+        }
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e); var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -623,7 +632,7 @@ sealed class MainWindow : Form
     {
         public SingleLineLabel()
         {
-            SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+            SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw, true);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -645,7 +654,7 @@ sealed class MainWindow : Form
         {
             FlatStyle = FlatStyle.Flat; FlatAppearance.BorderSize = 0; Cursor = Cursors.Hand;
             BackColor = Paper; ForeColor = Ink; Font = new Font("Consolas", 9, FontStyle.Bold);
-            SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+            SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw, true);
         }
         protected override void OnMouseEnter(EventArgs e) { hovered = true; Invalidate(); base.OnMouseEnter(e); }
         protected override void OnMouseLeave(EventArgs e) { hovered = false; Invalidate(); base.OnMouseLeave(e); }

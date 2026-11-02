@@ -1,6 +1,6 @@
 # Preparar y publicar el instalador de MadSense
 
-El repositorio es [AlexGarciaMartin/MadSense](https://github.com/AlexGarciaMartin/MadSense), GPL-3.0. La distribución actual es el instalador `MadSense-0.4.3-Setup.exe` de la release `v0.4.3`; `v0.4` conserva el ZIP histórico. **Compilar no publica una release ni modifica la descarga de la web**: esos pasos se realizan por separado.
+El repositorio es [AlexGarciaMartin/MadSense](https://github.com/AlexGarciaMartin/MadSense), GPL-3.0. La distribución actual es el instalador `MadSense-0.4.4-Setup.exe` de la release `v0.4.4`; `v0.4` conserva el ZIP histórico. **Compilar no publica una release ni modifica la descarga de la web**: esos pasos se realizan por separado.
 
 ## Preparar el artefacto
 
@@ -15,11 +15,11 @@ La app se publica en una carpeta nueva de `.build/`. Si no se indica `-IsccPath`
 
 También descarga USBip 0.9.8.1 e HidHide 1.5.230 desde sus releases oficiales, comprueba sus SHA-256 y firmas Authenticode e incorpora esos paquetes al instalador. Las versiones, URLs y hashes se mantienen en `setup/dependencies.json`.
 
-Con `<Version>0.4.3</Version>` se generan:
+Con `<Version>0.4.4</Version>` se generan:
 
-- `dist/installer/MadSense-0.4.3-Setup.exe`
-- `dist/installer/MadSense-0.4.3-Setup.exe.sha256`
-- `dist/installer/MadSense-0.4.3-Setup.exe.json`
+- `dist/installer/MadSense-0.4.4-Setup.exe`
+- `dist/installer/MadSense-0.4.4-Setup.exe.sha256`
+- `dist/installer/MadSense-0.4.4-Setup.exe.json`
 
 El JSON describe el commit, si había cambios sin confirmar, compilador y paquetes incorporados. No sustituye las pruebas del instalador. Para una release reproducible, confirma el código que se va a distribuir y vuelve a compilar desde ese estado limpio.
 
