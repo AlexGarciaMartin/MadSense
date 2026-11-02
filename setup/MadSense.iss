@@ -280,6 +280,9 @@ begin
   end;
   if (CurPageID = wpFinished) and DriversRestart and not RegistrationFailed then begin
     WizardForm.FinishedHeadingLabel.Caption := 'REINICIO' + #13#10 + 'PENDIENTE.';
+    // /NORESTART suppresses Inno's restart controls and its restart body text.
+    // The driver requirement still applies even when the user will reboot later.
+    WizardForm.FinishedLabel.Caption := SetupMessage(msgFinishedRestartLabel);
     WizardForm.NoRadio.Checked := True;
   end;
   if (CurPageID = wpFinished) and RegistrationFailed then begin
