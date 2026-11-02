@@ -5,7 +5,7 @@ Trabajo de la rama `feature/windows_installer`. La versión de la app se mantien
 ## Diseño y alcance
 
 - Asistente Inno Setup por usuario, con logo, paleta y tipografía de la web convertidos a imágenes. No instala fuentes.
-- Bienvenida con acción directa **Instalar** y opción de acceso al escritorio; no hay una segunda página de resumen. El lateral conserva solo la marca y los colores, sin repetir el lema de la web.
+- Bienvenida con acción directa **Instalar** y opción de acceso al escritorio; no hay una segunda página de resumen. El lateral reúne el logo y «ENCIENDE. JUEGA. SIN CABLE.», con espacio entre líneas y sin bandas decorativas.
 - Windows 10 22H2 (build 19045) o Windows 11, x64 nativo Intel/AMD. Se rechazan x86 y ARM64.
 - El propio Setup y su desinstalador se compilan como x64 mediante `SetupArchitecture=x64`. No basta con instalar archivos en modo de 64 bits: un Setup de 32 bits puede redirigir `System32` y ejecutar PowerShell de 32 bits. El helper comprueba la arquitectura del proceso y rechaza ese caso antes de cambiar controladores.
 - Aplicación y datos del usuario en `%LOCALAPPDATA%\Programs\MadSense`. La app actual escribe sus preferencias y registros junto al EXE; no se mueve a `Program Files`.

@@ -55,11 +55,14 @@ public static class MadSenseInstallerArt
     }
     static void Sidebar(Graphics g) {
         g.Clear(Paper);
-        // One mark, no second headline: leave the instructions to the live UI.
+        // Brand phrase below the mark, with generous space and no extra bands.
         Rect(g,Ink,0,0,164,314);
         using(var b=new SolidBrush(Color.FromArgb(34,Paper)))
             for(int y=14;y<314;y+=12) for(int x=12;x<164;x+=12) g.FillEllipse(b,x,y,1.3f,1.3f);
         Logo(g,30,45,100,-6,false);
+        Text(g,"ENCIENDE.",26,Paper,18,188);
+        Text(g,"JUEGA.",26,Paper,18,222);
+        Text(g,"SIN CABLE.",26,Acid,18,256);
     }
     static void Small(Graphics g) { g.Clear(Paper); Logo(g,6,6,42,-6,false); }
     static void Header(Graphics g) {

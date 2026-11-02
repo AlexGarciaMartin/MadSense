@@ -70,6 +70,9 @@ Subsequent artwork-only revision:
 - windows-installer-welcome-clean-sidebar.png records the updated native welcome.
   The earlier screenshots remain evidence of the functional validation above.
 - Functional suites and driver installation were not repeated for this visual change.
+- At the user's request, the next artwork revision adds ENCIENDE. / JUEGA. /
+  SIN CABLE. below the logo with generous spacing, without restoring the bands.
+  windows-installer-welcome-slogan.png records this current native welcome.
 
 Limits (not validated here):
 - First installation of real kernel drivers on a clean Windows machine.
