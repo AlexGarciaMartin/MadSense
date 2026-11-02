@@ -1,14 +1,18 @@
-# MadSense 0.4.5
+# MadSense 0.4.6
 
 Abre MadSense, enciende tu DualSense y abre el juego. La app espera al mando, conecta por Bluetooth y recupera la conexión automáticamente. Debe estar emparejado previamente en Windows. Esta versión controla un mando y es 100 % Bluetooth: por cable el juego usa el DualSense en nativo sin necesitar MadSense.
 
-**[Descargar el instalador de Windows](https://github.com/AlexGarciaMartin/MadSense/releases/download/v0.4.5/MadSense-0.4.5-Setup.exe)** · [Notas y SHA-256](https://github.com/AlexGarciaMartin/MadSense/releases/tag/v0.4.5)
+**[Descargar el instalador de Windows](https://github.com/AlexGarciaMartin/MadSense/releases/download/v0.4.6/MadSense-0.4.6-Setup.exe)** · [Notas y SHA-256](https://github.com/AlexGarciaMartin/MadSense/releases/tag/v0.4.6)
 
 **App e instalador en seis idiomas:** English · Español · Français · Deutsch · Italiano · Português Brasileiro. El instalador detecta el idioma de Windows y permite elegir otro. La app también permite cambiarlo desde el menú de la bandeja.
 
+## Novedades de 0.4.6
+
+MadSense comprueba las actualizaciones una sola vez por arranque, 15 segundos después de iniciarse. Dejarla abierta o recuperar la ventana desde la bandeja no vuelve a consultar. **Buscar actualizaciones** sigue disponible en el menú de la bandeja para comprobarlo cuando quieras.
+
 ## Novedades de 0.4.5
 
-MadSense comprueba si hay una versión nueva 15 segundos después de abrirse y cada 12 horas mientras siga abierta. Cuando la hay, el recuadro de versión ofrece la descarga y aparece un punto en el icono de la bandeja. También puedes comprobarlo desde **Buscar actualizaciones** en ese menú.
+Se incorporaron los avisos de nuevas versiones: el recuadro de versión ofrece la descarga y aparece un punto en el icono de la bandeja. También se añadió **Buscar actualizaciones** a ese menú.
 
 El aviso no abre ventanas ni interrumpe el mando. Al pulsarlo se abre la descarga del instalador oficial en el navegador: ejecútalo cuando termines de jugar; conserva tus ajustes. No instala actualizaciones automáticamente. Quienes usen `0.4.4` o una versión anterior deben actualizar una vez para incorporar estos avisos.
 
@@ -52,7 +56,7 @@ El nuevo instalador requiere **Windows 10 22H2 o Windows 11, x64 (Intel o AMD)**
 - **USBip** (usbip-win2 0.9.8.1, BSD-2): presenta el DualSense virtual por USB.
 - **HidHide** (Nefarius 1.5.230, MIT): oculta el mando físico para que el juego no lo vea dos veces.
 
-1. Descarga y ejecuta **`MadSense-0.4.5-Setup.exe`** y elige tu idioma. No necesitas descomprimir carpetas ni ejecutar un `.cmd`.
+1. Descarga y ejecuta **`MadSense-0.4.6-Setup.exe`** y elige tu idioma. No necesitas descomprimir carpetas ni ejecutar un `.cmd`.
 2. Elige si quieres un acceso directo en el escritorio y pulsa **Instalar**. La aplicación se instala para tu usuario en `%LOCALAPPDATA%\Programs\MadSense`; también aparece en el menú Inicio.
 3. Si los controladores necesitan instalación o reparación, Windows pide permiso de administrador solo para ese paso. Se comprueban sus versiones, estado, SHA-256 y firmas antes de ejecutar los paquetes oficiales. Si cambia USBip o HidHide, el asistente pide reiniciar antes de abrir MadSense.
 4. Empareja el DualSense por Bluetooth en Windows (Configuración → Bluetooth y dispositivos).
@@ -61,7 +65,7 @@ Para desinstalar, abre **Configuración → Aplicaciones → Aplicaciones instal
 
 Actualizar no debe cerrar otra copia de desarrollo: el mantenimiento se dirige a la ruta concreta que se va a modificar. Si esa copia antigua no admite el cierre seguro, el asistente pide cerrarla desde la bandeja antes de continuar. No abre otra MadSense al terminar si ya hay una abierta.
 
-La release `v0.4.5` distribuye el instalador de Windows. El ZIP de `v0.4` se conserva como descarga histórica. Las pruebas realizadas y sus límites están en [`setup/README.md`](setup/README.md).
+La release `v0.4.6` distribuye el instalador de Windows. El ZIP de `v0.4` se conserva como descarga histórica. Las pruebas realizadas y sus límites están en [`setup/README.md`](setup/README.md).
 
 ## Uso
 
@@ -83,7 +87,7 @@ Con Windows x64 y el SDK de .NET 10:
 .\tools\build-installer.ps1
 ```
 
-Genera `dist\installer\MadSense-0.4.5-Setup.exe`, su `.sha256` y un `.json` con versión, compilador, commit y dependencias. Publica primero la app en una carpeta nueva de `.build/`, por lo que no sobrescribe la copia de desarrollo de `app/` que pueda estar abierta. Si no encuentra `ISCC.exe`, usa el compilador portable **Tools.InnoSetup 7.1.0** de NuGet con SHA-256 fijado. Los controladores también se descargan y verifican durante la compilación para incluirlos en el EXE.
+Genera `dist\installer\MadSense-0.4.6-Setup.exe`, su `.sha256` y un `.json` con versión, compilador, commit y dependencias. Publica primero la app en una carpeta nueva de `.build/`, por lo que no sobrescribe la copia de desarrollo de `app/` que pueda estar abierta. Si no encuentra `ISCC.exe`, usa el compilador portable **Tools.InnoSetup 7.1.0** de NuGet con SHA-256 fijado. Los controladores también se descargan y verifican durante la compilación para incluirlos en el EXE.
 
 Opciones disponibles:
 
@@ -93,7 +97,7 @@ Opciones disponibles:
 .\tools\build-installer.ps1 -InstallerTestBuild
 ```
 
-`-PublishDirectory` reutiliza una publicación completa ya creada; comprueba que corresponda al código que quieres empaquetar. `-DependencyDirectory` selecciona la caché de paquetes oficiales, que se siguen verificando. `-InstallerTestBuild` genera **`MadSense-0.4.5-Setup-TEST.exe`** con identidad y carpeta separadas, controladores simulados y sin abrir la app al terminar: sirve para probar el asistente, no para distribuirlo ni validar el hardware.
+`-PublishDirectory` reutiliza una publicación completa ya creada; comprueba que corresponda al código que quieres empaquetar. `-DependencyDirectory` selecciona la caché de paquetes oficiales, que se siguen verificando. `-InstallerTestBuild` genera **`MadSense-0.4.6-Setup-TEST.exe`** con identidad y carpeta separadas, controladores simulados y sin abrir la app al terminar: sirve para probar el asistente, no para distribuirlo ni validar el hardware.
 
 `build.ps1` sigue publicando la app de desarrollo en `app/`; `test.ps1` ejecuta las pruebas del puente (`-Hardware` requiere el mando conectado y MadSense cerrada). Las pruebas específicas y el procedimiento manual del instalador están en [`setup/README.md`](setup/README.md). `tools/build-release.ps1` corresponde al empaquetado ZIP histórico. Publicación y licencias: [`PUBLICAR.md`](PUBLICAR.md).
 

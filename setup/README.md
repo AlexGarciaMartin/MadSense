@@ -1,6 +1,6 @@
 # Instalador de Windows de MadSense
 
-El paquete `0.4.5` genera `MadSense-0.4.5-Setup.exe`, con la app y la instalación en seis idiomas. Esta revisión añade avisos de nuevas versiones en la app. La compilación no publica una release ni cambia automáticamente la descarga de la web.
+El paquete `0.4.6` genera `MadSense-0.4.6-Setup.exe`, con la app y la instalación en seis idiomas. Esta revisión limita la comprobación automática de actualizaciones a una sola consulta por arranque. La compilación no publica una release ni cambia automáticamente la descarga de la web.
 
 ## Diseño y alcance
 
@@ -22,7 +22,7 @@ Una copia de desarrollo en otra carpeta no es el destino de la actualización. E
 
 ## Avisos de actualización
 
-La app consulta el manifiesto público de la web 15 segundos después de abrirse y cada 12 horas mientras siga abierta. Una nueva versión convierte el recuadro de versión en una acción de descarga y añade un punto al icono de la bandeja; ese menú también permite **Buscar actualizaciones**. No muestra una ventana emergente ni detiene el mando.
+La app consulta el manifiesto público de la web una sola vez por arranque, 15 segundos después de iniciarse. No repite la consulta si sigue abierta ni al recuperar la ventana desde la bandeja. Una nueva versión convierte el recuadro de versión en una acción de descarga y añade un punto al icono de la bandeja; ese menú permite **Buscar actualizaciones** manualmente. No muestra una ventana emergente ni detiene el mando.
 
 Al pulsar la descarga, el navegador abre el instalador oficial de GitHub. La instalación solo comienza cuando el usuario ejecuta ese archivo; conserva preferencias y usa el protocolo de mantenimiento existente. Las versiones `0.4.4` y anteriores necesitan una primera actualización manual para recibir estos avisos.
 
@@ -124,7 +124,7 @@ Para probar el asistente completo sin modificar los drivers:
 
 ```powershell
 .\tools\build-installer.ps1 -InstallerTestBuild
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-setup.ps1 -Installer .\dist\installer\MadSense-0.4.5-Setup-TEST.exe
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-setup.ps1 -Installer .\dist\installer\MadSense-0.4.6-Setup-TEST.exe
 ```
 
 El build `TEST` usa identidad, nombre y carpeta distintos, simula el helper de controladores y no abre la app al terminar. La prueba **sí copia y elimina sus propios archivos, crea su acceso de Inicio y registra su propio desinstalador en HKCU**. Verifica hash y metadatos del EXE de prueba antes de lanzarlo; rechaza el EXE normal.

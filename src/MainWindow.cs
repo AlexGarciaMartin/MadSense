@@ -218,7 +218,7 @@ sealed class MainWindow : Form
         animation.Start();
         worker = previewOnly ? Task.CompletedTask : Task.Run(BridgeLoop);
         // Also runs with --tray. No networking on the controller worker or the UI thread.
-        updateWorker = previewOnly ? Task.CompletedTask : Task.Run(UpdateLoopAsync);
+        updateWorker = previewOnly ? Task.CompletedTask : Task.Run(CheckUpdatesAtStartupAsync);
 
         void AddMode(string mode, int column)
         {
@@ -293,16 +293,13 @@ sealed class MainWindow : Form
             : L.Text(hero.Connected ? "Ui.TrayReady" : paused ? "Ui.TrayPaused" : "Ui.TrayWaiting") + battery, 63);
     }
 
-    async Task UpdateLoopAsync()
+    async Task CheckUpdatesAtStartupAsync()
     {
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(15), updateToken).ConfigureAwait(false);
-            while (!updateToken.IsCancellationRequested)
-            {
-                await CheckForUpdatesAsync(manual: false).ConfigureAwait(false);
-                await Task.Delay(TimeSpan.FromHours(12), updateToken).ConfigureAwait(false);
-            }
+            // One automatic check per launch. Leaving the app in the tray never schedules another.
+            await CheckForUpdatesAsync(manual: false).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (updateToken.IsCancellationRequested) { }
     }

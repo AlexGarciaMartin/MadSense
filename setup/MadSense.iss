@@ -1,7 +1,7 @@
 ; Compile through tools/build-installer.ps1. The installer is per-user; only
 ; the driver helper is elevated. Never use the legacy global --stop command.
 #ifndef AppVersion
-  #define AppVersion "0.4.5"
+  #define AppVersion "0.4.6"
 #endif
 #ifndef PublishDirectory
   #error PublishDirectory is required
