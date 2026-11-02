@@ -136,6 +136,26 @@ var
   LastHelperError, RegistrationError: String;
   StageLabel: TNewStaticText;
   DesktopChoice: TNewCheckBox;
+  HeaderMinHeight, HeaderBodyGap, HeaderBodyBottom, HeaderSeparatorGap: Integer;
+
+procedure FitPageHeader(Title, Description: TNewStaticText; Header: TPanel;
+  Separator: TBevel; Body: TNewNotebook; MinHeight, BodyGap, BodyBottom, SeparatorGap: Integer);
+var RequiredHeight, HeaderBottom: Integer;
+begin
+  // Font changes do not resize Inno's fixed-height title controls. Measure the
+  // current caption at the current DPI, then move the whole header/body boundary.
+  Title.AdjustHeight;
+  Title.Height := Title.Height + ScaleY(2);
+  Description.Top := Title.Top + Title.Height + ScaleY(5);
+  Description.AdjustHeight;
+  RequiredHeight := Description.Top + Description.Height + ScaleY(12);
+  if RequiredHeight < MinHeight then RequiredHeight := MinHeight;
+  Header.Height := RequiredHeight;
+  HeaderBottom := Header.Top + Header.Height;
+  Separator.Top := HeaderBottom + SeparatorGap;
+  Body.Top := HeaderBottom + BodyGap;
+  Body.Height := BodyBottom - Body.Top;
+end;
 
 function Quote(const Value: String): String;
 begin
@@ -271,6 +291,10 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
+  if (CurPageID <> wpWelcome) and (CurPageID <> wpFinished) then
+    FitPageHeader(WizardForm.PageNameLabel, WizardForm.PageDescriptionLabel,
+      WizardForm.MainPanel, WizardForm.Bevel1, WizardForm.InnerNotebook,
+      HeaderMinHeight, HeaderBodyGap, HeaderBodyBottom, HeaderSeparatorGap);
   if CurPageID = wpWelcome then WizardForm.NextButton.Caption := 'Instalar';
   if CurPageID = wpFinished then begin
     // Inno repositions these after InitializeWizard; apply the shared spacing last.
@@ -312,6 +336,12 @@ end;
 procedure InitializeWizard;
 var ContentLeft, ContentWidth: Integer;
 begin
+  HeaderMinHeight := WizardForm.MainPanel.Height;
+  HeaderBodyGap := WizardForm.InnerNotebook.Top -
+    (WizardForm.MainPanel.Top + WizardForm.MainPanel.Height);
+  HeaderBodyBottom := WizardForm.InnerNotebook.Top + WizardForm.InnerNotebook.Height;
+  HeaderSeparatorGap := WizardForm.Bevel1.Top -
+    (WizardForm.MainPanel.Top + WizardForm.MainPanel.Height);
   ContentLeft := WizardForm.WizardBitmapImage.Width + ScaleX(30);
   ContentWidth := WizardForm.WelcomePage.ClientWidth - ContentLeft - ScaleX(30);
   WizardForm.WelcomeLabel1.Font.Name := 'Segoe UI';
@@ -426,7 +456,16 @@ begin
 end;
 
 procedure InitializeUninstallProgressForm;
+var HeaderBottom, MinHeight, BodyGap, BodyBottom, SeparatorGap: Integer;
 begin
+  MinHeight := UninstallProgressForm.MainPanel.Height;
+  HeaderBottom := UninstallProgressForm.MainPanel.Top + MinHeight;
+  BodyGap := UninstallProgressForm.InnerNotebook.Top - HeaderBottom;
+  BodyBottom := UninstallProgressForm.InnerNotebook.Top + UninstallProgressForm.InnerNotebook.Height;
+  SeparatorGap := UninstallProgressForm.Bevel1.Top - HeaderBottom;
   UninstallProgressForm.PageNameLabel.Font.Style := [fsBold];
   UninstallProgressForm.PageNameLabel.Caption := 'HASTA LA PRÓXIMA.';
+  FitPageHeader(UninstallProgressForm.PageNameLabel, UninstallProgressForm.PageDescriptionLabel,
+    UninstallProgressForm.MainPanel, UninstallProgressForm.Bevel1, UninstallProgressForm.InnerNotebook,
+    MinHeight, BodyGap, BodyBottom, SeparatorGap);
 end;
