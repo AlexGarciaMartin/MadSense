@@ -29,7 +29,6 @@ sealed class MainWindow : Form
     readonly ToolStripMenuItem autostart;
     readonly ToolStripMenuItem openItem = new(), pauseItem = new(), speakerMenu = new(), languageMenu = new(), quitItem = new();
     readonly Dictionary<string, ToolStripMenuItem> languageItems = new();
-    readonly ComboBox language = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Paper, ForeColor = Ink, Dock = DockStyle.Fill, Margin = new Padding(0, 8, 12, 0), Font = new Font("Segoe UI", 9) };
     readonly HeaderPanel header = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
     readonly Label section = CreateSection(), speakerSection = CreateSection();
     readonly RoundedButton details = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 10, 0) };
@@ -43,7 +42,7 @@ sealed class MainWindow : Form
     readonly Dictionary<Label, Font> fittedFonts = new();
     readonly Task worker;
     readonly bool previewOnly;
-    bool paused, quitting, hasHiddenTip, allowVisible, lowBatteryNotified, refreshingLanguage;
+    bool paused, quitting, hasHiddenTip, allowVisible, lowBatteryNotified;
     float phase;
     ActivityEntry lastMessage = new(DateTime.Now, L.Message("Ui.Starting"));
     ActivityEntry displayedMessage = new(DateTime.Now, L.Message("Ui.Starting"));
@@ -51,7 +50,6 @@ sealed class MainWindow : Form
     {
         public string Render() => $"{Time:HH:mm:ss} · {Message.Render().Split('\n')[0]}";
     }
-    sealed record LanguageChoice(string Code, string Caption) { public override string ToString() => Caption; }
 
     static Label CreateSection() => new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.BottomLeft, ForeColor = Ink, Font = new Font("Consolas", 8, FontStyle.Bold), Padding = new Padding(0, 0, 0, 5) };
 
@@ -134,22 +132,15 @@ sealed class MainWindow : Form
         for (int i = 0; i < 3; i++) speaker.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 3));
         AddSpeaker("Alto", 0); AddSpeaker("Bajo", 1); AddSpeaker("Off", 2);
         layout.Controls.Add(speaker, 0, 5);
-        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
         activity.Font = new Font(Font.FontFamily, 8);
         footer.Controls.Add(activity, 0, 0);
-        language.Items.Add(new LanguageChoice("auto", L.Text("Ui.LanguageAuto")));
-        foreach (var option in L.Languages) language.Items.Add(new LanguageChoice(option.Code, option.NativeName));
-        language.SelectedIndexChanged += (_, _) =>
-        {
-            if (!refreshingLanguage && language.SelectedItem is LanguageChoice choice) ChangeLanguage(choice.Code);
-        };
-        footer.Controls.Add(language, 1, 0);
         details.Click += (_, _) => { if (previewOnly) return; try { Process.Start(new ProcessStartInfo("explorer.exe", AppContext.BaseDirectory) { UseShellExecute = true }); } catch (Exception e) { ShowActivity(UiMessage.FromException(e)); } };
-        footer.Controls.Add(details, 2, 0);
+        footer.Controls.Add(details, 1, 0);
         pause.Dock = DockStyle.Fill; pause.Margin = Padding.Empty;
         pause.Click += (_, _) => TogglePause();
-        footer.Controls.Add(pause, 3, 0);
+        footer.Controls.Add(pause, 2, 0);
         layout.Controls.Add(footer, 0, 6);
         Controls.Add(layout);
 
@@ -242,46 +233,33 @@ sealed class MainWindow : Form
 
     void ApplyLanguage()
     {
-        refreshingLanguage = true;
-        try
+        var culture = CultureInfo.GetCultureInfo(L.CurrentLanguage);
+        section.Text = L.Text("Ui.ModeSection"); speakerSection.Text = L.Text("Ui.SpeakerSection");
+        details.Text = L.Text("Ui.Logs"); details.AccessibleDescription = L.Text("Ui.LogsDescription");
+        pause.Text = L.Text(paused ? "Ui.Resume" : "Ui.Pause");
+        modeButtons["Auto"].Text = L.Text("Ui.NativeMode"); modeButtons["Xbox"].Text = L.Text("Ui.XboxMode");
+        modeButtons["Auto"].AccessibleDescription = L.Text("Ui.NativeDescription");
+        modeButtons["Xbox"].AccessibleDescription = L.Text("Ui.XboxDescription");
+        foreach (var pair in speakerButtons)
         {
-            var culture = CultureInfo.GetCultureInfo(L.CurrentLanguage);
-            section.Text = L.Text("Ui.ModeSection"); speakerSection.Text = L.Text("Ui.SpeakerSection");
-            details.Text = L.Text("Ui.Logs"); details.AccessibleDescription = L.Text("Ui.LogsDescription");
-            pause.Text = L.Text(paused ? "Ui.Resume" : "Ui.Pause");
-            modeButtons["Auto"].Text = L.Text("Ui.NativeMode"); modeButtons["Xbox"].Text = L.Text("Ui.XboxMode");
-            modeButtons["Auto"].AccessibleDescription = L.Text("Ui.NativeDescription");
-            modeButtons["Xbox"].AccessibleDescription = L.Text("Ui.XboxDescription");
-            foreach (var pair in speakerButtons)
-            {
-                var label = SpeakerLevels.Label(pair.Key);
-                pair.Value.Text = label.ToUpper(culture);
-                pair.Value.AccessibleDescription = L.Text("Ui.SpeakerLevel", label);
-                speakerItems[pair.Key].Text = culture.TextInfo.ToTitleCase(label);
-            }
-            openItem.Text = L.Text("Ui.Open"); pauseItem.Text = L.Text("Ui.TogglePause");
-            speakerMenu.Text = L.Text("Ui.SpeakerMenu"); languageMenu.Text = L.Text("Ui.Language");
-            autostart.Text = L.Text("Ui.Autostart"); quitItem.Text = L.Text("Ui.Quit");
-            language.AccessibleName = L.Text("Ui.Language"); language.AccessibleDescription = L.Text("Ui.LanguageDescription");
-            // Keep the native list stable while a user navigates its open dropdown.
-            // Rebuilding it inside SelectedIndexChanged resets the highlighted item.
-            var automaticCaption = L.Text("Ui.LanguageAuto");
-            if (language.Items[0] is LanguageChoice automatic && automatic.Caption != automaticCaption)
-                language.Items[0] = new LanguageChoice("auto", automaticCaption);
-            for (int i = 0; i < language.Items.Count; i++)
-            {
-                if (language.Items[i] is not LanguageChoice choice) continue;
-                languageItems[choice.Code].Text = choice.Caption;
-                languageItems[choice.Code].Checked = choice.Code == L.Preference;
-                if (choice.Code == L.Preference && language.SelectedIndex != i) language.SelectedIndex = i;
-            }
-            hero.AccessibleName = L.Text("Ui.ControllerState");
-            RefreshStatusText();
-            header.Invalidate(); hero.Invalidate();
-            foreach (var button in modeButtons.Values.Concat(speakerButtons.Values)) button.Invalidate();
-            FitLabels();
+            var label = SpeakerLevels.Label(pair.Key);
+            pair.Value.Text = label.ToUpper(culture);
+            pair.Value.AccessibleDescription = L.Text("Ui.SpeakerLevel", label);
+            speakerItems[pair.Key].Text = culture.TextInfo.ToTitleCase(label);
         }
-        finally { refreshingLanguage = false; }
+        openItem.Text = L.Text("Ui.Open"); pauseItem.Text = L.Text("Ui.TogglePause");
+        speakerMenu.Text = L.Text("Ui.SpeakerMenu"); languageMenu.Text = L.Text("Ui.Language");
+        autostart.Text = L.Text("Ui.Autostart"); quitItem.Text = L.Text("Ui.Quit");
+        foreach (var (code, item) in languageItems)
+        {
+            item.Text = code == "auto" ? L.Text("Ui.LanguageAuto") : L.Languages.First(option => option.Code == code).NativeName;
+            item.Checked = code == L.Preference;
+        }
+        hero.AccessibleName = L.Text("Ui.ControllerState");
+        RefreshStatusText();
+        header.Invalidate(); hero.Invalidate();
+        foreach (var button in modeButtons.Values.Concat(speakerButtons.Values)) button.Invalidate();
+        FitLabels();
     }
 
     void RefreshStatusText()
