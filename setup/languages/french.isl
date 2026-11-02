@@ -1,0 +1,44 @@
+[Messages]
+WelcomeLabel1=INSTALLER%nMADSENSE
+WelcomeLabel2=DualSense en Bluetooth sur PC.%n%nApplication et pilotes inclus. Windows peut demander une autorisation pour les installer.%n%nSeul l'installateur est traduit. L'application reste en espagnol.
+WizardReady=TOUT EST PRÊT.
+ReadyLabel1=Cliquez sur Installer pour préparer MadSense.
+WizardPreparing=VÉRIFICATION.
+PreparingDesc=Vérification de l'application et des pilotes.
+WizardInstalling=INSTALLATION EN COURS.
+InstallingLabel=Copie des fichiers de MadSense.
+FinishedHeadingLabel=INSTALLÉ.
+FinishedLabel=Ouvrez MadSense et appuyez sur PS sur votre manette.%n%nLa première fois, associez la DualSense dans les paramètres Bluetooth de Windows.%n%nPour les jeux avec prise en charge native, désactivez Steam Input.
+FinishedRestartLabel=Redémarrez Windows pour activer les pilotes.%n%nEnsuite, ouvrez MadSense et appuyez sur PS sur votre manette.
+ButtonNext=&Continuer
+ButtonInstall=&Installer
+ButtonFinish=&Terminer
+ClickNext=
+ClickFinish=
+SelectTasksLabel2=Raccourcis :
+WizardSelectTasks=À VOTRE FAÇON.
+UninstallAppFullTitle=Désinstaller MadSense
+ConfirmUninstall=Voulez-vous désinstaller %1 ?%n%nVos réglages et les pilotes partagés USBip et HidHide seront conservés.
+
+[CustomMessages]
+DesktopShortcut=Créer un raccourci sur le Bureau
+OpenApp=Ouvrir MadSense
+StepFailed=Cette étape n'a pas pu être terminée. Code : %1.
+MaintenanceFailed=Impossible de préparer MadSense. Code : %1.
+MaintenanceBusy=Quittez MadSense depuis la zone de notification, y compris dans les autres sessions Windows. Attendez sa fermeture, puis réessayez. Vos données seront conservées.
+MaintenanceRecovery=Redémarrez Windows et réessayez. Si HidHide ne répond toujours pas, réparez-le depuis les applications installées de Windows. Ne supprimez pas hidden-controller.json.
+CheckingDrivers=Vérification des pilotes...
+InstallingDrivers=Préparation de USBip et HidHide. Acceptez la demande d'autorisation de Windows.
+RestartRetry=Redémarrez Windows, puis relancez l'installateur.
+RestartHeading=REDÉMARRAGE%nREQUIS.
+IncompleteHeading=ENCORE UNE ÉTAPE.
+RepairInstall=Relancez cet installateur pour réparer l'installation.
+RestartFirst=Redémarrez d'abord Windows.
+TestTitle=MadSense — TEST D'INSTALLATION
+TestStage=TEST / PILOTES INCHANGÉS
+ReadyMemo=MadSense sera installé pour votre compte Windows.%n%nUSBip et HidHide seront vérifiés. Si l'un manque, Windows demandera l'autorisation de l'installer.%nLes pilotes sont inclus dans l'installateur.%n%nVos réglages sont conservés lors des mises à jour.
+TestMemo=TEST ISOLÉ DE L'INSTALLATEUR.%nLes étapes liées aux pilotes sont simulées. L'application ne s'ouvre pas à la fin.
+RecoveryPreserved=Le fichier de récupération de la manette ne sera pas supprimé.
+MissingAppRecovery=MadSense.exe est absent et une récupération de la manette est en attente. Réinstallez MadSense dans ce dossier avant de le désinstaller.
+UnregisterFailed=HidHide n'a pas confirmé le retrait de MadSense de sa liste d'applications : %1%nAucun fichier n'a été supprimé. Réessayez.
+UninstallHeading=À LA PROCHAINE.

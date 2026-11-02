@@ -1,7 +1,7 @@
 ; Compile through tools/build-installer.ps1. The installer is per-user; only
 ; the driver helper is elevated. Never use the legacy global --stop command.
 #ifndef AppVersion
-  #define AppVersion "0.4.0"
+  #define AppVersion "0.4.1"
 #endif
 #ifndef PublishDirectory
   #error PublishDirectory is required
@@ -63,37 +63,24 @@ ChangesEnvironment=no
 SetupLogging=yes
 AllowNoIcons=no
 VersionInfoVersion={#AppVersion}
-VersionInfoDescription=Instalador de MadSense
+VersionInfoDescription=MadSense Setup
 VersionInfoProductName={#ProductName}
 VersionInfoCompany=Alex García Martín
+ShowLanguageDialog=yes
+LanguageDetectionMethod=uilanguage
+UsePreviousLanguage=yes
 
 [Languages]
-Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
-
-[Messages]
-WelcomeLabel1=INSTALAR%nMADSENSE
-WelcomeLabel2=DualSense por Bluetooth en PC.%n%nSe prepararán la app y sus controladores. Si faltan, Windows te pedirá permiso para instalarlos.
-WizardReady=TODO PREPARADO.
-ReadyLabel1=Pulsa Instalar para preparar MadSense.
-WizardPreparing=COMPROBANDO.
-PreparingDesc=Revisando la app y los controladores.
-WizardInstalling=PREPARANDO MADSENSE.
-InstallingLabel=Copiando los archivos de MadSense.
-FinishedHeadingLabel=INSTALADO.
-FinishedLabel=Abre MadSense y pulsa PS en tu mando.%n%nLa primera vez, empareja el DualSense desde el Bluetooth de Windows.%n%nEn juegos con soporte nativo, desactiva Steam Input.
-FinishedRestartLabel=Reinicia Windows para activar los controladores.%n%nDespués, abre MadSense y pulsa PS en tu mando.
-ButtonNext=&Continuar
-ButtonInstall=&Instalar
-ButtonFinish=&Terminar
-ClickNext=
-ClickFinish=
-SelectTasksLabel2=Accesos directos:
-WizardSelectTasks=A TU MANERA.
-UninstallAppFullTitle=Desinstalar {#ProductName}
-ConfirmUninstall=¿Quieres desinstalar %1?%n%nSe conservarán los ajustes y los controladores compartidos USBip e HidHide.
+; English is the fallback for Windows languages not listed here.
+Name: "english"; MessagesFile: "compiler:Default.isl,languages\english.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl,languages\spanish.isl"
+Name: "french"; MessagesFile: "compiler:Languages\French.isl,languages\french.isl"
+Name: "german"; MessagesFile: "compiler:Languages\German.isl,languages\german.isl"
+Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl,languages\italian.isl"
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl,languages\brazilianportuguese.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:DesktopShortcut}"; Flags: unchecked
 
 [Files]
 ; Support comes first so it can be read without decompressing the entire app.
@@ -103,7 +90,9 @@ Source: "..\tests\installer\FakeDriverSetup.ps1"; DestDir: "{tmp}\support"; Dest
 Source: "DriverSetup.ps1"; DestDir: "{tmp}\support"; Flags: dontcopy
 #endif
 Source: "DriverSetup.Core.psm1"; DestDir: "{tmp}\support"; Flags: dontcopy
+Source: "DriverSetup.Messages.psd1"; DestDir: "{tmp}\support"; Flags: dontcopy
 Source: "dependencies.json"; DestDir: "{tmp}\support"; Flags: dontcopy
+Source: "assets\localized\*.bmp"; DestDir: "{tmp}\art"; Flags: dontcopy
 Source: "{#DependencyDirectory}\*.exe"; DestDir: "{tmp}\drivers"; Flags: dontcopy
 ; The temporary copy provides maintenance commands even when upgrading 0.4.
 ; Inno reuses duplicate source data in the archive.
@@ -113,6 +102,7 @@ Source: "{#PublishDirectory}\*"; DestDir: "{app}"; Flags: ignoreversion recurses
 Source: "DriverSetup.ps1"; DestDir: "{app}\setup"; Flags: ignoreversion
 #endif
 Source: "DriverSetup.Core.psm1"; DestDir: "{app}\setup"; Flags: ignoreversion
+Source: "DriverSetup.Messages.psd1"; DestDir: "{app}\setup"; Flags: ignoreversion
 Source: "dependencies.json"; DestDir: "{app}\setup"; Flags: ignoreversion
 #ifdef InstallerTestBuild
 Source: "..\tests\installer\FakeDriverSetup.ps1"; DestDir: "{app}\setup"; DestName: "DriverSetup.ps1"; Flags: ignoreversion
@@ -127,7 +117,7 @@ Name: "{userprograms}\{#ProductName}"; Filename: "{app}\MadSense.exe"; WorkingDi
 Name: "{userdesktop}\{#ProductName}"; Filename: "{app}\MadSense.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\MadSense.exe"; Description: "Abrir MadSense"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: CanLaunchMadSense
+Filename: "{app}\MadSense.exe"; Description: "{cm:OpenApp}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: CanLaunchMadSense
 
 [Code]
 var
@@ -137,6 +127,16 @@ var
   StageLabel: TNewStaticText;
   DesktopChoice: TNewCheckBox;
   HeaderMinHeight, HeaderBodyGap, HeaderBodyBottom, HeaderSeparatorGap: Integer;
+
+procedure LoadLocalizedArtwork;
+var ArtName: String;
+begin
+  // A 3x bitmap stays sharp at high DPI; both welcome and finished pages use it.
+  ArtName := 'sidebar-' + ActiveLanguage + '.bmp';
+  ExtractTemporaryFiles('{tmp}\art\' + ArtName);
+  WizardForm.WizardBitmapImage.Bitmap.LoadFromFile(ExpandConstant('{tmp}\art\') + ArtName);
+  WizardForm.WizardBitmapImage2.Bitmap.Assign(WizardForm.WizardBitmapImage.Bitmap);
+end;
 
 procedure FitPageHeader(Title, Description: TNewStaticText; Header: TPanel;
   Separator: TBevel; Body: TNewNotebook; MinHeight, BodyGap, BodyBottom, SeparatorGap: Integer);
@@ -155,6 +155,18 @@ begin
   Separator.Top := HeaderBottom + SeparatorGap;
   Body.Top := HeaderBottom + BodyGap;
   Body.Height := BodyBottom - Body.Top;
+end;
+
+function FitSideText(Title, Body: TNewStaticText; MinBodyTop: Integer): Integer;
+begin
+  Title.AdjustHeight;
+  Title.Height := Title.Height + ScaleY(4);
+  Body.Top := Title.Top + Title.Height + ScaleY(18);
+  if Body.Top < MinBodyTop then Body.Top := MinBodyTop;
+  Body.AdjustHeight;
+  Body.Height := Body.Height + ScaleY(2);
+  Result := Body.Top + Body.Height + ScaleY(20);
+  if Result < ScaleY(267) then Result := ScaleY(267);
 end;
 
 function Quote(const Value: String): String;
@@ -188,7 +200,8 @@ begin
   DeleteFile(ResultFile);
   Params := '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' + Quote(ScriptPath) +
     ' -Action ' + Action + ' -ResultPath ' + Quote(ResultFile) +
-    ' -AppPath ' + Quote(ExpandConstant('{app}\MadSense.exe'));
+    ' -AppPath ' + Quote(ExpandConstant('{app}\MadSense.exe')) +
+    ' -Language ' + Quote(ActiveLanguage);
   if Action = 'Install' then Params := Params + ' -PayloadDirectory ' + Quote(ExpandConstant('{tmp}\drivers'));
   if AllowPending then Params := Params + ' -AllowPendingReboot';
 #ifdef InstallerTestBuild
@@ -199,14 +212,15 @@ begin
   if Elevated then
     Started := ShellExec('runas', PowerShellPath, Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode)
   else
-    Started := Exec(PowerShellPath, Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
+    // Preserve early PowerShell/module diagnostics as well as the result INI.
+    Started := ExecAndLogOutput(PowerShellPath, Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode, nil);
   Result := Started and ((ExitCode = 0) or (ExitCode = 3010)) and
     (GetIniString('Result', 'Success', '0', ResultFile) = '1');
   // A partial driver installation may still require a restart.
   if (ExitCode = 3010) or (GetIniString('Result', 'RebootRequired', '0', ResultFile) = '1') then DriversRestart := True;
   if not Result then begin
     ErrorText := GetIniString('Result', 'Error', '', ResultFile);
-    if ErrorText = '' then ErrorText := 'No se ha podido completar el paso. Código: ' + IntToStr(ExitCode) + '.';
+    if ErrorText = '' then ErrorText := FmtMessage(CustomMessage('StepFailed'), [IntToStr(ExitCode)]);
     LastHelperError := ErrorText;
     Log('Driver helper failed: ' + ErrorText);
   end else begin
@@ -215,18 +229,20 @@ begin
 end;
 
 function MaintenanceError(const ResultFile: String; ExitCode: Integer): String;
-var Lines: TArrayOfString; I: Integer;
+var Lines: TArrayOfString; I: Integer; Diagnostic: String;
 begin
-  Result := '';
+  Diagnostic := '';
   if LoadStringsFromFile(ResultFile, Lines) then
     for I := 0 to GetArrayLength(Lines) - 1 do begin
-      if Result <> '' then Result := Result + #13#10;
-      Result := Result + Lines[I];
+      if Diagnostic <> '' then Diagnostic := Diagnostic + #13#10;
+      Diagnostic := Diagnostic + Lines[I];
     end;
-  if Result = '' then Result := 'No se ha podido preparar MadSense. Código: ' + IntToStr(ExitCode) + '.';
-  if ExitCode = 3 then Result := Result + #13#10#13#10 +
-    'Reinicia Windows y vuelve a intentarlo. Si HidHide sigue sin responder, repáralo desde Aplicaciones instaladas de Windows. Conserva hidden-controller.json.';
-  Log('Maintenance failed (' + IntToStr(ExitCode) + '): ' + Result);
+  // Keep raw app diagnostics in the log. The app protocol uses stable exit codes,
+  // so installer guidance does not depend on translating arbitrary exception text.
+  Log('Maintenance failed (' + IntToStr(ExitCode) + '): ' + Diagnostic);
+  Result := FmtMessage(CustomMessage('MaintenanceFailed'), [IntToStr(ExitCode)]);
+  if ExitCode = 2 then Result := Result + #13#10#13#10 + CustomMessage('MaintenanceBusy');
+  if ExitCode = 3 then Result := Result + #13#10#13#10 + CustomMessage('MaintenanceRecovery');
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -246,18 +262,18 @@ begin
   end;
   if DriverPrepared then Exit;
   ResultFile := ExpandConstant('{tmp}\driver-result.ini');
-  WizardForm.StatusLabel.Caption := 'Comprobando los controladores...';
+  WizardForm.StatusLabel.Caption := CustomMessage('CheckingDrivers');
   if not Helper('Inspect', ExpandConstant('{tmp}\support\DriverSetup.ps1'), ResultFile, False, False) then begin
     Result := LastHelperError;
     Exit;
   end;
   if GetIniString('Result', 'NeedsInstall', '1', ResultFile) = '1' then begin
-    WizardForm.StatusLabel.Caption := 'Preparando USBip e HidHide. Acepta el permiso de Windows.';
+    WizardForm.StatusLabel.Caption := CustomMessage('InstallingDrivers');
     ExtractTemporaryFiles('{tmp}\drivers\*');
     if not Helper('Install', ExpandConstant('{tmp}\support\DriverSetup.ps1'), ResultFile, True, False) then begin
       Result := LastHelperError;
       NeedsRestart := DriversRestart;
-      if DriversRestart then Result := Result + ' Reinicia Windows y vuelve a ejecutar el instalador.';
+      if DriversRestart then Result := Result + ' ' + CustomMessage('RestartRetry');
       Exit;
     end;
   end;
@@ -290,31 +306,35 @@ begin
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
+var ActionsTop: Integer;
 begin
   if (CurPageID <> wpWelcome) and (CurPageID <> wpFinished) then
     FitPageHeader(WizardForm.PageNameLabel, WizardForm.PageDescriptionLabel,
       WizardForm.MainPanel, WizardForm.Bevel1, WizardForm.InnerNotebook,
       HeaderMinHeight, HeaderBodyGap, HeaderBodyBottom, HeaderSeparatorGap);
-  if CurPageID = wpWelcome then WizardForm.NextButton.Caption := 'Instalar';
-  if CurPageID = wpFinished then begin
-    // Inno repositions these after InitializeWizard; apply the shared spacing last.
-    WizardForm.RunList.Top := ScaleY(267);
-    WizardForm.YesRadio.Top := ScaleY(267);
-    WizardForm.NoRadio.Top := ScaleY(299);
+  if CurPageID = wpWelcome then begin
+    WizardForm.NextButton.Caption := SetupMessage(msgButtonInstall);
+    DesktopChoice.Top := FitSideText(WizardForm.WelcomeLabel1, WizardForm.WelcomeLabel2, ScaleY(136));
   end;
   if (CurPageID = wpFinished) and DriversRestart and not RegistrationFailed then begin
-    WizardForm.FinishedHeadingLabel.Caption := 'REINICIO' + #13#10 + 'PENDIENTE.';
+    WizardForm.FinishedHeadingLabel.Caption := CustomMessage('RestartHeading');
     // /NORESTART suppresses Inno's restart controls and its restart body text.
     // The driver requirement still applies even when the user will reboot later.
     WizardForm.FinishedLabel.Caption := SetupMessage(msgFinishedRestartLabel);
     WizardForm.NoRadio.Checked := True;
   end;
   if (CurPageID = wpFinished) and RegistrationFailed then begin
-    WizardForm.FinishedHeadingLabel.Caption := 'FALTA UN PASO.';
+    WizardForm.FinishedHeadingLabel.Caption := CustomMessage('IncompleteHeading');
     WizardForm.FinishedLabel.Caption := RegistrationError + #13#10#13#10 +
-      'Vuelve a ejecutar este instalador para reparar la instalación.';
-    if DriversRestart then WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10 + 'Antes, reinicia Windows.';
-    WizardForm.FinishedLabel.Height := WizardForm.FinishedPage.ClientHeight - WizardForm.FinishedLabel.Top - ScaleY(24);
+      CustomMessage('RepairInstall');
+    if DriversRestart then WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10 + CustomMessage('RestartFirst');
+  end;
+  if CurPageID = wpFinished then begin
+    // Measure translated captions after Inno has populated the final page.
+    ActionsTop := FitSideText(WizardForm.FinishedHeadingLabel, WizardForm.FinishedLabel, ScaleY(116));
+    WizardForm.RunList.Top := ActionsTop;
+    WizardForm.YesRadio.Top := ActionsTop;
+    WizardForm.NoRadio.Top := ActionsTop + ScaleY(32);
   end;
 end;
 
@@ -336,6 +356,8 @@ end;
 procedure InitializeWizard;
 var ContentLeft, ContentWidth: Integer;
 begin
+  Log('Installer language: ' + ActiveLanguage);
+  LoadLocalizedArtwork;
   HeaderMinHeight := WizardForm.MainPanel.Height;
   HeaderBodyGap := WizardForm.InnerNotebook.Top -
     (WizardForm.MainPanel.Top + WizardForm.MainPanel.Height);
@@ -357,7 +379,7 @@ begin
   DesktopChoice.Width := WizardForm.WelcomeLabel2.Width;
   DesktopChoice.Height := ScaleY(28);
   DesktopChoice.Font.Size := 10;
-  DesktopChoice.Caption := 'Crear acceso directo en el escritorio';
+  DesktopChoice.Caption := CustomMessage('DesktopShortcut');
   DesktopChoice.Checked := WizardIsTaskSelected('desktopicon');
   WizardForm.PageNameLabel.Font.Style := [fsBold];
   WizardForm.PageNameLabel.Font.Size := 12;
@@ -381,8 +403,8 @@ begin
   StageLabel.Font.Name := 'Consolas';
   StageLabel.Font.Size := 9;
 #ifdef InstallerTestBuild
-  WizardForm.Caption := 'MadSense — PRUEBA DEL INSTALADOR';
-  StageLabel.Caption := 'PRUEBA / SIN CAMBIOS EN CONTROLADORES';
+  WizardForm.Caption := CustomMessage('TestTitle');
+  StageLabel.Caption := CustomMessage('TestStage');
 #endif
 end;
 
@@ -403,13 +425,9 @@ end;
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,
   MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 begin
-  Result := 'MadSense para tu usuario de Windows.' + NewLine + NewLine +
-    'Se comprobarán USBip e HidHide. Si falta alguno, Windows pedirá permiso para instalarlo.' + NewLine +
-    'Los controladores están incluidos en el instalador.' + NewLine + NewLine +
-    'Tus ajustes se conservan al actualizar.' + NewLine + NewLine + MemoTasksInfo;
+  Result := CustomMessage('ReadyMemo') + NewLine + NewLine + MemoTasksInfo;
 #ifdef InstallerTestBuild
-  Result := 'PRUEBA AISLADA DEL INSTALADOR.' + NewLine +
-    'Los pasos de controladores se simulan. La aplicación no se abre al terminar.' + NewLine + NewLine + MemoDirInfo;
+  Result := CustomMessage('TestMemo') + NewLine + NewLine + MemoDirInfo;
 #endif
 end;
 
@@ -425,19 +443,18 @@ begin
       Quote(ExpandConstant('{app}\MadSense.exe')) + ' --result-path ' + Quote(MaintenanceResult),
       '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then begin
       SuppressibleMsgBox(MaintenanceError(MaintenanceResult, ExitCode) + #13#10 +
-        'No se borrará el registro de recuperación del mando.', mbError, MB_OK, IDOK);
+        CustomMessage('RecoveryPreserved'), mbError, MB_OK, IDOK);
       Exit;
     end;
   end else if FileExists(ExpandConstant('{app}\hidden-controller.json')) then begin
-    SuppressibleMsgBox('Falta MadSense.exe y hay una recuperación del mando pendiente. Reinstala MadSense en esta carpeta antes de desinstalar.',
+    SuppressibleMsgBox(CustomMessage('MissingAppRecovery'),
       mbError, MB_OK, IDOK);
     Exit;
   end;
   ResultFile := ExpandConstant('{tmp}\unregister-result.ini');
   if FileExists(ExpandConstant('{app}\setup\DriverSetup.ps1')) then begin
     if not Helper('Unregister', ExpandConstant('{app}\setup\DriverSetup.ps1'), ResultFile, False, False) then begin
-      SuppressibleMsgBox('HidHide no ha confirmado la retirada de MadSense: ' + LastHelperError + #13#10 +
-        'No se han eliminado los archivos. Vuelve a intentarlo.', mbError, MB_OK, IDOK);
+      SuppressibleMsgBox(FmtMessage(CustomMessage('UnregisterFailed'), [LastHelperError]), mbError, MB_OK, IDOK);
       Exit;
     end;
   end;
@@ -464,7 +481,7 @@ begin
   BodyBottom := UninstallProgressForm.InnerNotebook.Top + UninstallProgressForm.InnerNotebook.Height;
   SeparatorGap := UninstallProgressForm.Bevel1.Top - HeaderBottom;
   UninstallProgressForm.PageNameLabel.Font.Style := [fsBold];
-  UninstallProgressForm.PageNameLabel.Caption := 'HASTA LA PRÓXIMA.';
+  UninstallProgressForm.PageNameLabel.Caption := CustomMessage('UninstallHeading');
   FitPageHeader(UninstallProgressForm.PageNameLabel, UninstallProgressForm.PageDescriptionLabel,
     UninstallProgressForm.MainPanel, UninstallProgressForm.Bevel1, UninstallProgressForm.InnerNotebook,
     MinHeight, BodyGap, BodyBottom, SeparatorGap);

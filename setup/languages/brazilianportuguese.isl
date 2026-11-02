@@ -1,0 +1,44 @@
+[Messages]
+WelcomeLabel1=INSTALAR%nMADSENSE
+WelcomeLabel2=DualSense por Bluetooth no PC.%n%nApp e drivers incluídos. O Windows pode pedir permissão para instalá-los.%n%nSó o instalador está traduzido. O app ainda está em espanhol.
+WizardReady=TUDO PRONTO.
+ReadyLabel1=Clique em Instalar para preparar o MadSense.
+WizardPreparing=VERIFICANDO.
+PreparingDesc=Verificando o app e os drivers.
+WizardInstalling=PREPARANDO O MADSENSE.
+InstallingLabel=Copiando os arquivos do MadSense.
+FinishedHeadingLabel=INSTALADO.
+FinishedLabel=Abra o MadSense e pressione PS no controle.%n%nNa primeira vez, emparelhe o DualSense nas configurações de Bluetooth do Windows.%n%nEm jogos com suporte nativo, desative o Steam Input.
+FinishedRestartLabel=Reinicie o Windows para ativar os drivers.%n%nDepois, abra o MadSense e pressione PS no controle.
+ButtonNext=&Continuar
+ButtonInstall=&Instalar
+ButtonFinish=&Concluir
+ClickNext=
+ClickFinish=
+SelectTasksLabel2=Atalhos:
+WizardSelectTasks=DO SEU JEITO.
+UninstallAppFullTitle=Desinstalar MadSense
+ConfirmUninstall=Deseja desinstalar %1?%n%nSuas configurações e os drivers compartilhados USBip e HidHide serão mantidos.
+
+[CustomMessages]
+DesktopShortcut=Criar um atalho na área de trabalho
+OpenApp=Abrir MadSense
+StepFailed=Não foi possível concluir esta etapa. Código: %1.
+MaintenanceFailed=Não foi possível preparar o MadSense. Código: %1.
+MaintenanceBusy=Feche o MadSense pela área de notificação, inclusive em outras sessões do Windows. Aguarde o fechamento e tente novamente. Seus dados serão mantidos.
+MaintenanceRecovery=Reinicie o Windows e tente novamente. Se o HidHide continuar sem responder, repare-o em Aplicativos instalados do Windows. Não exclua hidden-controller.json.
+CheckingDrivers=Verificando os drivers...
+InstallingDrivers=Preparando o USBip e o HidHide. Aceite a solicitação de permissão do Windows.
+RestartRetry=Reinicie o Windows e execute o instalador novamente.
+RestartHeading=REINÍCIO%nNECESSÁRIO.
+IncompleteHeading=FALTA UMA ETAPA.
+RepairInstall=Execute este instalador novamente para reparar a instalação.
+RestartFirst=Primeiro, reinicie o Windows.
+TestTitle=MadSense — TESTE DO INSTALADOR
+TestStage=TESTE / DRIVERS SEM ALTERAÇÕES
+ReadyMemo=O MadSense será instalado para o seu usuário do Windows.%n%nO USBip e o HidHide serão verificados. Se algum estiver ausente, o Windows pedirá permissão para instalá-lo.%nOs drivers estão incluídos no instalador.%n%nSuas configurações são mantidas nas atualizações.
+TestMemo=TESTE ISOLADO DO INSTALADOR.%nAs etapas dos drivers são simuladas. O app não abre ao terminar.
+RecoveryPreserved=O registro de recuperação do controle não será excluído.
+MissingAppRecovery=O arquivo MadSense.exe está ausente e há uma recuperação do controle pendente. Reinstale o MadSense nesta pasta antes de desinstalar.
+UnregisterFailed=O HidHide não confirmou a remoção do MadSense da sua lista de aplicativos: %1%nNenhum arquivo foi excluído. Tente novamente.
+UninstallHeading=ATÉ A PRÓXIMA.

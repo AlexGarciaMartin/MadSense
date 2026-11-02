@@ -1,0 +1,44 @@
+[Messages]
+WelcomeLabel1=MADSENSE%nINSTALLIEREN
+WelcomeLabel2=DualSense per Bluetooth am PC.%n%nApp und Treiber sind enthalten. Windows fragt bei Bedarf nach deiner Erlaubnis.%n%nNur das Setup ist übersetzt. Die App ist derzeit auf Spanisch.
+WizardReady=ALLES BEREIT.
+ReadyLabel1=Klicke auf Installieren, um MadSense einzurichten.
+WizardPreparing=WIRD GEPRÜFT.
+PreparingDesc=App und Treiber werden geprüft.
+WizardInstalling=MADSENSE EINRICHTEN.
+InstallingLabel=Die Dateien von MadSense werden kopiert.
+FinishedHeadingLabel=INSTALLIERT.
+FinishedLabel=Öffne MadSense und drücke PS am Controller.%n%nKopple den DualSense beim ersten Mal in den Bluetooth-Einstellungen von Windows.%n%nDeaktiviere Steam Input bei Spielen mit nativer Unterstützung.
+FinishedRestartLabel=Starte Windows neu, um die Treiber zu aktivieren.%n%nÖffne danach MadSense und drücke PS am Controller.
+ButtonNext=&Weiter
+ButtonInstall=&Installieren
+ButtonFinish=&Fertigstellen
+ClickNext=
+ClickFinish=
+SelectTasksLabel2=Verknüpfungen:
+WizardSelectTasks=DEINE WAHL.
+UninstallAppFullTitle=MadSense deinstallieren
+ConfirmUninstall=Möchtest du %1 deinstallieren?%n%nDeine Einstellungen und die gemeinsam genutzten Treiber USBip und HidHide bleiben erhalten.
+
+[CustomMessages]
+DesktopShortcut=Desktop-Verknüpfung erstellen
+OpenApp=MadSense öffnen
+StepFailed=Dieser Schritt konnte nicht abgeschlossen werden. Code: %1.
+MaintenanceFailed=MadSense konnte nicht vorbereitet werden. Code: %1.
+MaintenanceBusy=Beende MadSense über das Symbol im Infobereich, auch in anderen Windows-Sitzungen. Warte, bis die App beendet ist, und versuche es erneut. Deine Daten bleiben erhalten.
+MaintenanceRecovery=Starte Windows neu und versuche es erneut. Falls HidHide weiterhin nicht reagiert, repariere es unter „Installierte Apps“ in Windows. Lösche hidden-controller.json nicht.
+CheckingDrivers=Treiber werden geprüft...
+InstallingDrivers=USBip und HidHide werden eingerichtet. Bestätige die Berechtigungsabfrage von Windows.
+RestartRetry=Starte Windows neu und führe das Setup erneut aus.
+RestartHeading=NEUSTART%nNÖTIG.
+IncompleteHeading=EIN SCHRITT FEHLT.
+RepairInstall=Führe dieses Setup erneut aus, um die Installation zu reparieren.
+RestartFirst=Starte zuerst Windows neu.
+TestTitle=MadSense — INSTALLATIONSTEST
+TestStage=TEST / TREIBER UNVERÄNDERT
+ReadyMemo=MadSense wird für dein Windows-Benutzerkonto installiert.%n%nUSBip und HidHide werden geprüft. Fehlt ein Treiber, fragt Windows nach deiner Erlaubnis zur Installation.%nDie Treiber sind im Setup enthalten.%n%nDeine Einstellungen bleiben beim Aktualisieren erhalten.
+TestMemo=ISOLIERTER INSTALLATIONSTEST.%nDie Treiberschritte werden simuliert. Die App wird am Ende nicht geöffnet.
+RecoveryPreserved=Die Wiederherstellungsdatei des Controllers wird nicht gelöscht.
+MissingAppRecovery=MadSense.exe fehlt und die Controller-Wiederherstellung steht noch aus. Installiere MadSense vor der Deinstallation erneut in diesem Ordner.
+UnregisterFailed=HidHide hat nicht bestätigt, dass MadSense aus seiner Anwendungsliste entfernt wurde: %1%nEs wurden keine Dateien gelöscht. Versuche es erneut.
+UninstallHeading=BIS ZUM NÄCHSTEN MAL.

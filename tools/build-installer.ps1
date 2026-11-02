@@ -4,6 +4,7 @@ param([string]$IsccPath, [string]$DotnetPath, [switch]$InstallerTestBuild,
       [string]$PublishDirectory, [string]$DependencyDirectory)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+& (Join-Path $root 'tests\installer\test-languages.ps1')
 $buildRoot = Join-Path $root '.build'
 New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
 
@@ -105,6 +106,7 @@ $evidence = [ordered]@{
     compilerVersion = $compilerVersion;
     compilerSha256 = (Get-FileHash -LiteralPath $IsccPath -Algorithm SHA256).Hash.ToLowerInvariant();
     payloadFiles = (Get-ChildItem -LiteralPath $stage -Recurse -File).Count;
+    installerLanguages = @('english','spanish','french','german','italian','brazilianportuguese');
     dependencies = @($manifest.drivers | Select-Object id,version,file,sha256);
 }
 $evidence | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath ($installer + '.json') -Encoding UTF8

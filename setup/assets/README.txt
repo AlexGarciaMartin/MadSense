@@ -31,3 +31,7 @@ Regenerate from repository root on Windows:
 
 The generator uses GDI+ in a private font collection, 3x supersampling and
 24-bit RGB BMP output. It does not install fonts or modify Windows settings.
+
+localized/sidebar-<language>.bmp: six 492 x 942 sidebars (3x). Setup loads the
+selected language on welcome and finish. Each slogan retains the same three-line
+composition, with measured type sizing to preserve the right margin.

@@ -1,14 +1,15 @@
 # Executes the explicitly labelled TEST installer only. Drivers are simulated,
 # but file copying, upgrade, shortcuts and Windows uninstall registration are real.
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$Installer)
+param([Parameter(Mandatory=$true)][string]$Installer,
+    [ValidateSet('english','spanish','french','german','italian','brazilianportuguese')][string]$Language='english')
 $ErrorActionPreference='Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Installer=(Resolve-Path -LiteralPath $Installer).Path
 $metadata=Get-Content -LiteralPath ($Installer+'.json') -Raw | ConvertFrom-Json
 if (!$metadata.testBuild -or [IO.Path]::GetFileName($Installer) -notlike '*-Setup-TEST.exe') { throw 'Solo se puede probar automaticamente el build TEST.' }
 if ((Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash -ine $metadata.sha256) { throw 'Hash TEST incorrecto.' }
-$qa=Join-Path $root '.build\installer-qa'
+$qa=Join-Path $root ('.build\installer-qa-'+$Language)
 New-Item -ItemType Directory -Force -Path $qa | Out-Null
 $results=New-Object 'System.Collections.Generic.List[object]'
 $initialProcesses=@(Get-Process MadSense -ErrorAction SilentlyContinue | ForEach-Object { [pscustomobject]@{Id=$_.Id;Path=$_.Path} })
@@ -17,11 +18,12 @@ $shortcut=Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\MadSense
 function Assert([bool]$Condition,[string]$Message) { if(!$Condition){throw $Message} }
 function Invoke-TestSetup([string]$Scenario,[string]$Target,[string]$Label) {
     $log=Join-Path $qa ($Label+'.log')
-    $arguments=@('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOLAUNCH=1','/RESTARTEXITCODE=3010',
+    $arguments=@('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOLAUNCH=1','/RESTARTEXITCODE=3010',('/LANG='+$Language),
         ('/TESTSCENARIO='+$Scenario),('/DIR="'+$Target+'"'),('/LOG="'+$log+'"'))
     $p=Start-Process -FilePath $Installer -ArgumentList $arguments -WindowStyle Hidden -PassThru
     if(!$p.WaitForExit(120000)){throw "El instalador TEST no termina: $Label (PID $($p.Id)); no se fuerza el cierre."}
     $p.Refresh()
+    Assert ((Get-Content -LiteralPath $log -Raw) -match ('Installer language: '+$Language)) 'Setup did not select the requested language.'
     $results.Add([pscustomobject]@{Case=$Label;ExitCode=$p.ExitCode;Log=[IO.Path]::GetFileName($log)})
     return $p.ExitCode
 }

@@ -6,11 +6,12 @@ param(
     [Parameter(Mandatory=$true)][string]$ResultPath,
     [string]$AppPath,
     [string]$PayloadDirectory,
-    [switch]$AllowPendingReboot
+    [switch]$AllowPendingReboot,
+    [string]$Language = 'spanish'
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'DriverSetup.Core.psm1') -Force
-$result = Invoke-MadDriverSetup -Action $Action -AppPath $AppPath -PayloadDirectory $PayloadDirectory -AllowPendingReboot:$AllowPendingReboot
+$result = Invoke-MadDriverSetup -Action $Action -AppPath $AppPath -PayloadDirectory $PayloadDirectory -AllowPendingReboot:$AllowPendingReboot -Language $Language
 try { Write-MadDriverResult -Result $result -Path $ResultPath }
 catch { Write-Error $_; exit 1 }
 if (-not $result.Success) { Write-Host $result.Error; exit 1 }

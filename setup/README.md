@@ -1,9 +1,11 @@
 # Instalador de Windows de MadSense
 
-La versión de la app se mantiene en `0.4.0`. Este código genera `MadSense-0.4.0-Setup.exe`, distribuido en la release `v0.4.0`. La compilación no publica una release ni cambia automáticamente la descarga de la web.
+El paquete `0.4.1` genera `MadSense-0.4.1-Setup.exe`, con instalación multidioma y el mismo funcionamiento del mando que 0.4.0. La compilación no publica una release ni cambia automáticamente la descarga de la web.
 
 ## Diseño y alcance
 
+- Instalación y desinstalación en inglés, español, francés, alemán, italiano y portugués de Brasil. Selección inicial según Windows, idioma anterior conservado al actualizar y alternativa inglesa para los demás idiomas. `/LANG=english` permite una selección explícita. La app sigue en español.
+- Los catálogos `languages/*.isl` cubren las pantallas y los controles propios; `DriverSetup.Messages.psd1` cubre errores y estados del helper. El lateral también cambia de idioma. Los textos largos se miden antes de situar los siguientes controles.
 - Asistente Inno Setup por usuario, con logo, paleta y tipografía de la web convertidos a imágenes. No instala fuentes.
 - Bienvenida con acción directa **Instalar** y opción de acceso al escritorio; no hay una segunda página de resumen. El lateral reúne el logo y «ENCIENDE. JUEGA. SIN CABLE.», con espacio entre líneas y sin bandas decorativas.
 - Las cabeceras intermedias y del desinstalador miden el texto con la fuente actual y ajustan la separación entre título, descripción y contenido. No conservan la altura original de 14 píxeles al ampliar la letra. Las posiciones se calculan desde las medidas iniciales para no desplazarse al volver atrás.
@@ -18,6 +20,8 @@ La versión de la app se mantiene en `0.4.0`. Este código genera `MadSense-0.4.
 Una copia de desarrollo en otra carpeta no es el destino de la actualización. El instalador no usa el antiguo `MadSense.exe --stop` global ni mata todos los procesos por nombre. Si no puede identificar o cerrar de forma segura la copia objetivo, pide cerrarla desde la bandeja.
 
 ## Compilación
+
+El build ejecuta `tests/installer/test-languages.ps1`: comprueba cobertura y parámetros de los catálogos, inglés de respaldo y las seis imágenes localizadas. Para probar los escenarios aislados en otro idioma, añade `-Language english` (o uno de los identificadores admitidos) a `tests/installer/test-setup.ps1`. Cada idioma guarda sus resultados en una carpeta separada de `.build/`. Ejecuta esas suites secuencialmente: comparten la identidad de instalación TEST.
 
 Desde la raíz del repositorio, con .NET SDK 10:
 
@@ -42,6 +46,7 @@ Los textos completos de USBip, HidHide e Inno Setup se conservan en `licenses/`.
 | `-Action Register` | Autoriza únicamente el `MadSense.exe` indicado y consulta después la lista para verificarlo. |
 | `-Action Unregister` | Retira únicamente esa autorización y verifica el resultado; no elimina los controladores. |
 | `-ResultPath` | Ruta absoluta a un archivo `.ini`. Obligatoria. |
+| `-Language` | Identificador del idioma de Inno (`english`, `spanish`, `french`, `german`, `italian`, `brazilianportuguese`). Por defecto español en llamadas directas; uno desconocido usa inglés. |
 | `-AppPath` | Ruta absoluta a `MadSense.exe`, requerida para registro/desregistro. |
 | `-PayloadDirectory` | Carpeta de instaladores incluidos; si se invoca el helper directamente sin ellos, puede descargar desde las URLs fijadas. |
 | `-AllowPendingReboot` | Permite que `Register` declare pendiente la autorización si HidHide está instalado pero aún necesita el reinicio. Nunca convierte un error operativo de CLI en éxito. |
@@ -100,7 +105,7 @@ Para probar el asistente completo sin modificar los drivers:
 
 ```powershell
 .\tools\build-installer.ps1 -InstallerTestBuild
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-setup.ps1 -Installer .\dist\installer\MadSense-0.4.0-Setup-TEST.exe
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-setup.ps1 -Installer .\dist\installer\MadSense-0.4.1-Setup-TEST.exe
 ```
 
 El build `TEST` usa identidad, nombre y carpeta distintos, simula el helper de controladores y no abre la app al terminar. La prueba **sí copia y elimina sus propios archivos, crea su acceso de Inicio y registra su propio desinstalador en HKCU**. Verifica hash y metadatos del EXE de prueba antes de lanzarlo; rechaza el EXE normal.

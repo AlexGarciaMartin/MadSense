@@ -53,16 +53,27 @@ public static class MadSenseInstallerArt
         Polygon(g,Acid,23,23,34,15,29,31,40,28,29,47,31,34,20,37);
         g.Restore(s);
     }
-    static void Sidebar(Graphics g) {
+    static void Sidebar(Graphics g) { Sidebar(g,new string[] { "ENCIENDE.", "JUEGA.", "SIN CABLE." }); }
+    static void Sidebar(Graphics g,string[] lines) {
         g.Clear(Paper);
         // Brand phrase below the mark, with generous space and no extra bands.
         Rect(g,Ink,0,0,164,314);
         using(var b=new SolidBrush(Color.FromArgb(34,Paper)))
             for(int y=14;y<314;y+=12) for(int x=12;x<164;x+=12) g.FillEllipse(b,x,y,1.3f,1.3f);
         Logo(g,30,45,100,-6,false);
-        Text(g,"ENCIENDE.",26,Paper,18,188);
-        Text(g,"JUEGA.",26,Paper,18,222);
-        Text(g,"SIN CABLE.",26,Acid,18,256);
+        float size=26;
+        // Keep one consistent size across each language's three lines and leave
+        // the same right padding even when the translation is longer.
+        using(var fmt=(StringFormat)StringFormat.GenericTypographic.Clone()) {
+            fmt.FormatFlags |= StringFormatFlags.NoWrap;
+            foreach(var line in lines) {
+                using(var f=new Font(fonts.Families[0],26,FontStyle.Regular,GraphicsUnit.Pixel)) {
+                    float width=g.MeasureString(line,f,new PointF(0,0),fmt).Width;
+                    if(width>128) size=Math.Min(size,26*128/width);
+                }
+            }
+        }
+        for(int i=0;i<3;i++) Text(g,lines[i],size,i==2?Acid:Paper,18,188+i*34);
     }
     static void Small(Graphics g) { g.Clear(Paper); Logo(g,6,6,42,-6,false); }
     static void Header(Graphics g) {
@@ -134,6 +145,24 @@ public static class MadSenseInstallerArt
             for(int scale=1;scale<=3;scale++) {
                 Save(output,"wizard-large",164,314,scale,Sidebar);
                 Save(output,"wizard-small",55,55,scale,Small);
+            }
+            string localized=Path.Combine(output,"localized");
+            Directory.CreateDirectory(localized);
+            string[] languages={"english","spanish","french","german","italian","brazilianportuguese"};
+            string[][] slogans={
+                new string[]{"POWER ON.","PLAY.","WIRELESS."},
+                new string[]{"ENCIENDE.","JUEGA.","SIN CABLE."},
+                new string[]{"ALLUME.","JOUE.","SANS FIL."},
+                new string[]{"ANMACHEN.","SPIELEN.","KABELLOS."},
+                new string[]{"ACCENDI.","GIOCA.","SENZA FILI."},
+                new string[]{"LIGUE.","JOGUE.","SEM FIO."}
+            };
+            for(int i=0;i<languages.Length;i++) {
+                string name="sidebar-"+languages[i];
+                string[] lines=slogans[i];
+                Save(localized,name,164,314,3,g=>Sidebar(g,lines));
+                File.Copy(Path.Combine(localized,name+"@3x.bmp"),Path.Combine(localized,name+".bmp"),true);
+                File.Delete(Path.Combine(localized,name+"@3x.bmp"));
             }
             Save(output,"brand-header",600,84,1,Header);
             Save(output,"brand-header",600,84,2,Header);
