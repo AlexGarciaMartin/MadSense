@@ -33,16 +33,20 @@ internal static class Program
             xbox: options.State == "xbox",
             signals: signals,
             status: status);
+        if (options.UpdateVersion is { } version)
+            window.SetPreviewUpdate(new AppUpdate(version,
+                new Uri($"https://github.com/AlexGarciaMartin/MadSense/releases/download/v{version}/MadSense-{version}-Setup.exe"),
+                new Uri($"https://github.com/AlexGarciaMartin/MadSense/releases/tag/v{version}")));
         Application.Run(window);
     }
 
     static Options ParseOptions(string[] args)
     {
-        const string usage = "Usage: MadSense.UiPreview --data-dir <absolute isolated folder> [--language en|es|fr|de|it|pt-BR|auto] [--state waiting|native|xbox|paused]";
+        const string usage = "Usage: MadSense.UiPreview --data-dir <absolute isolated folder> [--language en|es|fr|de|it|pt-BR|auto] [--state waiting|native|xbox|paused] [--update-version 0.4.6]";
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var index = 0; index < args.Length; index += 2)
         {
-            if (index + 1 >= args.Length || args[index] is not ("--data-dir" or "--language" or "--state") || !values.TryAdd(args[index], args[index + 1]))
+            if (index + 1 >= args.Length || args[index] is not ("--data-dir" or "--language" or "--state" or "--update-version") || !values.TryAdd(args[index], args[index + 1]))
                 throw new ArgumentException(usage);
         }
         if (!values.TryGetValue("--data-dir", out var directory) || !Path.IsPathFullyQualified(directory))
@@ -51,8 +55,10 @@ internal static class Program
         if (!L.IsSupportedPreference(language)) throw new ArgumentException(usage);
         var state = values.GetValueOrDefault("--state", "waiting");
         if (state is not ("waiting" or "native" or "xbox" or "paused")) throw new ArgumentException(usage);
-        return new Options(Path.GetFullPath(directory), language, state);
+        var updateVersion = values.GetValueOrDefault("--update-version");
+        if (updateVersion is not null && !Version.TryParse(updateVersion, out _)) throw new ArgumentException(usage);
+        return new Options(Path.GetFullPath(directory), language, state, updateVersion);
     }
 
-    sealed record Options(string DataDirectory, string Language, string State);
+    sealed record Options(string DataDirectory, string Language, string State, string? UpdateVersion);
 }

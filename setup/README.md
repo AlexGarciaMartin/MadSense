@@ -1,6 +1,6 @@
 # Instalador de Windows de MadSense
 
-El paquete `0.4.4` genera `MadSense-0.4.4-Setup.exe`, con la app y la instalación en seis idiomas. Esta revisión corrige el repintado al redimensionar o maximizar la ventana: el recuadro Bluetooth/versión ya no deja copias ni fragmentos en pantalla. Mantiene el diseño y el funcionamiento del mando. La compilación no publica una release ni cambia automáticamente la descarga de la web.
+El paquete `0.4.5` genera `MadSense-0.4.5-Setup.exe`, con la app y la instalación en seis idiomas. Esta revisión añade avisos de nuevas versiones en la app. La compilación no publica una release ni cambia automáticamente la descarga de la web.
 
 ## Diseño y alcance
 
@@ -20,6 +20,12 @@ El paquete `0.4.4` genera `MadSense-0.4.4-Setup.exe`, con la app y la instalaci�
 
 Una copia de desarrollo en otra carpeta no es el destino de la actualización. El instalador no usa el antiguo `MadSense.exe --stop` global ni mata todos los procesos por nombre. Si no puede identificar o cerrar de forma segura la copia objetivo, pide cerrarla desde la bandeja.
 
+## Avisos de actualización
+
+La app consulta el manifiesto público de la web 15 segundos después de abrirse y cada 12 horas mientras siga abierta. Una nueva versión convierte el recuadro de versión en una acción de descarga y añade un punto al icono de la bandeja; ese menú también permite **Buscar actualizaciones**. No muestra una ventana emergente ni detiene el mando.
+
+Al pulsar la descarga, el navegador abre el instalador oficial de GitHub. La instalación solo comienza cuando el usuario ejecuta ese archivo; conserva preferencias y usa el protocolo de mantenimiento existente. Las versiones `0.4.4` y anteriores necesitan una primera actualización manual para recibir estos avisos.
+
 ## Idioma de la aplicación
 
 El asistente copia uno de los archivos `app-languages/*.txt` como `installer-language.txt` junto al EXE. Contiene únicamente el código de idioma de la app: `en`, `es`, `fr`, `de`, `it` o `pt-BR`. No reescribe `preferences.json` para imponerlo.
@@ -29,6 +35,8 @@ Al abrirse, MadSense consulta primero `language` en `preferences.json`. Si no ex
 Cambiar de idioma en la app guarda `language` conservando el modo, el altavoz y las demás propiedades del archivo. Actualizar conserva esas preferencias; cambiar el idioma del asistente no sustituye una selección ya guardada en la app. Las copias portables o anteriores sin `installer-language.txt` pueden usar el idioma automático. Los catálogos de la app están integrados en la aplicación, en `src/Localization/*.json`.
 
 La localización del instalador se incorporó en `0.4.1`; `0.4.2` añadió la de la app y este traspaso del idioma. Desde `0.4.3`, el cambio manual está solo en la bandeja; la política de preferencias e idioma inicial sigue igual. Los resultados históricos de instalación que figuran más abajo no equivalen a una validación visual de todos los idiomas de la versión nueva.
+
+La `0.4.4` corrigió el repintado al redimensionar o maximizar la ventana: el recuadro Bluetooth/versión dejó de mostrar copias o fragmentos, manteniendo el diseño y el funcionamiento del mando.
 
 ## Compilación
 
@@ -116,7 +124,7 @@ Para probar el asistente completo sin modificar los drivers:
 
 ```powershell
 .\tools\build-installer.ps1 -InstallerTestBuild
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-setup.ps1 -Installer .\dist\installer\MadSense-0.4.4-Setup-TEST.exe
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-setup.ps1 -Installer .\dist\installer\MadSense-0.4.5-Setup-TEST.exe
 ```
 
 El build `TEST` usa identidad, nombre y carpeta distintos, simula el helper de controladores y no abre la app al terminar. La prueba **sí copia y elimina sus propios archivos, crea su acceso de Inicio y registra su propio desinstalador en HKCU**. Verifica hash y metadatos del EXE de prueba antes de lanzarlo; rechaza el EXE normal.

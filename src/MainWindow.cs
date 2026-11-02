@@ -28,6 +28,7 @@ sealed class MainWindow : Form
     readonly NotifyIcon tray;
     readonly ToolStripMenuItem autostart;
     readonly ToolStripMenuItem openItem = new(), pauseItem = new(), speakerMenu = new(), languageMenu = new(), quitItem = new();
+    readonly ToolStripMenuItem checkUpdatesItem = new(), downloadUpdateItem = new();
     readonly Dictionary<string, ToolStripMenuItem> languageItems = new();
     readonly HeaderPanel header = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
     readonly Label section = CreateSection(), speakerSection = CreateSection();
@@ -41,7 +42,14 @@ sealed class MainWindow : Form
     readonly Dictionary<string, ToolStripMenuItem> speakerItems = new();
     readonly Dictionary<Label, Font> fittedFonts = new();
     readonly Task worker;
+    readonly Task updateWorker;
+    readonly UpdateChecker updateChecker = new();
+    readonly CancellationToken updateToken;
     readonly bool previewOnly;
+    AppUpdate? availableUpdate;
+    Icon? updateTrayIcon;
+    int updateCheckRunning;
+    string updateCheckLabel = "Ui.CheckUpdates";
     bool paused, quitting, hasHiddenTip, allowVisible, lowBatteryNotified;
     float phase;
     ActivityEntry lastMessage = new(DateTime.Now, L.Message("Ui.Starting"));
@@ -90,6 +98,7 @@ sealed class MainWindow : Form
     public MainWindow(bool startHidden = false, bool previewOnly = false)
     {
         this.previewOnly = previewOnly;
+        updateToken = lifetime.Token;
         if (!previewOnly)
         {
             showSignal = new(false, EventResetMode.AutoReset, "Local\\MadSense-Show");
@@ -143,6 +152,7 @@ sealed class MainWindow : Form
         footer.Controls.Add(pause, 2, 0);
         layout.Controls.Add(footer, 0, 6);
         Controls.Add(layout);
+        header.DownloadRequested += (_, _) => OpenUpdateDownload();
 
         var menu = new ContextMenuStrip();
         openItem.Click += (_, _) => RestoreWindow(); menu.Items.Add(openItem);
@@ -169,6 +179,12 @@ sealed class MainWindow : Form
             catch (Exception e) { ShowActivity(L.Message("Ui.AutostartError", UiMessage.FromException(e))); autostart.Checked = Preferences.StartsWithWindows; }
         };
         menu.Items.Add(autostart);
+        menu.Items.Add(new ToolStripSeparator());
+        downloadUpdateItem.Click += (_, _) => OpenUpdateDownload();
+        menu.Items.Add(downloadUpdateItem);
+        checkUpdatesItem.Click += async (_, _) => await CheckForUpdatesAsync(manual: true);
+        menu.Items.Add(checkUpdatesItem);
+        menu.Closed += (_, _) => { updateCheckLabel = "Ui.CheckUpdates"; RefreshUpdateUi(); };
         menu.Items.Add(new ToolStripSeparator());
         quitItem.Click += async (_, _) => await QuitAsync(); menu.Items.Add(quitItem);
         tray = new NotifyIcon { Icon = Icon, Text = "MadSense", Visible = !previewOnly, ContextMenuStrip = menu };
@@ -201,6 +217,8 @@ sealed class MainWindow : Form
         FitLabels();
         animation.Start();
         worker = previewOnly ? Task.CompletedTask : Task.Run(BridgeLoop);
+        // Also runs with --tray. No networking on the controller worker or the UI thread.
+        updateWorker = previewOnly ? Task.CompletedTask : Task.Run(UpdateLoopAsync);
 
         void AddMode(string mode, int column)
         {
@@ -256,6 +274,7 @@ sealed class MainWindow : Form
             item.Checked = code == L.Preference;
         }
         hero.AccessibleName = L.Text("Ui.ControllerState");
+        RefreshUpdateUi();
         RefreshStatusText();
         header.Invalidate(); hero.Invalidate();
         foreach (var button in modeButtons.Values.Concat(speakerButtons.Values)) button.Invalidate();
@@ -269,7 +288,90 @@ sealed class MainWindow : Form
         activity.Text = displayedMessage.Render();
         activity.AccessibleDescription = displayedMessage.Message.Render();
         var battery = hero.Connected && hero.Signals is { Battery: >= 0 } sig ? L.Text("Ui.TrayBattery", sig.Battery) : "";
-        tray.Text = Truncate(L.Text(hero.Connected ? "Ui.TrayReady" : paused ? "Ui.TrayPaused" : "Ui.TrayWaiting") + battery, 63);
+        tray.Text = Truncate(availableUpdate is { } update
+            ? L.Text("Ui.UpdateAvailable", update.Version)
+            : L.Text(hero.Connected ? "Ui.TrayReady" : paused ? "Ui.TrayPaused" : "Ui.TrayWaiting") + battery, 63);
+    }
+
+    async Task UpdateLoopAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15), updateToken).ConfigureAwait(false);
+            while (!updateToken.IsCancellationRequested)
+            {
+                await CheckForUpdatesAsync(manual: false).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromHours(12), updateToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (updateToken.IsCancellationRequested) { }
+    }
+
+    async Task CheckForUpdatesAsync(bool manual)
+    {
+        if (quitting || previewOnly || Interlocked.CompareExchange(ref updateCheckRunning, 1, 0) != 0) return;
+        Post(RefreshUpdateUi);
+        try
+        {
+            var result = await updateChecker.CheckAsync(typeof(MainWindow).Assembly.GetName().Version!, updateToken).ConfigureAwait(false);
+            LogFiles.Append("updates.log", $"{DateTimeOffset.Now:O} {(manual ? "Manual" : "Automatic")}: {result.Status} {result.Update?.Version}\n");
+            Post(() =>
+            {
+                // A temporary network failure must not hide a previously verified release.
+                if (result.Status != UpdateCheckStatus.Unavailable) availableUpdate = result.Update;
+                if (manual)
+                {
+                    updateCheckLabel = result.Status switch
+                    {
+                        UpdateCheckStatus.Current => "Ui.UpToDate",
+                        UpdateCheckStatus.Unavailable => "Ui.UpdateCheckFailed",
+                        _ => "Ui.CheckUpdates"
+                    };
+                    ShowActivity(result.Update is { } update
+                        ? L.Message("Ui.UpdateAvailable", update.Version) : L.Message(updateCheckLabel));
+                }
+                RefreshUpdateUi();
+                RefreshStatusText();
+            });
+        }
+        catch (OperationCanceledException) when (updateToken.IsCancellationRequested) { }
+        finally
+        {
+            Interlocked.Exchange(ref updateCheckRunning, 0);
+            Post(RefreshUpdateUi);
+        }
+    }
+
+    void RefreshUpdateUi()
+    {
+        header.SetUpdate(availableUpdate);
+        downloadUpdateItem.Visible = availableUpdate is not null;
+        downloadUpdateItem.Text = availableUpdate is { } update ? L.Text("Ui.UpdateBadge", update.Version) : "";
+        var checking = Volatile.Read(ref updateCheckRunning) != 0;
+        checkUpdatesItem.Enabled = !checking;
+        checkUpdatesItem.Text = L.Text(checking ? "Ui.CheckingUpdates" : updateCheckLabel);
+        if (availableUpdate is not null) updateTrayIcon ??= Logo.CreateIcon(updateAvailable: true);
+        tray.Icon = availableUpdate is not null ? updateTrayIcon : Icon;
+    }
+
+    void OpenUpdateDownload()
+    {
+        if (availableUpdate is not { } update || quitting) return;
+        try
+        {
+            // The installed application continues running. Only the user starts the installer.
+            if (!previewOnly) Process.Start(new ProcessStartInfo(update.DownloadUri.AbsoluteUri) { UseShellExecute = true });
+            ShowActivity(L.Message("Ui.UpdateDownloadOpened"));
+        }
+        catch { ShowActivity(L.Message("Ui.UpdateOpenFailed")); }
+    }
+
+    internal void SetPreviewUpdate(AppUpdate? update)
+    {
+        if (!previewOnly) throw new InvalidOperationException("Preview state requires previewOnly.");
+        availableUpdate = update;
+        RefreshUpdateUi();
+        RefreshStatusText();
     }
 
     void ShowActivity(UiMessage message)
@@ -427,7 +529,7 @@ sealed class MainWindow : Form
         if (quitting) return;
         quitting = true; pause.Enabled = false; activity.Text = L.Text("Ui.Releasing");
         animation.Stop(); commands.Writer.TryComplete(); lifetime.Cancel();
-        try { await worker; } catch (Exception e) { Debug.WriteLine(e); }
+        try { await Task.WhenAll(worker, updateWorker); } catch (Exception e) { Debug.WriteLine(e); }
         tray.Visible = false; tray.Dispose(); animation.Dispose();
         showSignal?.Dispose(); stopSignal?.Dispose(); installerStopSignal?.Dispose();
         if (!previewOnly) { lifetime.Dispose(); wake.Dispose(); }
@@ -439,6 +541,7 @@ sealed class MainWindow : Form
         if (disposing)
         {
             L.Changed -= LanguageChanged;
+            updateTrayIcon?.Dispose();
             if (previewOnly)
             {
                 animation.Dispose(); tray?.ContextMenuStrip?.Dispose(); tray?.Dispose();
@@ -471,11 +574,41 @@ sealed class MainWindow : Form
     // All artwork is native vector drawing: no textures, browser or animation framework.
     sealed class HeaderPanel : Panel
     {
+        readonly UpdateBadgeButton download = new() { Visible = false, TabIndex = 0 };
+        readonly ToolTip tip = new();
+        AppUpdate? update;
+        public event EventHandler? DownloadRequested;
         public HeaderPanel()
         {
             DoubleBuffered = true;
             // Right-aligned artwork moves on resize; invalidate its old position too.
             SetStyle(ControlStyles.ResizeRedraw, true);
+            Controls.Add(download);
+            download.Click += (_, e) => DownloadRequested?.Invoke(this, e);
+        }
+        public void SetUpdate(AppUpdate? value)
+        {
+            update = value;
+            download.Text = value is null ? "" : L.Text("Ui.UpdateBadge", value.Version);
+            download.AccessibleName = value is null ? "" : L.Text("Ui.UpdateAvailable", value.Version);
+            download.AccessibleDescription = L.Text("Ui.UpdateDownloadOpened");
+            tip.SetToolTip(download, download.AccessibleName + "\n" + L.Text("Ui.Version", DisplayVersion));
+            PositionBadge();
+            Invalidate();
+        }
+        void PositionBadge()
+        {
+            float s = DeviceDpi / 96f;
+            download.Visible = update is not null && Width / s > 650;
+            download.SetBounds(Width - (int)Math.Round(136 * s), (int)Math.Round(42 * s),
+                (int)Math.Round(126 * s), (int)Math.Round(25 * s));
+        }
+        protected override void OnLayout(LayoutEventArgs e) { base.OnLayout(e); PositionBadge(); }
+        protected override void OnDpiChangedAfterParent(EventArgs e) { base.OnDpiChangedAfterParent(e); PositionBadge(); }
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) tip.Dispose();
+            base.Dispose(disposing);
         }
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -498,11 +631,42 @@ sealed class MainWindow : Form
                 g.FillRectangle(ink, x, 12, 146, 63);
                 using var paper = new SolidBrush(Paper);
                 g.DrawString("BLUETOOTH / PC", small, paper, x + 11, 20);
-                using var acid = new SolidBrush(Acid); g.FillRectangle(acid, x + 10, 42, 126, 25);
-                DrawFitted(g, L.Text("Ui.Version", DisplayVersion), "Consolas", 13, 10, FontStyle.Bold, ink, new RectangleF(x + 16, 45, 114, 22));
+                if (update is null)
+                {
+                    using var acid = new SolidBrush(Acid); g.FillRectangle(acid, x + 10, 42, 126, 25);
+                    DrawFitted(g, L.Text("Ui.Version", DisplayVersion), "Consolas", 13, 10, FontStyle.Bold, ink, new RectangleF(x + 16, 45, 114, 22));
+                }
                 for (int i = 0; i < 12; i++)
                     g.FillRectangle(ink, w - 145 + i * 12, 84, i % 3 == 0 ? 6 : 2, 6);
             }
+        }
+    }
+
+    // Same printed version label, with native keyboard and accessibility behavior when actionable.
+    sealed class UpdateBadgeButton : Button
+    {
+        bool hovered;
+        public UpdateBadgeButton()
+        {
+            FlatStyle = FlatStyle.Flat; FlatAppearance.BorderSize = 0;
+            BackColor = Acid; ForeColor = Ink; Cursor = Cursors.Hand;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw, true);
+        }
+        protected override void OnMouseEnter(EventArgs e) { hovered = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hovered = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            float s = DeviceDpi / 96f;
+            g.Clear(hovered ? Paper : Acid);
+            var save = g.Save(); g.ScaleTransform(s, s);
+            using var ink = new SolidBrush(Ink);
+            DrawFitted(g, Text, "Consolas", 13, 9, FontStyle.Bold, ink,
+                new RectangleF(6, 3, Width / s - 12, Height / s - 3));
+            g.Restore(save);
+            if (Focused && ShowFocusCues)
+                ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(ClientRectangle, -(int)(3 * s), -(int)(3 * s)), Ink, Acid);
         }
     }
 
@@ -692,13 +856,19 @@ sealed class MainWindow : Form
             g.FillPolygon(acid, new PointF[] { new(23, 23), new(34, 15), new(29, 31), new(40, 28), new(29, 47), new(31, 34), new(20, 37) });
             g.Restore(save);
         }
-        public static Icon CreateIcon()
+        public static Icon CreateIcon(bool updateAvailable = false)
         {
             using var bitmap = new Bitmap(64, 64);
             using (var graphics = Graphics.FromImage(bitmap))
             {
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 graphics.Clear(Hot); Draw(graphics, new RectangleF(2, 2, 60, 60));
+                if (updateAvailable)
+                {
+                    using var ink = new SolidBrush(Ink); using var acid = new SolidBrush(Acid);
+                    graphics.FillEllipse(ink, 39, 0, 25, 25);
+                    graphics.FillEllipse(acid, 43, 4, 17, 17);
+                }
             }
             var handle = bitmap.GetHicon();
             try { using var borrowed = Icon.FromHandle(handle); return (Icon)borrowed.Clone(); }
