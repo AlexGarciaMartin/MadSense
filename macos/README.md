@@ -7,6 +7,7 @@ Esta rama añade una aplicación nativa de macOS y un puente HID propio. No es t
 - `app/`: interfaz AppKit y menú de la barra de macOS; arranca el backend incluido, muestra su estado real y ofrece pausa, reanudación, diagnóstico y cierre ordenado.
 - `backend/`: proceso .NET que reutiliza el protocolo DualSense del proyecto; el servicio emite estados JSON por stdout y registros por stderr. Acepta `pause`, `resume`, `diagnose` y `quit`, una orden por línea, por stdin.
 - `native/`: biblioteca IOKit que publica el HID virtual y recibe informes de salida y de características.
+- `audio/`: dispositivo CoreAudio HAL experimental de cuatro canales y biblioteca de lectura. Se distribuye aparte y no se instala automáticamente; consulta [su documentación](audio/README.md).
 - HIDAPI: acceso al mando físico por IOKit. La apertura exclusiva mantiene la captura durante la vida del identificador; al cerrarlo, macOS libera la captura.
 
 La interfaz ofrece inglés, español, francés, alemán, italiano y portugués de Brasil. Detecta el idioma del sistema y permite cambiarlo desde el menú de la barra; los mensajes técnicos del backend se conservan en inglés. Cerrar la ventana mantiene el servicio activo; **Salir de MadSense** lo detiene. No cambia preferencias de seguridad de macOS ni instala controladores automáticamente.
@@ -26,7 +27,9 @@ bash macos/package.sh osx-x64 /tmp/madsense-x64
 
 Cada directorio de salida debe estar vacío de `MadSense.app`. Para una biblioteca HIDAPI compilada aparte, establecer `MADSENSE_HIDAPI=/ruta/libhidapi.dylib`. El empaquetador comprueba la arquitectura y copia la biblioteca al paquete; el usuario final no necesita Homebrew ni .NET.
 
-El resultado es un `.app`, un ZIP de desarrollo y `SHA256SUMS.txt`. Las firmas ad-hoc comprueban integridad y permiten cargar binarios ARM, pero **no conceden la autorización HID virtual de Apple** ni sustituyen notarización.
+El resultado es un `.app`, su ZIP de desarrollo, un ZIP opcional `MadSenseAudio-<arquitectura>-development.zip` con el dispositivo CoreAudio, y `SHA256SUMS.txt` con los hashes de ambos paquetes. La biblioteca consumidora de audio se incluye dentro del `.app`; el plugin HAL se entrega aparte. Las firmas ad-hoc comprueban integridad y permiten cargar binarios ARM, pero **no conceden la autorización HID virtual de Apple** ni sustituyen notarización.
+
+El runtime autónomo está en `Contents/Resources/backend`: los ensamblados `.dll` administrados no son código Mach-O y no deben ponerse en `Contents/MacOS`. Se firman y verifican individualmente los binarios Mach-O, conservando las autorizaciones del SDK para el JIT, y después se sella el paquete completo. Mantener el runtime junto conserva las búsquedas relativas de .NET; sus binarios nativos también quedan sellados como recursos. Es una distribución de desarrollo, pendiente de revisar con la firma y notarización definitivas.
 
 ## Firma y autorización necesarias
 
@@ -43,12 +46,14 @@ La distribución pública requerirá una identidad Developer ID, autorización a
 | DualSense USB virtual por usbip-win2 | HID virtual con IOKit | Es un HID virtual, no un dispositivo USB compuesto |
 | Ocultar el mando con HidHide | Apertura exclusiva de HIDAPI / `kIOHIDOptionsTypeSeizeDevice` | No es un filtro persistente ni una lista de aplicaciones autorizadas; hay que validar duplicados tras reconexión y suspensión |
 | Salida HID: vibración, luces y gatillos | Callbacks de salida y características del dispositivo virtual | Depende del reconocimiento del mando por cada juego y del acceso real al mando físico |
-| Audio USB y háptica PCM nativa | Pendiente: dispositivo CoreAudio HAL de cuatro canales | HID virtual no crea un endpoint de audio; no se declara soporte |
+| Audio USB y háptica PCM nativa | Dispositivo CoreAudio HAL de cuatro canales, opcional y experimental | Endpoint independiente: asociación con juegos y funcionamiento con hardware sin verificar |
 | Emulación Xbox/XInput | Pendiente | macOS no ofrece la API XInput de Windows; un HID genérico no demuestra equivalencia |
 
 El cliente `karstx/usbip-macos` ofrece conexión USB/IP mediante `IOUSBHostControllerInterface`, pero declara que las transferencias isócronas no funcionan y requiere autorización adicional de Apple. No resuelve la ruta de audio/háptica de MadSense. `usbipd-mac` exporta dispositivos desde macOS; no importa dispositivos virtuales al sistema.
 
-Para audio virtual Apple recomienda un **Audio Server Driver Plug-in (HAL)**; AudioDriverKit se destina a hardware físico. Una implementación futura puede recibir cuatro canales PCM, enviarlos mediante memoria compartida acotada al backend y reutilizar el codificador Bluetooth existente. Esto sigue necesitando comprobar cómo asocian los juegos ese audio al HID: dos dispositivos separados no son automáticamente un DualSense USB compuesto.
+Para audio virtual Apple recomienda un **Audio Server Driver Plug-in (HAL)**; AudioDriverKit se destina a hardware físico. La implementación experimental recibe cuatro canales PCM y los entrega al backend mediante propiedades personalizadas de CoreAudio. Su cola de audio está acotada y la lectura requiere una concesión activa a un solo proceso. No utiliza memoria compartida pública. El backend reutiliza el codificador Bluetooth existente. Esto sigue necesitando comprobar cómo asocian los juegos ese audio al HID: dos dispositivos separados no son automáticamente un DualSense USB compuesto.
+
+La aplicación solo muestra el endpoint CoreAudio y el reenvío PCM como activos cuando la sesión ha abierto la concesión de lectura. La presencia del plugin, de una biblioteca o de código compilado no basta para activar esas capacidades. El ZIP opcional incluye instrucciones de instalación y validación para un Mac de desarrollo; abrir MadSense no copia archivos a `/Library/Audio` ni reinicia CoreAudio.
 
 Además, el código público actual de `IOHIDUserDevice` fuerza el transporte a `Virtual` para clientes sin privilegios internos de Apple. Es incorrecto prometer que establecer una propiedad `Transport=USB` cree un mando USB indistinguible.
 
@@ -59,7 +64,7 @@ Además, el código público actual de `IOHIDUserDevice` fuerza el transporte a 
 3. DualSense físico por Bluetooth: entrada, batería, sensores, calibración, luces, vibración y gatillos; verificar que el puente no se alimenta de su propio mando virtual.
 4. Confirmar un solo mando utilizable en juegos; probar apagar/encender, pausa, salida, caída del proceso y suspensión/reanudación. Verificar que el dispositivo físico queda liberado.
 5. Validar juego por juego, también Steam Input y CrossOver si se quieren anunciar. Registrar sistema, arquitectura, firmware y resultados.
-6. Implementar y probar la ruta PCM/altavoz antes de anunciar equivalencia con Windows. La captura del micrófono físico por Bluetooth tampoco está soportada en la versión Windows actual.
+6. Probar la ruta experimental PCM/altavoz con el plugin instalado y después con mando físico antes de anunciar equivalencia con Windows. La captura del micrófono físico por Bluetooth tampoco está soportada en la versión Windows actual.
 
 ## Fuentes técnicas consultadas
 
@@ -69,5 +74,6 @@ Además, el código público actual de `IOHIDUserDevice` fuerza el transporte a 
 - [HIDAPI: extensiones Darwin](https://github.com/libusb/hidapi/blob/master/mac/hidapi_darwin.h): apertura exclusiva y consulta del modo; llamar a `hid_darwin_set_open_exclusive` después de `hid_init`.
 - [Apple: Audio Server Driver Plug-in](https://developer.apple.com/documentation/coreaudio/creating-an-audio-server-driver-plug-in) y [AudioDriverKit](https://developer.apple.com/documentation/audiodriverkit/creating-an-audio-device-driver).
 - [usbip-macos](https://github.com/karstx/usbip-macos) y [usbipd-mac](https://github.com/beriberikix/usbipd-mac): alcance de los proyectos y límites declarados.
+- [Apple: contenido y firma de bundles](https://developer.apple.com/library/archive/technotes/tn2206/), [DTS sobre ensamblados .NET](https://developer.apple.com/forums/thread/688182) y [Microsoft: publicar aplicaciones .NET para macOS](https://learn.microsoft.com/en-us/dotnet/core/deploying/macos).
 
 Las restricciones de juego y de hardware indicadas son riesgos pendientes de prueba, no resultados medidos.

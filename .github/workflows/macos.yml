@@ -34,6 +34,11 @@ jobs:
           cmake -S macos/native -B .build/native -DCMAKE_BUILD_TYPE=Release
           cmake --build .build/native --parallel
           ctest --test-dir .build/native --output-on-failure
+      - name: CoreAudio plugin build and contract tests
+        run: |
+          cmake -S macos/audio -B .build/audio -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
+          cmake --build .build/audio --parallel
+          ctest --test-dir .build/audio --output-on-failure
       - name: Record signed virtual HID loopback
         run: |
           mkdir -p dist/macos
@@ -52,14 +57,14 @@ jobs:
           DYLD_LIBRARY_PATH: /opt/homebrew/lib:/usr/local/lib
         run: >-
           dotnet test tests/DualSenseClient.Tests/DualSenseClient.Tests.csproj -c Release
-          --filter 'FullyQualifiedName~HidMacPortabilityTests|FullyQualifiedName~HidStringMarshalTests|FullyQualifiedName~DualSenseRawReportTests|FullyQualifiedName~DualSenseFeature|FullyQualifiedName~VirtualDualSenseController|FullyQualifiedName~BluetoothAudioReportBuilderTests|FullyQualifiedName~NativeHapticsQueueTests'
+          --filter 'FullyQualifiedName~HidMacPortabilityTests|FullyQualifiedName~MacScheduling|FullyQualifiedName~HidStringMarshalTests|FullyQualifiedName~DualSenseRawReportTests|FullyQualifiedName~DualSenseFeature|FullyQualifiedName~VirtualDualSenseController|FullyQualifiedName~BluetoothAudioReportBuilderTests|FullyQualifiedName~NativeHapticsQueueTests|FullyQualifiedName~DualSenseBtAudioPipelineTests|FullyQualifiedName~DualSenseAudioForwarderTests'
           --logger 'trx;LogFileName=shared.trx' --results-directory test-results
       - name: Package native app
         run: bash macos/package.sh '${{ matrix.rid }}' dist/macos
       - name: Check packaged runtime
         run: |
-          dist/macos/MadSense.app/Contents/MacOS/backend/MadSense.Backend --protocol-check
-          dist/macos/MadSense.app/Contents/MacOS/backend/MadSense.Backend --diagnose > dist/macos/diagnostic.json
+          dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --protocol-check
+          dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --diagnose > dist/macos/diagnostic.json
       - name: Native GUI startup and shutdown smoke test
         run: |
           "$PWD/dist/macos/MadSense.app/Contents/MacOS/MadSense" --smoke-test > dist/macos/gui.stdout 2> dist/macos/gui.stderr &
@@ -73,15 +78,37 @@ jobs:
           wait "$gui_pid"
           trap - EXIT
           sleep 1
-          if pgrep -f '/MadSense.app/Contents/MacOS/backend/MadSense.Backend --service'; then
+          if pgrep -f '/MadSense.app/Contents/Resources/backend/MadSense.Backend --service'; then
             echo "Backend remained running after normal GUI termination." >&2
             exit 1
           fi
           echo "Native GUI started and stopped; no backend process remained. This is not a controller hardware test." >> "$GITHUB_STEP_SUMMARY"
+      - name: Packaged service lifecycle
+        run: python3 macos/tests/service_smoke.py "$PWD/dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend" > dist/macos/service.stdout
+      - name: Installed CoreAudio end-to-end test on disposable runner
+        run: |
+          test ! -e /Library/Audio/Plug-Ins/HAL/MadSenseAudio.driver
+          codesign --force --sign - .build/audio/MadSenseAudio.driver
+          sudo mkdir -p /Library/Audio/Plug-Ins/HAL
+          sudo ditto .build/audio/MadSenseAudio.driver /Library/Audio/Plug-Ins/HAL/MadSenseAudio.driver
+          sudo chown -R root:wheel /Library/Audio/Plug-Ins/HAL/MadSenseAudio.driver
+          sudo chmod -R go-w /Library/Audio/Plug-Ins/HAL/MadSenseAudio.driver
+          sudo killall coreaudiod
+          for attempt in {1..15}; do
+            if .build/audio/madsense-audio-installed-probe > dist/macos/audio-installed.stdout 2> dist/macos/audio-installed.stderr; then
+              cat dist/macos/audio-installed.stdout
+              exit 0
+            fi
+            sleep 1
+          done
+          cat dist/macos/audio-installed.stderr >&2
+          log show --last 2m --style compact --predicate 'process == "coreaudiod"' > dist/macos/coreaudio.stdout
+          exit 1
       - name: Native virtual-device access report
+        if: always()
         run: |
           set +e
-          dist/macos/MadSense.app/Contents/MacOS/backend/MadSense.Backend --probe-native > dist/macos/native-probe.json 2> dist/macos/native-probe.stderr
+          dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --probe-native > dist/macos/native-probe.json 2> dist/macos/native-probe.stderr
           result=$?
           echo "$result" > dist/macos/native-probe.exit-code
           cat dist/macos/native-probe.json
@@ -99,6 +126,7 @@ jobs:
             dist/macos/*.stdout
             dist/macos/*.png
             dist/macos/*.exit-code
+            dist/macos/SHA256SUMS.txt
             test-results/*.trx
           if-no-files-found: error
           retention-days: 14

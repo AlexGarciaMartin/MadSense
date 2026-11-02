@@ -149,8 +149,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         buttons.orientation = .horizontal
         buttons.spacing = 12
         let limitation = label(tr(
-            "This build implements the HID bridge. Native USB audio, PCM haptics and Xbox emulation are not available. Virtual HID requires an Apple-authorized signature; hardware compatibility is not yet verified.",
-            "Esta versión implementa el puente HID. El audio USB nativo, la háptica PCM y la emulación Xbox aún no están disponibles. El HID virtual requiere una firma autorizada por Apple; falta verificar la compatibilidad con hardware."), size: 12, color: Palette.muted)
+            "The optional CoreAudio audio/PCM endpoint is experimental. Game association and hardware compatibility are unverified. XInput is unsupported. Virtual HID requires Apple-authorized signing.",
+            "El dispositivo de audio/PCM CoreAudio es opcional y experimental. La asociación con juegos y la compatibilidad con hardware no están verificadas. XInput no está soportado. El HID virtual requiere una firma autorizada por Apple."), size: 12, color: Palette.muted)
         let stack = NSStackView(views: [header, badge, rule, stateLabel, detailLabel, telemetryLabel, capabilityLabel, buttons, limitation])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -207,7 +207,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func startBackend() {
         guard !quitting, process?.isRunning != true else { return }
-        let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/backend/MadSense.Backend")
+        let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/backend/MadSense.Backend")
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             setState(tr("Incomplete installation", "Instalación incompleta"), detail: tr("The bundled controller bridge is missing.", "Falta el puente del mando en la aplicación."), ready: false)
             appendLog("Missing executable: \(executable.path)\n")
@@ -312,8 +312,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 let labels = ["hidInput": tr("controller input", "entrada del mando"),
                               "hidFeedback": tr("HID effects", "efectos HID"),
                               "exclusiveAccess": tr("exclusive capture", "captura exclusiva"),
-                              "nativeAudio": tr("native audio", "audio nativo"),
-                              "nativeHaptics": tr("PCM haptics", "háptica PCM"),
+                              "nativeAudio": tr("CoreAudio endpoint active", "dispositivo CoreAudio activo"),
+                              "nativeHaptics": tr("PCM forwarding active", "reenvío PCM activo"),
                               "xinput": "XInput"]
                 let enabled = labels.keys.sorted().compactMap { key -> String? in
                     (capabilities[key] as? Bool) == true ? labels[key] : nil

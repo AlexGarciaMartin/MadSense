@@ -1,5 +1,7 @@
 # MadSense 0.4.6
 
+> **Rama `feature/macos`: port de macOS en desarrollo.** La interfaz nativa, el puente HID y la compilación Intel/Apple Silicon están en [`macos/`](macos/README.md). No es una release equivalente a Windows: la creación del mando virtual necesita autorización de Apple y falta validar un DualSense físico y los juegos. Las instrucciones siguientes corresponden a Windows.
+
 Abre MadSense, enciende tu DualSense y abre el juego. La app espera al mando, conecta por Bluetooth y recupera la conexión automáticamente. Debe estar emparejado previamente en Windows. Esta versión controla un mando y es 100 % Bluetooth: por cable el juego usa el DualSense en nativo sin necesitar MadSense.
 
 **[Descargar el instalador de Windows](https://github.com/AlexGarciaMartin/MadSense/releases/download/v0.4.6/MadSense-0.4.6-Setup.exe)** · [Notas y SHA-256](https://github.com/AlexGarciaMartin/MadSense/releases/tag/v0.4.6)
