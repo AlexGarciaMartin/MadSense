@@ -5,7 +5,7 @@ namespace MadSense.Mac;
 
 /// <summary>Converts IOKit report types to the existing, tested DualSense persona.
 /// IOKit uses zero-based types and includes report IDs in numbered reports.</summary>
-internal sealed class HidReportRouter(DualSenseDevice persona)
+internal sealed class HidReportRouter(DualSenseDevice persona, Func<bool>? hasOutputFault = null)
 {
     public const int Success = 0;
     public const int Unsupported = unchecked((int)0xe00002c7);
@@ -37,8 +37,12 @@ internal sealed class HidReportRouter(DualSenseDevice persona)
         if (type == 1)
         {
             if (!DualSenseOutputReport.TryParse(report, out _)) return BadArgument;
+            if (hasOutputFault?.Invoke() == true) return Error;
             persona.OnOutputReport(report);
-            return Success;
+            // The shared persona isolates subscriber exceptions. Observe the
+            // tracked physical writer as well, or a failed Bluetooth write
+            // would incorrectly acknowledge successful delivery to IOKit.
+            return hasOutputFault?.Invoke() == true ? Error : Success;
         }
         // The USB class handler expects report ID in wValue, outside the payload.
         int result = persona.HandleControlRequest(new UsbSetupPacket

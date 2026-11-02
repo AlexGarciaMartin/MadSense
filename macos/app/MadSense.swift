@@ -11,8 +11,19 @@ private enum Palette {
     static let muted = NSColor(srgbRed: 0.38, green: 0.38, blue: 0.35, alpha: 1)
 }
 
-private let spanish = Locale.preferredLanguages.first?.hasPrefix("es") == true
-private func tr(_ english: String, _ spanishText: String) -> String { spanish ? spanishText : english }
+private let translations: [String: [String: String]] = {
+    guard let url = Bundle.main.url(forResource: "Localizations", withExtension: "json"),
+          let data = try? Data(contentsOf: url),
+          let dictionary = try? JSONSerialization.jsonObject(with: data) as? [String: [String: String]] else { return [:] }
+    return dictionary
+}()
+private var language: String {
+    let selected = UserDefaults.standard.string(forKey: "MadSenseLanguage") ?? Locale.preferredLanguages.first ?? "en"
+    return String(selected.prefix(2))
+}
+private func tr(_ english: String, _ spanishText: String) -> String {
+    language == "es" ? spanishText : translations[english]?[language] ?? english
+}
 
 private final class BrandView: NSView {
     override var isFlipped: Bool { true }
@@ -63,6 +74,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var quitting = false
     private var paused = false
     private var restarts = 0
+    private var recovering = false
     private var log = ""
     private var logWindow: NSWindow?
     private var logView: NSTextView?
@@ -75,6 +87,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         startBackend()
+        if CommandLine.arguments.contains("--smoke-test") {
+            // Exercise the real startup/shutdown path in a graphical CI session.
+            // There is no mock controller and no fabricated connected state.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { NSApp.terminate(nil) }
+        }
         healthTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             guard let self = self, self.process?.isRunning == true, !self.quitting else { return }
             if Date().timeIntervalSince(self.lastStatusTime) > 10 {
@@ -82,11 +99,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     detail: tr("The controller bridge stopped reporting its state. Open diagnostics for details.",
                                "El puente del mando ha dejado de informar de su estado. Consulta el diagnóstico."), ready: false)
             }
+            if Date().timeIntervalSince(self.lastStatusTime) > 15, !self.recovering {
+                self.recovering = true
+                let token = self.session
+                self.appendLog("Backend status timed out; requesting a restart.\n")
+                self.send("quit")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                    guard let self = self, self.session == token, self.recovering else { return }
+                    // A terminated process releases its exclusive controller handle.
+                    self.process?.terminate()
+                }
+            }
         }
     }
 
     private func buildWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 540),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 600),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "MadSense · macOS"
         window.backgroundColor = Palette.paper
@@ -153,6 +181,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         appMenu.addItem(withTitle: tr("Quit MadSense", "Salir de MadSense"), action: #selector(quit), keyEquivalent: "q").target = self
         appItem.submenu = appMenu
         NSApp.mainMenu = main
+        if let existing = statusItem { NSStatusBar.system.removeStatusItem(existing) }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "M·S"
         statusItem.button?.toolTip = "MadSense"
@@ -161,6 +190,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         pauseMenuItem = menu.addItem(withTitle: tr("Pause bridge", "Pausar puente"), action: #selector(togglePause), keyEquivalent: "")
         pauseMenuItem.target = self
         menu.addItem(withTitle: tr("Diagnostics", "Diagnóstico"), action: #selector(showDiagnostics), keyEquivalent: "").target = self
+        let languages = NSMenu()
+        for (code, title) in [("en", "English"), ("es", "Español"), ("fr", "Français"),
+                              ("de", "Deutsch"), ("it", "Italiano"), ("pt", "Português Brasileiro")] {
+            let item = languages.addItem(withTitle: title, action: #selector(changeLanguage(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = code
+            item.state = language == code ? .on : .off
+        }
+        let languageItem = menu.addItem(withTitle: tr("Language", "Idioma"), action: nil, keyEquivalent: "")
+        languageItem.submenu = languages
         menu.addItem(.separator())
         menu.addItem(withTitle: tr("Quit MadSense", "Salir de MadSense"), action: #selector(quit), keyEquivalent: "").target = self
         statusItem.menu = menu
@@ -178,6 +217,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         let token = UUID()
         session = token
+        recovering = false
         pendingOutput.removeAll(keepingCapacity: true)
         child.executableURL = executable
         child.arguments = ["--service"]
@@ -247,6 +287,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             lastStatusTime = Date()
             restarts = 0
             let state = rawState.lowercased()
+            if state == "diagnostic" {
+                if let formatted = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted, .sortedKeys]) {
+                    appendLog(String(decoding: formatted, as: UTF8.self) + "\n")
+                }
+                continue
+            }
             let ready = state == "ready"
             let names = ["ready": tr("Connected", "Conectado"), "waiting": tr("Waiting for controller", "Esperando al mando"),
                          "paused": tr("Paused", "En pausa"), "connecting": tr("Connecting", "Conectando"),
@@ -256,13 +302,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             paused = state == "paused"
             refreshPause()
             var parts: [String] = []
-            if let battery = status["battery"] as? NSNumber { parts.append(tr("Battery", "Batería") + ": \(battery)%") }
+            if let battery = status["battery"] as? NSNumber, battery.intValue >= 0 {
+                parts.append(tr("Battery", "Batería") + ": \(battery)%")
+            }
             if let reports = status["reports"] as? NSNumber { parts.append(tr("Reports", "Informes") + ": \(reports)") }
             if let version = status["version"] as? String { parts.append(version) }
             telemetryLabel.stringValue = parts.joined(separator: "  ·  ")
             if let capabilities = status["capabilities"] as? [String: Any] {
-                let enabled = capabilities.filter { ($0.value as? Bool) == true }.map { $0.key }.sorted()
-                capabilityLabel.stringValue = enabled.isEmpty ? "" : tr("Available: ", "Disponible: ") + enabled.joined(separator: ", ")
+                let labels = ["hidInput": tr("controller input", "entrada del mando"),
+                              "hidFeedback": tr("HID effects", "efectos HID"),
+                              "exclusiveAccess": tr("exclusive capture", "captura exclusiva"),
+                              "nativeAudio": tr("native audio", "audio nativo"),
+                              "nativeHaptics": tr("PCM haptics", "háptica PCM"),
+                              "xinput": "XInput"]
+                let enabled = labels.keys.sorted().compactMap { key -> String? in
+                    (capabilities[key] as? Bool) == true ? labels[key] : nil
+                }
+                capabilityLabel.stringValue = enabled.isEmpty ? "" : tr("Implemented: ", "Implementado: ") + enabled.joined(separator: ", ")
             } else if let capabilities = status["capabilities"] as? [String] {
                 capabilityLabel.stringValue = capabilities.joined(separator: " · ")
             }
@@ -308,6 +364,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    @objc private func changeLanguage(_ sender: NSMenuItem) {
+        guard let code = sender.representedObject as? String else { return }
+        UserDefaults.standard.set(code, forKey: "MadSenseLanguage")
+        let frame = window.frame
+        let visible = window.isVisible
+        window.close()
+        stateLabel = label(tr("Starting", "Iniciando"), size: 30, weight: .bold)
+        detailLabel = label("", size: 14)
+        telemetryLabel = label("—", size: 12, color: Palette.muted)
+        capabilityLabel = label("", size: 12, color: Palette.muted)
+        buildWindow()
+        window.setFrame(frame, display: true)
+        buildMenu()
+        refreshPause()
+        if visible { showWindow() }
+        // The next real service status restores the current connection state.
+    }
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func showDiagnostics() {
         send("diagnose")
@@ -353,7 +426,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 }
 
 let app = NSApplication.shared
-let delegate = AppDelegate()
+private let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.regular)
 app.run()

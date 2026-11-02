@@ -117,9 +117,12 @@ int test_loopback(bool required) {
     if (created != 0) {
         char diagnostic[1024];
         ms_hid_copy_diagnostic(diagnostic, sizeof(diagnostic));
+        // Only Apple's opaque creation refusal is an environmental skip. An
+        // allocated device that fails to publish is a functional test failure.
+        bool skip = !required && created == static_cast<int32_t>(kIOReturnError);
         std::fprintf(stderr, "%s virtual HID loopback: %s\n",
-            required ? "FAIL" : "SKIP", diagnostic);
-        return required ? 1 : 77;
+            skip ? "SKIP" : "FAIL", diagnostic);
+        return skip ? 77 : 1;
     }
 
     // The callback buffer outlives the scheduled HID client, including unwind.

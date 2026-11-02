@@ -68,6 +68,32 @@ public class HidReportRouterTests
     }
 
     [Test]
+    public void PhysicalOutputFailureIsReturnedEvenWhenPersonaCatchesSubscriberException()
+    {
+        var pad = new DualSenseDevice(new DualSenseIdentity());
+        bool outputFailed = false;
+        int deliveries = 0;
+        var router = new HidReportRouter(pad, () => outputFailed);
+        pad.OutputReportReceived += _ =>
+        {
+            deliveries++;
+            outputFailed = true;
+            throw new IOException("Simulated Bluetooth output failure.");
+        };
+        byte[] report = new byte[63];
+        report[0] = 2;
+        report[1] = 3;
+        report[3] = 70;
+
+        Assert.That(router.Set(1, 2, report), Is.EqualTo(HidReportRouter.Error));
+        Assert.That(deliveries, Is.EqualTo(1));
+        // A failed session must not keep applying effects while it is being
+        // released, even when another host report arrives before teardown.
+        Assert.That(router.Set(1, 2, report), Is.EqualTo(HidReportRouter.Error));
+        Assert.That(deliveries, Is.EqualTo(1));
+    }
+
+    [Test]
     public void RejectsUnknownTypesMismatchedIdsAndTruncatedOutput()
     {
         var router = new HidReportRouter(new DualSenseDevice(new DualSenseIdentity()));

@@ -9,10 +9,10 @@ namespace MadSense.Mac;
 
 internal static class Program
 {
-    internal static readonly object Capabilities = new
+    internal static object Capabilities(bool audioAvailable = false) => new
     {
         hidInput = true, hidFeedback = true, exclusiveAccess = true,
-        nativeAudio = false, nativeHaptics = false, xinput = false,
+        nativeAudio = audioAvailable, nativeHaptics = audioAvailable, xinput = false,
         compositeUsb = false, hardwareValidated = false
     };
 
@@ -123,7 +123,9 @@ internal static class Program
                     if (session?.Reports > 0)
                     {
                         state = "ready";
-                        detail = "HID bridge active. Native audio, audio haptics and XInput are not available in this build.";
+                        detail = session.AudioAvailable
+                            ? "HID bridge active. Dedicated four-channel CoreAudio capture available; game association requires validation."
+                            : "HID bridge active. The optional CoreAudio endpoint is unavailable. XInput is not supported on macOS.";
                     }
                 }
                 catch (Exception e)
@@ -131,7 +133,7 @@ internal static class Program
                     try { session?.Dispose(); } finally { session = null; }
                     state = "error"; detail = e.Message; nextAttempt = Environment.TickCount64 + 10000;
                 }
-                WriteStatus(state, detail, session?.Battery ?? -1, session?.Reports ?? 0);
+                WriteStatus(state, detail, session?.Battery ?? -1, session?.Reports ?? 0, session?.AudioAvailable ?? false, session?.AudioStatus);
                 // Wake for commands immediately; periodic health/discovery remains bounded.
                 using var wake = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
                 wake.CancelAfter(1000);
@@ -148,7 +150,7 @@ internal static class Program
     private static void Diagnose(HidDeviceEnumerator enumerator) => Console.WriteLine(JsonSerializer.Serialize(new
     {
         state = "diagnostic", version = "0.5.0-macos-dev", os = RuntimeInformation.OSDescription,
-        architecture = RuntimeInformation.ProcessArchitecture.ToString(), capabilities = Capabilities,
+        architecture = RuntimeInformation.ProcessArchitecture.ToString(), capabilities = Capabilities(),
         devices = enumerator.Enumerate(0x054c).Select(d => new { d.ProductName, d.ProductId, bus = d.BusType.ToString(), d.UsagePage })
     }));
 
@@ -162,8 +164,8 @@ internal static class Program
         return 0;
     }
 
-    private static void WriteStatus(string state, string detail, int battery = -1, long reports = 0) =>
-        Console.WriteLine(JsonSerializer.Serialize(new { state, detail, battery, reports, version = "0.5.0-macos-dev", capabilities = Capabilities }));
+    private static void WriteStatus(string state, string detail, int battery = -1, long reports = 0, bool audioAvailable = false, object? audio = null) =>
+        Console.WriteLine(JsonSerializer.Serialize(new { state, detail, battery, reports, version = "0.5.0-macos-dev", capabilities = Capabilities(audioAvailable), audio }));
 
     private sealed class StderrLog : ILogSink
     {

@@ -9,7 +9,7 @@ Esta rama añade una aplicación nativa de macOS y un puente HID propio. No es t
 - `native/`: biblioteca IOKit que publica el HID virtual y recibe informes de salida y de características.
 - HIDAPI: acceso al mando físico por IOKit. La apertura exclusiva mantiene la captura durante la vida del identificador; al cerrarlo, macOS libera la captura.
 
-La interfaz tiene textos propios en español o inglés, elegidos según el idioma del sistema. Cerrar la ventana mantiene el servicio activo; **Salir de MadSense** lo detiene. No cambia preferencias de seguridad de macOS ni instala controladores automáticamente.
+La interfaz ofrece inglés, español, francés, alemán, italiano y portugués de Brasil. Detecta el idioma del sistema y permite cambiarlo desde el menú de la barra; los mensajes técnicos del backend se conservan en inglés. Cerrar la ventana mantiene el servicio activo; **Salir de MadSense** lo detiene. No cambia preferencias de seguridad de macOS ni instala controladores automáticamente.
 
 ## Compilar sin un Mac propio
 
@@ -32,7 +32,7 @@ El resultado es un `.app`, un ZIP de desarrollo y `SHA256SUMS.txt`. Las firmas a
 
 El proceso que crea `IOHIDUserDevice` necesita `com.apple.developer.hid.virtual.device`. El código fuente actual de Apple comprueba esa autorización antes de crear el cliente; ejecutarlo como administrador no la sustituye. En este diseño el proceso es `MadSense.Backend`, no la interfaz AppKit. La firma y el perfil de aprovisionamiento aprobados deben aplicarse al proceso correspondiente y a su distribución.
 
-El paquete de desarrollo omite autorizaciones restringidas que no puede acreditar. Puede abrir la interfaz y ejecutar diagnósticos; si el sistema rechaza crear el dispositivo virtual, debe mostrar el bloqueo y no capturar el mando físico ni anunciar que está listo. No se recomienda desactivar SIP o AMFI como procedimiento de instalación.
+El paquete de desarrollo omite autorizaciones restringidas que no puede acreditar. Puede abrir la interfaz y ejecutar diagnósticos. Al conectar, el backend abre brevemente el mando físico en modo exclusivo, lee sus metadatos y calibración, prepara el adaptador y después crea el dispositivo virtual. Si el sistema rechaza esa creación, libera el mando físico y muestra el bloqueo; no anuncia que está listo ni publica previamente un Sony ficticio. No se recomienda desactivar SIP o AMFI como procedimiento de instalación.
 
 La distribución pública requerirá una identidad Developer ID, autorización adecuada, firma de los componentes y notarización. No hay credenciales ni perfiles inventados en esta rama.
 

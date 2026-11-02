@@ -3,16 +3,19 @@
 // targets macOS 14+. This does not implement a USB device or an audio endpoint.
 #include "madsense_hid.h"
 #include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/IOKitKeys.h>
 #include <IOKit/hid/IOHIDKeys.h>
 #include <IOKit/hidsystem/IOHIDUserDevice.h>
 #include <dispatch/dispatch.h>
 #include <mach/mach_time.h>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <memory>
 #include <new>
+#include <thread>
 
 namespace {
 constexpr uint32_t max_report_length = 4096;
@@ -43,6 +46,24 @@ void set_number(CFMutableDictionaryRef properties, CFStringRef key, int value) {
         CFRelease(number);
     }
 }
+
+bool is_published(CFStringRef token) {
+    CFMutableDictionaryRef match = IOServiceMatching("IOHIDDevice");
+    if (!match) return false;
+    CFMutableDictionaryRef properties = CFDictionaryCreateMutable(kCFAllocatorDefault,
+        0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    if (!properties) { CFRelease(match); return false; }
+    // A per-creation marker prevents a stale service with the same caller serial
+    // from satisfying the publication check during reconnect or parallel probes.
+    CFDictionarySetValue(properties, CFSTR("MadSenseVirtualInstance"), token);
+    CFDictionarySetValue(match, CFSTR(kIOPropertyMatchKey), properties);
+    CFRelease(properties);
+    // Matching consumes match and returns only published/registered services.
+    io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, match);
+    if (!service) return false;
+    IOObjectRelease(service);
+    return true;
+}
 }
 
 uint32_t ms_hid_abi_version(void) { return 1; }
@@ -64,16 +85,21 @@ int32_t ms_hid_create(const uint8_t *descriptor, uint32_t descriptor_length,
                                                   kCFStringEncodingUTF8);
     CFDataRef report_descriptor = CFDataCreate(kCFAllocatorDefault, descriptor,
                                                descriptor_length);
+    CFUUIDRef uuid = CFUUIDCreate(kCFAllocatorDefault);
+    CFStringRef instance_token = uuid ? CFUUIDCreateString(kCFAllocatorDefault, uuid) : nullptr;
+    if (uuid) CFRelease(uuid);
     CFMutableDictionaryRef properties = CFDictionaryCreateMutable(kCFAllocatorDefault,
         0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    if (!serial || !report_descriptor || !properties) {
+    if (!serial || !report_descriptor || !properties || !instance_token) {
         if (serial) CFRelease(serial);
         if (report_descriptor) CFRelease(report_descriptor);
         if (properties) CFRelease(properties);
+        if (instance_token) CFRelease(instance_token);
         return fail(kIOReturnBadArgument, "Could not create HID properties; serial must be valid UTF-8");
     }
     CFDictionarySetValue(properties, CFSTR(kIOHIDReportDescriptorKey), report_descriptor);
     CFDictionarySetValue(properties, CFSTR(kIOHIDSerialNumberKey), serial);
+    CFDictionarySetValue(properties, CFSTR("MadSenseVirtualInstance"), instance_token);
     // The public entitlement creates a virtual transport. Claiming USB here
     // does not create USB interfaces and is overridden by the kernel.
     CFDictionarySetValue(properties, CFSTR(kIOHIDTransportKey), CFSTR("Virtual"));
@@ -88,6 +114,7 @@ int32_t ms_hid_create(const uint8_t *descriptor, uint32_t descriptor_length,
     CFRelease(report_descriptor);
     CFRelease(serial);
     if (!instance->device) {
+        CFRelease(instance_token);
         // Apple exposes no underlying IOReturn from this creation function;
         // don't invent a permission result when a descriptor could also fail.
         return fail(kIOReturnError,
@@ -98,6 +125,7 @@ int32_t ms_hid_create(const uint8_t *descriptor, uint32_t descriptor_length,
     instance->queue = dispatch_queue_create("org.madsense.virtual-hid", DISPATCH_QUEUE_SERIAL);
     instance->cancelled = dispatch_semaphore_create(0);
     if (!instance->queue || !instance->cancelled) {
+        CFRelease(instance_token);
         CFRelease(instance->device);
         if (instance->queue) dispatch_release(instance->queue);
         if (instance->cancelled) dispatch_release(instance->cancelled);
@@ -135,6 +163,20 @@ int32_t ms_hid_create(const uint8_t *descriptor, uint32_t descriptor_length,
     });
     IOHIDUserDeviceSetDispatchQueue(state->device, state->queue);
     IOHIDUserDeviceActivate(state->device);
+    // Activate has no status return. Confirm this exact kernel HID service was
+    // registered instead of treating a resource-client allocation as readiness.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    bool published = false;
+    do {
+        published = is_published(instance_token);
+        if (published) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } while (std::chrono::steady_clock::now() < deadline);
+    CFRelease(instance_token);
+    if (!published) {
+        ms_hid_destroy(instance.release());
+        return fail(kIOReturnNotReady, "Virtual HID activation did not publish its device in the macOS IORegistry");
+    }
     *out_handle = instance.release();
     std::snprintf(diagnostic, sizeof(diagnostic), "Virtual HID created; transport is Virtual, not USB.");
     return kIOReturnSuccess;

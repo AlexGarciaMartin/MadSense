@@ -25,6 +25,8 @@ typedef int32_t (*ms_hid_set_callback)(void *context, uint32_t type,
     uint32_t report_id, const uint8_t *data, uint32_t length);
 
 MS_HID_API uint32_t ms_hid_abi_version(void);
+// Success means the exact new IOHIDDevice was published in the IORegistry.
+// Publication has a five-second deadline and fully tears down on failure.
 MS_HID_API int32_t ms_hid_create(const uint8_t *descriptor,
     uint32_t descriptor_length, uint16_t vendor_id, uint16_t product_id,
     const char *serial_utf8, ms_hid_get_callback get_callback,

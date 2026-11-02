@@ -60,6 +60,24 @@ jobs:
         run: |
           dist/macos/MadSense.app/Contents/MacOS/backend/MadSense.Backend --protocol-check
           dist/macos/MadSense.app/Contents/MacOS/backend/MadSense.Backend --diagnose > dist/macos/diagnostic.json
+      - name: Native GUI startup and shutdown smoke test
+        run: |
+          "$PWD/dist/macos/MadSense.app/Contents/MacOS/MadSense" --smoke-test > dist/macos/gui.stdout 2> dist/macos/gui.stderr &
+          gui_pid=$!
+          trap 'kill "$gui_pid" 2>/dev/null || true' EXIT
+          sleep 4
+          kill -0 "$gui_pid"
+          if ! screencapture -x dist/macos/ui.png 2> dist/macos/screenshot.stderr; then
+            echo "GUI screenshot unavailable in this runner session; see screenshot.stderr." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          wait "$gui_pid"
+          trap - EXIT
+          sleep 1
+          if pgrep -f '/MadSense.app/Contents/MacOS/backend/MadSense.Backend --service'; then
+            echo "Backend remained running after normal GUI termination." >&2
+            exit 1
+          fi
+          echo "Native GUI started and stopped; no backend process remained. This is not a controller hardware test." >> "$GITHUB_STEP_SUMMARY"
       - name: Native virtual-device access report
         run: |
           set +e
@@ -78,6 +96,8 @@ jobs:
             dist/macos/*.zip
             dist/macos/*.json
             dist/macos/*.stderr
+            dist/macos/*.stdout
+            dist/macos/*.png
             dist/macos/*.exit-code
             test-results/*.trx
           if-no-files-found: error

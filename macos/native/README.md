@@ -19,6 +19,9 @@ destruction completes. The GET callback receives a writable buffer and its
 capacity, and returns actual length. Report IDs are preserved in the data.
 Callbacks run on a serial queue; destruction cancels and drains that queue.
 Never dispose from inside a callback or propagate managed exceptions across it.
+Creation waits up to five seconds for publication of the exact kernel HID
+service, identified by a unique per-creation IORegistry marker. Merely allocating
+an IOKit resource client does not count as a successful create.
 
 The process that calls this library needs an **accepted**
 `com.apple.developer.hid.virtual.device` entitlement. The included entitlement
@@ -27,7 +30,8 @@ or distribution guarantee. Root is not a replacement. A null create result is
 reported as an error; Apple does not expose its underlying IOReturn, so the
 library does not pretend every failure proves a specific permission problem.
 
-The default native test returns **77 (skipped)** if virtual creation is refused.
+The default native test returns **77 (skipped)** if Apple's opaque creation call
+is refused; failure to publish an allocated service remains a test failure.
 `--abi-only` checks the ABI without device creation; `--require-device` fails on
 creation refusal. Successful loopback must enumerate the service and verify
 feature GET, output SET and input receipt through real IOKit, without a physical

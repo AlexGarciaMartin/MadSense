@@ -38,7 +38,7 @@ if [[ ! -f "$hidapi" ]]; then
   echo "Set MADSENSE_HIDAPI to a libhidapi.dylib containing $arch, or install hidapi with Homebrew." >&2
   exit 2
 fi
-lipo -verify_arch "$arch" "$hidapi"
+lipo "$hidapi" -verify_arch "$arch"
 
 mkdir -p "$build" "$app/Contents/MacOS/backend" "$app/Contents/Resources"
 cmake -S "$root/macos/native" -B "$build/native" -DCMAKE_BUILD_TYPE=Release \
@@ -51,6 +51,7 @@ cp "$build/native/libmadsense_hid.dylib" "$app/Contents/MacOS/backend/"
 cp -L "$hidapi" "$app/Contents/MacOS/backend/libhidapi.dylib"
 install_name_tool -id '@rpath/libhidapi.dylib' "$app/Contents/MacOS/backend/libhidapi.dylib"
 cp "$root/macos/app/Info.plist" "$app/Contents/Info.plist"
+cp "$root/macos/app/Localizations.json" "$app/Contents/Resources/Localizations.json"
 cp "$root/LICENSE" "$app/Contents/Resources/LICENSE.txt"
 cp "$root/THIRD-PARTY-NOTICES.txt" "$app/Contents/Resources/THIRD-PARTY-NOTICES.txt"
 cp "$root/macos/README.md" "$app/Contents/Resources/macOS-README.md"
@@ -68,8 +69,8 @@ done < <(find "$app/Contents/MacOS/backend" -type f \( -name '*.dylib' -o -name 
 codesign --force --sign - "$app/Contents/MacOS/MadSense"
 codesign --force --sign - "$app"
 codesign --verify --deep --strict "$app"
-lipo -verify_arch "$arch" "$app/Contents/MacOS/MadSense"
-lipo -verify_arch "$arch" "$app/Contents/MacOS/backend/libmadsense_hid.dylib"
+lipo "$app/Contents/MacOS/MadSense" -verify_arch "$arch"
+lipo "$app/Contents/MacOS/backend/libmadsense_hid.dylib" -verify_arch "$arch"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$out/MadSense-$rid-development.zip"
 shasum -a 256 "$out/MadSense-$rid-development.zip" > "$out/SHA256SUMS.txt"
 echo "Development package: $out/MadSense-$rid-development.zip"

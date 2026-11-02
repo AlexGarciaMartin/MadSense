@@ -1,7 +1,6 @@
 using DualSenseClient.Controllers.Devices;
 using DualSenseClient.Controllers.DualSense.Input;
 using DualSenseClient.Controllers.Emulation;
-using DualSenseClient.Controllers.SpecialActions;
 using DualSenseClient.Emulation.Devices.DualSense;
 using DualSenseClient.Hid;
 using PhysicalPad = DualSenseClient.Controllers.Devices.DualSenseDevice;
@@ -15,24 +14,37 @@ internal sealed class BridgeSession : IDisposable
     private readonly MacVirtualHid virtualHid;
     private readonly PhysicalPad physical;
     private readonly VirtualDualSenseController adapter;
-    private readonly SpecialActionEngine actions = new();
     private readonly HidDevice hid;
+    private readonly MacAudioCapture? audio;
+    private readonly string? audioUnavailable;
+    private readonly long started = Environment.TickCount64;
     private long reports;
     private string? fault;
     private int stopping;
     public long Reports => Interlocked.Read(ref reports);
     public int Battery => physical.InputReport?.Battery.DisplayPercentage ?? -1;
     public string? Fault => Volatile.Read(ref fault);
-    public bool Connected => Fault == null && hid.IsExclusiveOpen && physical.IsConnected;
+    public bool AudioAvailable => audio != null && audio.Fault == null;
+    public object AudioStatus => new { available = AudioAvailable, detail = audio?.Fault ?? audioUnavailable,
+        activeClients = audio?.ActiveClients ?? 0, droppedFrames = audio?.DroppedFrames ?? 0 };
+    public bool Connected
+    {
+        get
+        {
+            if (Reports == 0 && Environment.TickCount64 - started > 5000)
+                Volatile.Write(ref fault, "The controller did not send full input reports within five seconds.");
+            return Fault == null && hid.IsExclusiveOpen && physical.IsConnected;
+        }
+    }
 
     public BridgeSession(HidDeviceEnumerator enumerator, IHidDeviceInfo info)
     {
         bool edge = info.ProductId == 0x0df2;
         persona = new VirtualPad(new DualSenseIdentity { SerialNumber = "MadSense-Mac-Virtual" }, edge);
-        // Check entitlement before seizing the real pad: failure must leave native input usable.
-        virtualHid = new MacVirtualHid(persona, edge);
         HidDevice? opened = null;
         PhysicalPad? pad = null;
+        VirtualDualSenseController? forwarding = null;
+        MacVirtualHid? published = null;
         try
         {
             opened = enumerator.OpenDeviceExclusive(info.Path);
@@ -44,14 +56,24 @@ internal sealed class BridgeSession : IDisposable
             byte[] calibration = physical.GetFeatureReport(0x05, 41);
             if (!persona.TrySetMotionCalibration(calibration))
                 throw new IOException("The controller did not provide valid motion calibration.");
-            adapter = new VirtualDualSenseController(persona, new DualSenseDeviceOutputs(physical, actions), physical.UsesVibrationV2);
+            var outputs = new TrackedOutputs(physical, error => Volatile.Write(ref fault, error));
+            adapter = forwarding = new VirtualDualSenseController(persona, outputs, physical.UsesVibrationV2);
+            // Publish only after calibration and output delivery are ready: host
+            // drivers can cache features and send effects during enumeration.
+            virtualHid = published = new MacVirtualHid(persona, edge, () => Fault != null);
+            try { audio = new MacAudioCapture(outputs, adapter); }
+            catch (Exception e) { audioUnavailable = e.Message; Console.Error.WriteLine(e.Message); }
             physical.InputReportReceived += OnInput;
         }
         catch
         {
             // Callbacks must drain before the physical handle disappears.
-            try { virtualHid.Dispose(); }
-            finally { if (pad != null) pad.Dispose(); else opened?.Dispose(); actions.Dispose(); }
+            try { published?.Dispose(); }
+            finally
+            {
+                audio?.Dispose(); forwarding?.Dispose();
+                if (pad != null) pad.Dispose(); else opened?.Dispose();
+            }
             throw;
         }
     }
@@ -62,6 +84,7 @@ internal sealed class BridgeSession : IDisposable
         try
         {
             adapter.PushInput(report);
+            if (audio != null) audio.PlayToHeadset = report.Connection.Headphone;
             byte[] bytes = new byte[64];
             int count = persona.ProvideInputReport(bytes);
             if (count != bytes.Length) throw new IOException("Invalid virtual input report length.");
@@ -78,9 +101,13 @@ internal sealed class BridgeSession : IDisposable
         try { virtualHid.Dispose(); }
         finally
         {
-            adapter.Dispose();
-            try { physical.ResetOutputs(); }
-            finally { physical.Dispose(); actions.Dispose(); }
+            try { audio?.Dispose(); }
+            finally
+            {
+                adapter.Dispose();
+                try { physical.ResetOutputs(); }
+                finally { physical.Dispose(); }
+            }
         }
     }
 }

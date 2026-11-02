@@ -19,10 +19,10 @@ internal sealed unsafe class MacVirtualHid : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int SetCallback(IntPtr context, uint type, uint id, byte* data, uint length);
 
-    public MacVirtualHid(DualSenseDevice persona, bool edge = false)
+    public MacVirtualHid(DualSenseDevice persona, bool edge = false, Func<bool>? hasOutputFault = null)
     {
         if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("IOKit requires macOS.");
-        router = new(persona);
+        router = new(persona, hasOutputFault);
         get = GetReport;
         set = SetReport;
         byte[] descriptor = persona.Descriptors.HidReportDescriptor!.Value.ToArray();
