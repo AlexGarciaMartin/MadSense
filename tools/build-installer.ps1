@@ -107,6 +107,7 @@ $evidence = [ordered]@{
     compilerSha256 = (Get-FileHash -LiteralPath $IsccPath -Algorithm SHA256).Hash.ToLowerInvariant();
     payloadFiles = (Get-ChildItem -LiteralPath $stage -Recurse -File).Count;
     installerLanguages = @('english','spanish','french','german','italian','brazilianportuguese');
+    appLanguages = @('en','es','fr','de','it','pt-BR');
     dependencies = @($manifest.drivers | Select-Object id,version,file,sha256);
 }
 $evidence | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath ($installer + '.json') -Encoding UTF8

@@ -1,5 +1,5 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using System.Collections.Concurrent;
+using System.Text.Json.Nodes;
 using Microsoft.Win32;
 
 namespace MadSense;
@@ -21,55 +21,110 @@ static class SpeakerLevels
         "Bajo" => (0x64, 2),
         _ => (0x00, 0)
     };
-    public static string Label(string level) => level switch { "Alto" => "alto", "Bajo" => "bajo", _ => "apagado" };
+    public static string Label(string level) => L.Text(level switch { "Alto" => "Ui.SpeakerHigh", "Bajo" => "Ui.SpeakerLow", _ => "Ui.SpeakerOff" });
+}
+
+/// <summary>Atomic read-modify-write preserves old IDs and settings owned by future versions.</summary>
+internal sealed class PreferenceStore
+{
+    static readonly ConcurrentDictionary<string, object> gates = new(StringComparer.OrdinalIgnoreCase);
+    readonly string path;
+    readonly string? installerLanguagePath;
+    readonly object gate;
+    public PreferenceStore(string path, string? installerLanguagePath = null)
+    {
+        this.path = Path.GetFullPath(path);
+        this.installerLanguagePath = installerLanguagePath is null ? null : Path.GetFullPath(installerLanguagePath);
+        gate = gates.GetOrAdd(this.path, _ => new object());
+    }
+
+    JsonObject Read()
+    {
+        try
+        {
+            var node = JsonNode.Parse(File.ReadAllText(path));
+            if (node is JsonValue value && value.TryGetValue<string>(out var legacyMode)) return new JsonObject { ["mode"] = legacyMode };
+            return node as JsonObject ?? new JsonObject();
+        }
+        catch { return new JsonObject(); }
+    }
+    static string? StringValue(JsonObject data, string key) => data[key] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+    void Save(string key, string value)
+    {
+        lock (gate)
+        {
+            var data = Read();
+            data[key] = value;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path + ".tmp", data.ToJsonString());
+            File.Move(path + ".tmp", path, true);
+        }
+    }
+    public string LoadMode()
+    {
+        lock (gate)
+        {
+            var mode = StringValue(Read(), "mode");
+            return mode is "Auto" or "Native" or "Xbox" ? mode : "Auto";
+        }
+    }
+    public void SaveMode(string mode)
+    {
+        if (mode is not ("Auto" or "Native" or "Xbox")) throw new ArgumentOutOfRangeException(nameof(mode));
+        Save("mode", mode);
+    }
+    public string LoadSpeaker()
+    {
+        lock (gate)
+        {
+            var level = StringValue(Read(), "speaker");
+            return level is not null && SpeakerLevels.IsValid(level) ? level : "Alto";
+        }
+    }
+    public void SaveSpeaker(string level)
+    {
+        if (!SpeakerLevels.IsValid(level)) throw new ArgumentOutOfRangeException(nameof(level));
+        Save("speaker", level);
+    }
+    public string LoadLanguage()
+    {
+        lock (gate)
+        {
+            var data = Read();
+            if (data.ContainsKey("language"))
+            {
+                var preference = StringValue(data, "language");
+                return L.IsSupportedPreference(preference) ? preference! : "auto";
+            }
+            try
+            {
+                var seed = installerLanguagePath is null ? null : File.ReadAllText(installerLanguagePath).Trim();
+                if (seed is not null && L.Languages.Any(l => l.Code == seed)) return seed;
+            }
+            catch { /* Portable and earlier installations have no language seed. */ }
+            return "auto";
+        }
+    }
+    public void SaveLanguage(string language)
+    {
+        if (!L.IsSupportedPreference(language)) throw new ArgumentOutOfRangeException(nameof(language));
+        Save("language", language);
+    }
 }
 
 static class Preferences
 {
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     const string RunValue = "MadSense";
-    static readonly object gate = new();
-
-    sealed class Stored
-    {
-        [JsonPropertyName("mode")] public string Mode { get; set; } = "Auto";
-        [JsonPropertyName("speaker")] public string Speaker { get; set; } = "Alto";
-    }
-
-    /// <summary>Reads the file; a 0.4 file holding only the mode string is still accepted.</summary>
-    static Stored Load()
-    {
-        try
-        {
-            var text = File.ReadAllText("preferences.json");
-            using var doc = JsonDocument.Parse(text);
-            if (doc.RootElement.ValueKind == JsonValueKind.String) return new Stored { Mode = doc.RootElement.GetString() ?? "Auto" };
-            return JsonSerializer.Deserialize<Stored>(text) ?? new Stored();
-        }
-        catch { return new Stored(); }
-    }
-    static void Save(Stored stored)
-    {
-        lock (gate)
-        {
-            File.WriteAllText("preferences.json.tmp", JsonSerializer.Serialize(stored));
-            File.Move("preferences.json.tmp", "preferences.json", true);
-        }
-    }
-
-    public static string LoadMode()
-    {
-        var mode = Load().Mode;
-        return mode is "Auto" or "Native" or "Xbox" ? mode : "Auto";
-    }
-    public static void SaveMode(string mode) { var s = Load(); s.Mode = mode; Save(s); }
-
-    public static string LoadSpeaker()
-    {
-        var level = Load().Speaker;
-        return SpeakerLevels.IsValid(level) ? level : "Alto";
-    }
-    public static void SaveSpeaker(string level) { var s = Load(); s.Speaker = level; Save(s); }
+    static readonly PreferenceStore store = new("preferences.json", "installer-language.txt");
+    // Avoid beforefieldinit: Main (or the isolated preview) establishes CWD first.
+    static Preferences() { }
+    public static string LoadMode() => store.LoadMode();
+    public static void SaveMode(string mode) => store.SaveMode(mode);
+    public static string LoadSpeaker() => store.LoadSpeaker();
+    public static void SaveSpeaker(string level) => store.SaveSpeaker(level);
+    public static string LoadLanguage() => store.LoadLanguage();
+    public static void SaveLanguage(string language) => store.SaveLanguage(language);
 
     /// <summary>Whether this executable is registered to start with the user's session (tray only).</summary>
     public static bool StartsWithWindows

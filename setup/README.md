@@ -1,10 +1,11 @@
 # Instalador de Windows de MadSense
 
-El paquete `0.4.1` genera `MadSense-0.4.1-Setup.exe`, con instalación multidioma y el mismo funcionamiento del mando que 0.4.0. La compilación no publica una release ni cambia automáticamente la descarga de la web.
+El paquete `0.4.2` genera `MadSense-0.4.2-Setup.exe`, con la app y la instalación en seis idiomas. Esta revisión localiza la interfaz y sus mensajes sin cambiar el procesamiento del mando. La compilación no publica una release ni cambia automáticamente la descarga de la web.
 
 ## Diseño y alcance
 
-- Instalación y desinstalación en inglés, español, francés, alemán, italiano y portugués de Brasil. Selección inicial según Windows, idioma anterior conservado al actualizar y alternativa inglesa para los demás idiomas. `/LANG=english` permite una selección explícita. La app sigue en español.
+- Instalación, desinstalación y app en inglés, español, francés, alemán, italiano y portugués de Brasil. Selección inicial del asistente según Windows, idioma anterior conservado al actualizar y alternativa inglesa para los demás idiomas. `/LANG=english` permite una selección explícita.
+- La app usa inicialmente el idioma elegido en el instalador. Se puede cambiar desde la ventana o la bandeja, al instante y sin reconectar el mando. Una preferencia de idioma guardada en la app tiene prioridad sobre la del instalador.
 - Los catálogos `languages/*.isl` cubren las pantallas y los controles propios; `DriverSetup.Messages.psd1` cubre errores y estados del helper. El lateral también cambia de idioma. Los textos largos se miden antes de situar los siguientes controles.
 - Asistente Inno Setup por usuario, con logo, paleta y tipografía de la web convertidos a imágenes. No instala fuentes.
 - Bienvenida con acción directa **Instalar** y opción de acceso al escritorio; no hay una segunda página de resumen. El lateral reúne el logo y «ENCIENDE. JUEGA. SIN CABLE.», con espacio entre líneas y sin bandas decorativas.
@@ -18,6 +19,16 @@ El paquete `0.4.1` genera `MadSense-0.4.1-Setup.exe`, con instalación multidiom
 - Desinstalación registrada en Aplicaciones instaladas. Conserva preferencias, registros y controladores compartidos; primero comprueba el cierre y recuperación de esta instalación.
 
 Una copia de desarrollo en otra carpeta no es el destino de la actualización. El instalador no usa el antiguo `MadSense.exe --stop` global ni mata todos los procesos por nombre. Si no puede identificar o cerrar de forma segura la copia objetivo, pide cerrarla desde la bandeja.
+
+## Idioma de la aplicación
+
+El asistente copia uno de los archivos `app-languages/*.txt` como `installer-language.txt` junto al EXE. Contiene únicamente el código de idioma de la app: `en`, `es`, `fr`, `de`, `it` o `pt-BR`. No reescribe `preferences.json` para imponerlo.
+
+Al abrirse, MadSense consulta primero `language` en `preferences.json`. Si no existe esa propiedad, toma el idioma de `installer-language.txt`. Si tampoco hay un valor válido en ese archivo, usa **Automático (Windows)**; un idioma de Windows no admitido se muestra en inglés. La opción automática guardada explícitamente también tiene prioridad sobre el instalador.
+
+Cambiar de idioma en la app guarda `language` conservando el modo, el altavoz y las demás propiedades del archivo. Actualizar conserva esas preferencias; cambiar el idioma del asistente no sustituye una selección ya guardada en la app. Las copias portables o anteriores sin `installer-language.txt` pueden usar el idioma automático. Los catálogos de la app están integrados en la aplicación, en `src/Localization/*.json`.
+
+La localización del instalador se incorporó en `0.4.1`; `0.4.2` añade la de la app y este traspaso del idioma. Los resultados históricos de instalación que figuran más abajo no equivalen a una validación visual de todos los idiomas de la versión nueva.
 
 ## Compilación
 
@@ -105,7 +116,7 @@ Para probar el asistente completo sin modificar los drivers:
 
 ```powershell
 .\tools\build-installer.ps1 -InstallerTestBuild
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-setup.ps1 -Installer .\dist\installer\MadSense-0.4.1-Setup-TEST.exe
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-setup.ps1 -Installer .\dist\installer\MadSense-0.4.2-Setup-TEST.exe
 ```
 
 El build `TEST` usa identidad, nombre y carpeta distintos, simula el helper de controladores y no abre la app al terminar. La prueba **sí copia y elimina sus propios archivos, crea su acceso de Inicio y registra su propio desinstalador en HKCU**. Verifica hash y metadatos del EXE de prueba antes de lanzarlo; rechaza el EXE normal.
@@ -142,6 +153,10 @@ Completar los casos pendientes en Windows limpio o una VM con instantánea, fuer
 | Actualización de la versión nueva abierta | Solicita cierre seguro a la ruta objetivo y conserva preferencias. No mata copias ajenas. |
 | Actualización de la antigua `v0.4` abierta | Solicita cierre desde la bandeja si no dispone de protocolo seguro. Tras cerrarla, continúa conservando ajustes. |
 | Otra copia de desarrollo abierta en otra carpeta | No la cierra, no usa `--stop` global y no lanza una segunda app al terminar. |
+| Primera instalación, cada uno de los seis idiomas | El asistente copia el código elegido y la app abre en ese idioma sin crear una selección distinta por su cuenta. Revisar textos completos y estados de conexión. |
+| Actualización con idioma de app ya guardado | Conserva el idioma de la app aunque se elija otro en el instalador; mantiene también modo, altavoz y preferencias adicionales. |
+| Cambio de idioma en la ventana y la bandeja | Se actualizan textos, estado y última actividad sin reconectar el mando ni interrumpir el juego. La selección reaparece al volver a abrir la app. |
+| Automático con idioma de Windows no admitido | La app usa inglés; una selección manual sigue teniendo prioridad. |
 | HidHide devuelve error al autorizar | No muestra éxito falso; conserva diagnóstico y vía de reparación/desinstalación. |
 | Fallo de recuperación al desinstalar | Se bloquea antes de borrar la app o `hidden-controller.json`. Reintentar solo después de resolver la causa. |
 | Cancelar la desinstalación | No detiene la app ni retira su autorización. |

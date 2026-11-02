@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>MadSense.UiPreview</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The friend assembly also exposes the app's generated global ApplicationConfiguration.
+         An explicit reference alias keeps the preview's generated initializer unambiguous. -->
+    <ProjectReference Include="../../src/MadSense.csproj" Aliases="MadSenseApp" />
+  </ItemGroup>
+</Project>

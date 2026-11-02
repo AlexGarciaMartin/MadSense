@@ -1,0 +1,25 @@
+MadSense 0.4.2 language validation - 2026-11-02
+
+69 automated application tests passed: maintenance/recovery contracts,
+embedded catalogs in all six languages, placeholder parity, regional language
+resolution, live structured-message rendering, legacy preferences, unknown
+JSON properties, installer-language priority and concurrent preference saves.
+
+Release app and isolated UI preview build: zero warnings and errors.
+Native visual checks at this PC's current display scale: English, Spanish,
+French, German, Italian and Brazilian Portuguese. Changed language in a
+running preview, including retained connection status. Also checked French
+waiting instructions, English pause/resume text and German Xbox mode with
+speaker controls disabled. These previews simulate device state and do not
+open a controller bridge.
+
+Windows installer TEST: six languages, 12 scenarios each, 72 passed.
+Real file copying, per-user registration, shortcuts, upgrade and uninstall;
+driver actions simulated. Correct language seed after installation/upgrade,
+explicit app language and other preferences retained, seed removed on
+uninstall. Recovery/driver/registration failures and restart-required results
+were checked. No TEST uninstall entry or Start-menu shortcut remained.
+
+This language-only validation does not add physical latency measurements,
+new game-compatibility claims, other display scales or clean-Windows results.
+Earlier physical installation tests and remaining cases: setup/README.md.

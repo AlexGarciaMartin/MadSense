@@ -1,7 +1,7 @@
 ; Compile through tools/build-installer.ps1. The installer is per-user; only
 ; the driver helper is elevated. Never use the legacy global --stop command.
 #ifndef AppVersion
-  #define AppVersion "0.4.1"
+  #define AppVersion "0.4.2"
 #endif
 #ifndef PublishDirectory
   #error PublishDirectory is required
@@ -98,6 +98,13 @@ Source: "{#DependencyDirectory}\*.exe"; DestDir: "{tmp}\drivers"; Flags: dontcop
 ; Inno reuses duplicate source data in the archive.
 Source: "{#PublishDirectory}\*"; DestDir: "{tmp}\payload"; Flags: dontcopy recursesubdirs
 Source: "{#PublishDirectory}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Seed only: an explicit preference (including automatic) always takes priority.
+Source: "app-languages\english.txt"; DestDir: "{app}"; DestName: "installer-language.txt"; Languages: "english"; Flags: ignoreversion
+Source: "app-languages\spanish.txt"; DestDir: "{app}"; DestName: "installer-language.txt"; Languages: "spanish"; Flags: ignoreversion
+Source: "app-languages\french.txt"; DestDir: "{app}"; DestName: "installer-language.txt"; Languages: "french"; Flags: ignoreversion
+Source: "app-languages\german.txt"; DestDir: "{app}"; DestName: "installer-language.txt"; Languages: "german"; Flags: ignoreversion
+Source: "app-languages\italian.txt"; DestDir: "{app}"; DestName: "installer-language.txt"; Languages: "italian"; Flags: ignoreversion
+Source: "app-languages\brazilianportuguese.txt"; DestDir: "{app}"; DestName: "installer-language.txt"; Languages: "brazilianportuguese"; Flags: ignoreversion
 #ifndef InstallerTestBuild
 Source: "DriverSetup.ps1"; DestDir: "{app}\setup"; Flags: ignoreversion
 #endif

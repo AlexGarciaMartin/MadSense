@@ -26,6 +26,7 @@ static class Program
     {
         if (InstallerMaintenance.TryRun(args, out var maintenanceExit)) return maintenanceExit;
         Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+        L.Use(Preferences.LoadLanguage());
         DualSenseClientLogger.Configure(LogLevel.Info, new LocalLog());
         if (args.Contains("--stop"))
         {
@@ -90,7 +91,7 @@ sealed class Bridge : IDisposable
     string? newlyHidden;
     bool reconnect;
     long nextRetry;
-    string? lastConnectionError;
+    UiMessage? lastConnectionError;
     bool? headphones;
     bool hideVerified, readyAnnounced;
     bool inputTimingRequested;
@@ -99,29 +100,29 @@ sealed class Bridge : IDisposable
     public string Mode { get; private set; } = Preferences.LoadMode();
     public void SetMode(string mode, bool persist = true)
     {
-        if (mode is not ("Auto" or "Native" or "Xbox")) throw new ArgumentException("Modo no válido.");
+        if (mode is not ("Auto" or "Native" or "Xbox")) throw new ArgumentException(L.Text("Bridge.InvalidMode"));
         if (mode == Mode) return;
         var resume = reconnect;
         Stop(); Mode = mode;
-        if (persist) { try { Preferences.SaveMode(mode); } catch (Exception e) { Log("No se pudo guardar el modo: " + e.Message); } }
-        Log("Modo " + (mode == "Xbox" ? "Xbox" : "DualSense") + ". Si el juego ya estaba abierto, reinícialo para que vea el mando nuevo.");
+        if (persist) { try { Preferences.SaveMode(mode); } catch (Exception e) { Log(L.Message("Bridge.SaveModeFailed", e.Message)); } }
+        Log(L.Message("Bridge.ModeChanged", mode == "Xbox" ? "Xbox" : "DualSense"));
         if (resume) Start();
     }
     /// <summary>Speaker level ("Alto", "Medio", "Bajo", "Off"); applied live to the forwarder and written into controllers.json on connect.</summary>
     public string Speaker { get; private set; } = Preferences.LoadSpeaker();
     public void SetSpeaker(string level)
     {
-        if (!SpeakerLevels.IsValid(level)) throw new ArgumentException("Nivel de altavoz no válido.");
+        if (!SpeakerLevels.IsValid(level)) throw new ArgumentException(L.Text("Bridge.InvalidSpeaker"));
         if (level == Speaker) return;
         Speaker = level;
-        try { Preferences.SaveSpeaker(level); } catch (Exception e) { Log("No se pudo guardar el nivel del altavoz: " + e.Message); }
+        try { Preferences.SaveSpeaker(level); } catch (Exception e) { Log(L.Message("Bridge.SaveSpeakerFailed", e.Message)); }
         var (volume, preGain) = SpeakerLevels.Resolve(level);
         if (controller != null && emulation != null)
         {
             emulation.SetForwardingSpeaker(controller, volume, preGain);
             if (padPath != null) settings.SaveEmulationSettings(controller.PairingInfo?.ClientMac, padPath, EmulationSettingsFor(controller));
         }
-        Log("Altavoz del mando: " + SpeakerLevels.Label(level) + ".");
+        Log(L.Message(level switch { "Alto" => "Bridge.SpeakerHigh", "Off" => "Bridge.SpeakerOff", _ => "Bridge.SpeakerLow" }));
     }
     /// <summary>The settings MadSense writes for the pad: mode, variant, strict native haptics and the chosen speaker level.</summary>
     EmulationSettings EmulationSettingsFor(DualSenseDevice pad)
@@ -149,7 +150,7 @@ sealed class Bridge : IDisposable
         catch { }
         return 0x20;
     }
-    public event Action<string>? Message;
+    public event Action<UiMessage>? Message;
     /// <summary>Raised from device threads when the bridge wants its owner to call <see cref="Update"/> soon.</summary>
     public event Action? WakeRequested;
     public bool MeasureAudio { get; init; }
@@ -180,16 +181,19 @@ sealed class Bridge : IDisposable
                 report?.Connection.Headphone ?? false);
         }
     }
-    public string DisplayStatus => controller == null ? (reconnect ? (lastConnectionError ?? "Esperando al mando · pulsa PS") : "En pausa · el mando queda libre para otras apps") :
-        $"DualSense · Bluetooth · Batería {controller.InputReport?.Battery.Percentage?.ToString() ?? "?"} %" + (controller.InputReport?.Connection.Headphone == true ? " · Auriculares en el mando" : "") + "\n" +
-        (Ready ? (Mode == "Xbox" ? "Conectado como mando Xbox · abre el juego" : "Conectado · abre el juego") : Running ? "Ocultando el mando físico para que el juego no lo vea dos veces…" : emulation?.GetStatus(controller).IsCreating == true ? "Creando el mando virtual…" : "No se pudo activar el puente. Mira el registro.");
-    public string Status => controller == null ? "Desconectado" :
-        $"Bluetooth · {Interlocked.Read(ref reports):N0} informes · Batería {controller.InputReport?.Battery.Percentage?.ToString() ?? "?"}% · TX {metered?.Summary}\n" +
-        (emulation?.GetStatus(controller) is { } s ? (s.Running ? "Puente USB virtual activo" : s.IsCreating ? "Creando DualSense virtual…" : s.Detail ?? "Esperando") : "Mando conectado");
-    public void Log(string text)
+    public UiMessage DisplayStatus => controller == null ? (reconnect ? (lastConnectionError ?? L.Message("Bridge.Waiting")) : L.Message("Bridge.Paused")) :
+        L.Message("Bridge.ConnectionDetails",
+            L.Message("Bridge.Battery", controller.InputReport?.Battery.Percentage?.ToString() ?? "?"),
+            controller.InputReport?.Connection.Headphone == true ? L.Message("Bridge.HeadsetSuffix") : UiMessage.Raw(""),
+            Ready ? L.Message(Mode == "Xbox" ? "Bridge.ConnectedXbox" : "Bridge.ConnectedNative") : Running ? L.Message("Bridge.HidingController") : emulation?.GetStatus(controller).IsCreating == true ? L.Message("Bridge.CreatingController") : L.Message("Bridge.ActivationFailed"));
+    public string Status => controller == null ? L.Text("Bridge.Disconnected") :
+        L.Text("Bridge.Diagnostics", Interlocked.Read(ref reports), controller.InputReport?.Battery.Percentage?.ToString() ?? "?", metered?.Summary) + "\n" +
+        (emulation?.GetStatus(controller) is { } s ? (s.Running ? L.Text("Bridge.VirtualActive") : s.IsCreating ? L.Text("Bridge.CreatingDualSense") : s.Detail ?? L.Text("Bridge.Pending")) : L.Text("Bridge.ControllerConnected"));
+    public void Log(string text) => Log(UiMessage.Raw(text));
+    public void Log(UiMessage message)
     {
-        LogFiles.Append("madsense.log", $"{DateTimeOffset.Now:O} {text}\n");
-        Message?.Invoke(text);
+        LogFiles.Append("madsense.log", $"{DateTimeOffset.Now:O} {message.Render()}\n");
+        Message?.Invoke(message);
     }
     public void Start()
     {
@@ -203,11 +207,11 @@ sealed class Bridge : IDisposable
         var competing = competitors.Length > 0;
         foreach (var process in competitors) process.Dispose();
         if (competing)
-            throw new InvalidOperationException("DSX está abierto. Ciérralo: solo una app puede controlar el mando.");
-        if (!hiding.IsAvailable) throw new InvalidOperationException("Falta el controlador HidHide. En el README está cómo instalarlo.");
+            throw new LocalizedException(L.Message("Bridge.CompetingApp"));
+        if (!hiding.IsAvailable) throw new LocalizedException(L.Message("Bridge.HidHideMissing"));
         RecoverHiddenController();
         hiding.EnsureSelfVisible();
-        if (!hiding.IsAppWhitelisted) throw new InvalidOperationException("HidHide no deja ver el mando a MadSense. Añade MadSense.exe a las aplicaciones permitidas de HidHide.");
+        if (!hiding.IsAppWhitelisted) throw new LocalizedException(L.Message("Bridge.HidHideBlocked"));
         var pads = enumerator.Enumerate(0x054c).Where(x => (x.ProductId == 0x0ce6 || x.ProductId == 0x0df2) && x.UsagePage == 1).ToList();
         var info = pads.FirstOrDefault(x => x.BusType == ConnectionType.Bluetooth);
         if (info == null)
@@ -215,8 +219,8 @@ sealed class Bridge : IDisposable
             // The virtual pad is excluded from this enumeration, so a USB DualSense here is the
             // real one on a cable: it already works natively and does not need the bridge.
             if (pads.Any(x => x.BusType == ConnectionType.Usb))
-                throw new InvalidOperationException("El DualSense está por cable: así el juego ya lo usa en nativo. Para ir por Bluetooth, quita el cable y pulsa PS.");
-            throw new InvalidOperationException("Esperando al mando · pulsa PS. Tiene que estar emparejado por Bluetooth en Windows.");
+                throw new LocalizedException(L.Message("Bridge.UsbConnected"));
+            throw new LocalizedException(L.Message("Bridge.PairingNeeded"));
         }
         try
         {
@@ -250,7 +254,7 @@ sealed class Bridge : IDisposable
             connectingSince = Environment.TickCount64;
             lastConnectionError = null;
             readyAnnounced = false;
-            Log("Mando conectado por Bluetooth. Creando el " + (Mode == "Xbox" ? "mando Xbox virtual." : "DualSense virtual."));
+            Log(L.Message(Mode == "Xbox" ? "Bridge.StartingXbox" : "Bridge.StartingDualSense"));
         }
         catch { try { Stop(); } finally { reconnect = true; } throw; }
     }
@@ -261,19 +265,25 @@ sealed class Bridge : IDisposable
             if (reconnect && Environment.TickCount64 >= nextRetry)
             {
                 nextRetry = Environment.TickCount64 + 3000;
-                try { Connect(); } catch (Exception e) { if (lastConnectionError != e.Message) { Log(e.Message); lastConnectionError = e.Message; } }
+                try { Connect(); }
+                catch (Exception e)
+                {
+                    var message = UiMessage.FromException(e);
+                    if (lastConnectionError?.Render() != message.Render()) Log(message);
+                    lastConnectionError = message;
+                }
             }
             return;
         }
         if (controller.IsDisposed || metered?.LinkLost == true || Environment.TickCount64 - Interlocked.Read(ref lastReport) > 5000)
         {
-            Log(metered?.LinkLost == true ? "El mando se ha apagado o está fuera de alcance. Pulsa PS cuando quieras seguir." : "El mando lleva cinco segundos sin enviar nada. Esperando a que vuelva…");
+            Log(L.Message(metered?.LinkLost == true ? "Bridge.LinkLost" : "Bridge.InputTimedOut"));
             // The link is gone: reconnect as soon as the pad shows up again, no long back-off.
             try { Stop(); } finally { reconnect = true; nextRetry = Environment.TickCount64 + 1000; } return;
         }
         if (!Running && Environment.TickCount64 - connectingSince > 20000)
         {
-            Log("No se pudo crear el mando virtual. Comprueba que USBip está instalado. Vuelvo a intentarlo en 10 segundos.");
+            Log(L.Message("Bridge.CreationFailed"));
             try { Stop(); } finally { reconnect = true; nextRetry = Environment.TickCount64 + 10000; } return;
         }
         var headset = controller.InputReport?.Connection.Headphone ?? false;
@@ -281,7 +291,7 @@ sealed class Bridge : IDisposable
         {
             emulation!.SetForwardingAudioOutput(controller, headset);
             // Only a change during the session is news; the initial route is implied by "listo".
-            if (headphones != null) Log(headset ? "Auriculares conectados al mando: el audio sale por el jack." : "Auriculares desconectados: el audio vuelve al altavoz del mando.");
+            if (headphones != null) Log(L.Message(headset ? "Bridge.HeadsetConnected" : "Bridge.HeadsetDisconnected"));
             headphones = headset;
         }
         // Hide only after virtual attachment succeeds. Never leave a controller hidden after a failed attach.
@@ -297,30 +307,30 @@ sealed class Bridge : IDisposable
             newlyHidden = id;
             hiding.SetControllerHidden(id, true);
             hiding.GlobalHidingEnabled = true;
-            if (!hiding.IsControllerHidden(id) || !hiding.GlobalHidingEnabled) { Log("HidHide no ha podido ocultar el mando físico: el juego podría verlo dos veces."); return; }
-            Log("Mando físico oculto: el juego solo verá el virtual.");
+            if (!hiding.IsControllerHidden(id) || !hiding.GlobalHidingEnabled) { Log(L.Message("Bridge.HideFailed")); return; }
+            Log(L.Message("Bridge.Hidden"));
         }
         hideVerified = Running && hiding.TryGetInstanceId(controller.Info.Path, out var hiddenId) && hiding.IsControllerHidden(hiddenId) && hiding.GlobalHidingEnabled;
         if (hideVerified && !readyAnnounced)
         {
             readyAnnounced = true;
-            Log("Listo para jugar" + (Mode == "Xbox" ? " como mando Xbox." : ": hápticos, gatillos y altavoz activos."));
+            Log(L.Message(Mode == "Xbox" ? "Bridge.ReadyXbox" : "Bridge.ReadyNative"));
         }
     }
     public void ExerciseHostOutput()
     {
-        if (!Running || controller == null) throw new InvalidOperationException("El puente virtual no está activo.");
+        if (!Running || controller == null) throw new LocalizedException(L.Message("Bridge.NotRunning"));
         using var host = enumerator.OpenDevice(emulation!.GetStatus(controller).VirtualDevicePath!);
         var payload = new OutputReportBuilder { LedBlue = 80, L2TriggerEffect = TriggerEffectBuilder.Feedback(3, 2), R2TriggerEffect = TriggerEffectBuilder.Feedback(3, 2) }.Build();
         var raw = new byte[48];
         var report = OutputReport.ForUsb(payload); report.Raw.CopyTo(raw, 0);
         var before = metered!.Writes;
         var triggersBefore = metered.ActiveTriggerWrites;
-        if (host.Write(raw, 0, raw.Length) < raw.Length) throw new IOException("Escritura USB virtual incompleta.");
+        if (host.Write(raw, 0, raw.Length) < raw.Length) throw new IOException(L.Text("Bridge.IncompleteWrite"));
         Thread.Sleep(350);
-        if (metered.Writes <= before || metered.ActiveTriggerWrites <= triggersBefore || metered.Errors != 0) throw new IOException("La salida virtual no produjo un efecto de gatillos Bluetooth correcto.");
+        if (metered.Writes <= before || metered.ActiveTriggerWrites <= triggersBefore || metered.Errors != 0) throw new IOException(L.Text("Bridge.TriggerTestFailed"));
         controller.ResetOutputs();
-        Log($"Prueba de salida USB virtual → Bluetooth: escrituras antes={before}, después={metered.Writes}; errores={metered.Errors}. La sensación física requiere comprobación humana.");
+        Log(L.Message("Bridge.OutputTest", before, metered.Writes, metered.Errors));
     }
     public void Stop()
     {
@@ -405,7 +415,7 @@ sealed class MeteredHid(IHidDevice inner) : IHidDevice
     public bool LinkLost => Volatile.Read(ref linkLost) != 0;
     /// <summary>Invoked once, on the reader thread, when the link is first seen dead.</summary>
     public Action? Faulted { get; init; }
-    public string Summary => $"31:{Interlocked.Read(ref counts[0x31])} 32:{Interlocked.Read(ref counts[0x32])} 35:{Interlocked.Read(ref counts[0x35])} 36:{Interlocked.Read(ref counts[0x36])} err:{Errors} hápticos:{Interlocked.Read(ref nonzeroHaptics)} gatillos:{Interlocked.Read(ref triggerEffects)}";
+    public string Summary => L.Text("Bridge.TxSummary", Interlocked.Read(ref counts[0x31]), Interlocked.Read(ref counts[0x32]), Interlocked.Read(ref counts[0x35]), Interlocked.Read(ref counts[0x36]), Errors, Interlocked.Read(ref nonzeroHaptics), Interlocked.Read(ref triggerEffects));
     public ushort VendorId => inner.VendorId;
     public ushort ProductId => inner.ProductId;
     public string DevicePath => inner.DevicePath;

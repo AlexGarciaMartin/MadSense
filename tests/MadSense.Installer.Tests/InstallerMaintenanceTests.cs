@@ -95,7 +95,7 @@ public sealed class InstallerMaintenanceTests
     {
         var result = InstallerMaintenance.Prepare(Target, new FakeProcesses(), _ => true, _ => throw new IOException("device unavailable"));
         Assert.That(result.ExitCode, Is.EqualTo(InstallerMaintenance.RecoveryFailed));
-        Assert.That(result.Message, Does.Contain("conservan"));
+        Assert.That(result.Message, Is.EqualTo(L.Text("Maintenance.RecoveryFailed", "device unavailable")));
     }
 
     [Test]

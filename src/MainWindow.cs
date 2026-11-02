@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
+using System.Globalization;
 using System.Threading.Channels;
 using DualSenseClient.Controllers;
 
@@ -13,28 +14,46 @@ sealed class MainWindow : Form
     static readonly Color Acid = Color.FromArgb(220, 241, 49);
     static readonly Color Hot = Color.FromArgb(249, 84, 40);
     static readonly Color Muted = Color.FromArgb(99, 96, 85);
+    static readonly string DisplayVersion = typeof(MainWindow).Assembly.GetName().Version is { } version
+        ? $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}" : "0.4";
     const int WM_DEVICECHANGE = 0x0219, DBT_DEVNODES_CHANGED = 0x0007;
     const int LowBatteryPercent = 15;
     readonly Channel<Action<Bridge>> commands = Channel.CreateUnbounded<Action<Bridge>>(new() { SingleReader = true });
     readonly SemaphoreSlim wake = new(0, 1);
     readonly CancellationTokenSource lifetime = new();
-    readonly EventWaitHandle showSignal = new(false, EventResetMode.AutoReset, "Local\\MadSense-Show");
-    readonly EventWaitHandle stopSignal = new(false, EventResetMode.AutoReset, "Local\\MadSense-Stop");
-    readonly EventWaitHandle installerStopSignal = InstallerStopSignal.Create();
+    readonly EventWaitHandle? showSignal;
+    readonly EventWaitHandle? stopSignal;
+    readonly EventWaitHandle? installerStopSignal;
     readonly System.Windows.Forms.Timer animation = new() { Interval = 250 };
     readonly NotifyIcon tray;
     readonly ToolStripMenuItem autostart;
+    readonly ToolStripMenuItem openItem = new(), pauseItem = new(), speakerMenu = new(), languageMenu = new(), quitItem = new();
+    readonly Dictionary<string, ToolStripMenuItem> languageItems = new();
+    readonly ComboBox language = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Paper, ForeColor = Ink, Dock = DockStyle.Fill, Margin = new Padding(0, 8, 12, 0), Font = new Font("Segoe UI", 9) };
+    readonly HeaderPanel header = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
+    readonly Label section = CreateSection(), speakerSection = CreateSection();
+    readonly RoundedButton details = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 10, 0) };
     readonly HeroPanel hero = new() { Dock = DockStyle.Fill };
-    readonly RoundedButton pause = new() { Text = "Pausar", Accent = true, Width = 144, Height = 40 };
-    readonly Label modeHint = new() { Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
+    readonly RoundedButton pause = new() { Accent = true, Width = 144, Height = 40 };
+    readonly Label modeHint = new() { Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
     readonly Label activity = new() { Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
     readonly Dictionary<string, RoundedButton> modeButtons = new();
     readonly Dictionary<string, RoundedButton> speakerButtons = new();
     readonly Dictionary<string, ToolStripMenuItem> speakerItems = new();
+    readonly Dictionary<Label, Font> fittedFonts = new();
     readonly Task worker;
-    bool paused, quitting, hasHiddenTip, allowVisible, lowBatteryNotified;
+    readonly bool previewOnly;
+    bool paused, quitting, hasHiddenTip, allowVisible, lowBatteryNotified, refreshingLanguage;
     float phase;
-    string lastMessage = "Arrancando…";
+    ActivityEntry lastMessage = new(DateTime.Now, L.Message("Ui.Starting"));
+    ActivityEntry displayedMessage = new(DateTime.Now, L.Message("Ui.Starting"));
+    sealed record ActivityEntry(DateTime Time, UiMessage Message)
+    {
+        public string Render() => $"{Time:HH:mm:ss} · {Message.Render().Split('\n')[0]}";
+    }
+    sealed record LanguageChoice(string Code, string Caption) { public override string ToString() => Caption; }
+
+    static Label CreateSection() => new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.BottomLeft, ForeColor = Ink, Font = new Font("Consolas", 8, FontStyle.Bold), Padding = new Padding(0, 0, 0, 5) };
 
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
     static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
@@ -62,7 +81,7 @@ sealed class MainWindow : Form
     /// </summary>
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == WM_DEVICECHANGE && (int)m.WParam == DBT_DEVNODES_CHANGED && !quitting)
+        if (!previewOnly && m.Msg == WM_DEVICECHANGE && (int)m.WParam == DBT_DEVNODES_CHANGED && !quitting)
         {
             commands.Writer.TryWrite(b => b.RequestRetry());
             Nudge();
@@ -70,8 +89,15 @@ sealed class MainWindow : Form
         base.WndProc(ref m);
     }
 
-    public MainWindow(bool startHidden = false)
+    public MainWindow(bool startHidden = false, bool previewOnly = false)
     {
+        this.previewOnly = previewOnly;
+        if (!previewOnly)
+        {
+            showSignal = new(false, EventResetMode.AutoReset, "Local\\MadSense-Show");
+            stopSignal = new(false, EventResetMode.AutoReset, "Local\\MadSense-Stop");
+            installerStopSignal = InstallerStopSignal.Create();
+        }
         allowVisible = !startHidden;
         SuspendLayout();
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -94,70 +120,80 @@ sealed class MainWindow : Form
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        var header = new HeaderPanel { Dock = DockStyle.Fill, Margin = Padding.Empty };
         layout.Controls.Add(header, 0, 0);
         layout.Controls.Add(hero, 0, 1);
-        var section = new Label { Text = "MODO  /  CÁMBIALO ANTES DE ABRIR EL JUEGO", Dock = DockStyle.Fill, TextAlign = ContentAlignment.BottomLeft, ForeColor = Ink, Font = new Font("Consolas", 8, FontStyle.Bold), Padding = new Padding(0, 0, 0, 5) };
         layout.Controls.Add(section, 0, 2);
         var modes = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Margin = Padding.Empty };
         for (int i = 0; i < 2; i++) modes.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         modes.RowStyles.Add(new RowStyle(SizeType.Absolute, 54)); modes.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        AddMode("Auto", "01 / DUALSENSE · RECOMENDADO", 0); AddMode("Xbox", "02 / MANDO XBOX (XINPUT)", 1);
+        AddMode("Auto", 0); AddMode("Xbox", 1);
         modes.Controls.Add(modeHint, 0, 1); modes.SetColumnSpan(modeHint, 2);
         layout.Controls.Add(modes, 0, 3);
-        var speakerSection = new Label { Text = "ALTAVOZ DEL MANDO  /  SE APLICA AL INSTANTE, TAMBIÉN DESDE LA BANDEJA", Dock = DockStyle.Fill, TextAlign = ContentAlignment.BottomLeft, ForeColor = Ink, Font = new Font("Consolas", 8, FontStyle.Bold), Padding = new Padding(0, 0, 0, 5) };
         layout.Controls.Add(speakerSection, 0, 4);
         var speaker = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
         for (int i = 0; i < 3; i++) speaker.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 3));
-        AddSpeaker("Alto", "ALTO", 0); AddSpeaker("Bajo", "BAJO", 1); AddSpeaker("Off", "APAGADO", 2);
+        AddSpeaker("Alto", 0); AddSpeaker("Bajo", 1); AddSpeaker("Off", 2);
         layout.Controls.Add(speaker, 0, 5);
-        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
         activity.Font = new Font(Font.FontFamily, 8);
         footer.Controls.Add(activity, 0, 0);
-        var details = new RoundedButton { Text = "Registros", Dock = DockStyle.Fill, Margin = new Padding(0, 0, 10, 0), AccessibleDescription = "Abrir la carpeta local de registros de MadSense" };
-        details.Click += (_, _) => { try { Process.Start(new ProcessStartInfo("explorer.exe", AppContext.BaseDirectory) { UseShellExecute = true }); } catch (Exception e) { activity.Text = e.Message; } };
-        footer.Controls.Add(details, 1, 0);
+        language.Items.Add(new LanguageChoice("auto", L.Text("Ui.LanguageAuto")));
+        foreach (var option in L.Languages) language.Items.Add(new LanguageChoice(option.Code, option.NativeName));
+        language.SelectedIndexChanged += (_, _) =>
+        {
+            if (!refreshingLanguage && language.SelectedItem is LanguageChoice choice) ChangeLanguage(choice.Code);
+        };
+        footer.Controls.Add(language, 1, 0);
+        details.Click += (_, _) => { if (previewOnly) return; try { Process.Start(new ProcessStartInfo("explorer.exe", AppContext.BaseDirectory) { UseShellExecute = true }); } catch (Exception e) { ShowActivity(UiMessage.FromException(e)); } };
+        footer.Controls.Add(details, 2, 0);
         pause.Dock = DockStyle.Fill; pause.Margin = Padding.Empty;
         pause.Click += (_, _) => TogglePause();
-        footer.Controls.Add(pause, 2, 0);
+        footer.Controls.Add(pause, 3, 0);
         layout.Controls.Add(footer, 0, 6);
         Controls.Add(layout);
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Abrir MadSense", null, (_, _) => RestoreWindow());
-        menu.Items.Add("Pausar / reanudar", null, (_, _) => TogglePause());
-        var speakerMenu = new ToolStripMenuItem("Altavoz del mando");
+        openItem.Click += (_, _) => RestoreWindow(); menu.Items.Add(openItem);
+        pauseItem.Click += (_, _) => TogglePause(); menu.Items.Add(pauseItem);
         foreach (var level in SpeakerLevels.All)
         {
-            var item = new ToolStripMenuItem(level == "Off" ? "Apagado" : level);
+            var item = new ToolStripMenuItem();
             item.Click += (_, _) => Send(b => b.SetSpeaker(level));
             speakerItems[level] = item; speakerMenu.DropDownItems.Add(item);
         }
         menu.Items.Add(speakerMenu);
-        autostart = new ToolStripMenuItem("Iniciar con Windows, en la bandeja") { CheckOnClick = true, Checked = Preferences.StartsWithWindows };
+        foreach (var code in new[] { "auto" }.Concat(L.Languages.Select(option => option.Code)))
+        {
+            var item = new ToolStripMenuItem();
+            item.Click += (_, _) => ChangeLanguage(code);
+            languageItems[code] = item; languageMenu.DropDownItems.Add(item);
+        }
+        menu.Items.Add(languageMenu);
+        autostart = new ToolStripMenuItem { CheckOnClick = true, Checked = !previewOnly && Preferences.StartsWithWindows };
         autostart.CheckedChanged += (_, _) =>
         {
+            if (previewOnly) return;
             try { Preferences.StartsWithWindows = autostart.Checked; }
-            catch (Exception e) { activity.Text = "No se pudo cambiar el inicio con Windows: " + e.Message; autostart.Checked = Preferences.StartsWithWindows; }
+            catch (Exception e) { ShowActivity(L.Message("Ui.AutostartError", UiMessage.FromException(e))); autostart.Checked = Preferences.StartsWithWindows; }
         };
         menu.Items.Add(autostart);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Salir y liberar el mando", null, async (_, _) => await QuitAsync());
-        tray = new NotifyIcon { Icon = Icon, Text = "MadSense · Esperando al mando", Visible = true, ContextMenuStrip = menu };
+        quitItem.Click += async (_, _) => await QuitAsync(); menu.Items.Add(quitItem);
+        tray = new NotifyIcon { Icon = Icon, Text = "MadSense", Visible = !previewOnly, ContextMenuStrip = menu };
         tray.DoubleClick += (_, _) => RestoreWindow();
         animation.Tick += async (_, _) =>
         {
-            if (stopSignal.WaitOne(0) || installerStopSignal.WaitOne(0)) { await QuitAsync(); return; }
-            if (showSignal.WaitOne(0)) RestoreWindow();
+            if (stopSignal?.WaitOne(0) == true || installerStopSignal?.WaitOne(0) == true) { await QuitAsync(); return; }
+            if (showSignal?.WaitOne(0) == true) RestoreWindow();
             // No drawing or high-frequency timer wakeups when the window is hidden.
             if (Visible && WindowState != FormWindowState.Minimized) { phase += .2f; hero.Phase = phase; hero.Invalidate(); }
         };
         VisibleChanged += (_, _) => AdjustAnimation();
-        Resize += (_, _) => { if (WindowState == FormWindowState.Minimized) Hide(); AdjustAnimation(); };
+        Resize += (_, _) => { if (WindowState == FormWindowState.Minimized && !previewOnly) Hide(); AdjustAnimation(); FitLabels(); };
         FormClosing += (_, e) =>
         {
-            if (quitting) return;
+            if (quitting || previewOnly) return;
             if (e.CloseReason is CloseReason.WindowsShutDown or CloseReason.TaskManagerClosing)
             {
                 quitting = true; animation.Stop(); lifetime.Cancel(); tray.Visible = false;
@@ -165,25 +201,147 @@ sealed class MainWindow : Form
                 return;
             }
             e.Cancel = true; Hide();
-            if (!hasHiddenTip) { tray.ShowBalloonTip(2500, "MadSense sigue en marcha", "Queda en la bandeja. Para cerrar del todo: clic derecho en el icono → Salir y liberar el mando.", ToolTipIcon.Info); hasHiddenTip = true; }
+            if (!hasHiddenTip) { tray.ShowBalloonTip(2500, L.Text("Ui.HiddenTitle"), L.Text("Ui.HiddenBody"), ToolTipIcon.Info); hasHiddenTip = true; }
         };
+        FormClosed += (_, _) => L.Changed -= LanguageChanged;
+        L.Changed += LanguageChanged;
+        ApplyLanguage();
         ResumeLayout(true);
+        FitLabels();
         animation.Start();
-        worker = Task.Run(BridgeLoop);
+        worker = previewOnly ? Task.CompletedTask : Task.Run(BridgeLoop);
 
-        void AddMode(string mode, string text, int column)
+        void AddMode(string mode, int column)
         {
-            var button = new RoundedButton { Text = text, Dock = DockStyle.Fill, Margin = new Padding(column == 0 ? 0 : 6, 0, column == 1 ? 0 : 6, 0), Selected = mode == "Auto", AccessibleDescription = mode switch { "Auto" => "DualSense nativo con Steam Input configurado por juego para ampliar compatibilidad", _ => "Mando Xbox para juegos XInput; sin funciones exclusivas de DualSense" } };
+            var button = new RoundedButton { Dock = DockStyle.Fill, Margin = new Padding(column == 0 ? 0 : 6, 0, column == 1 ? 0 : 6, 0), Selected = mode == "Auto" };
             button.Click += (_, _) => Send(b => b.SetMode(mode));
             modeButtons[mode] = button; modes.Controls.Add(button, column, 0);
         }
 
-        void AddSpeaker(string level, string text, int column)
+        void AddSpeaker(string level, int column)
         {
-            var button = new RoundedButton { Text = text, Dock = DockStyle.Fill, Margin = new Padding(column == 0 ? 0 : 6, 0, column == 2 ? 0 : 6, 0), Selected = level == "Alto", AccessibleDescription = "Nivel del altavoz del mando: " + SpeakerLevels.Label(level) };
+            var button = new RoundedButton { Dock = DockStyle.Fill, Margin = new Padding(column == 0 ? 0 : 6, 0, column == 2 ? 0 : 6, 0), Selected = level == "Alto" };
             button.Click += (_, _) => Send(b => b.SetSpeaker(level));
             speakerButtons[level] = button; speaker.Controls.Add(button, column, 0);
         }
+    }
+
+    void ChangeLanguage(string preference)
+    {
+        try { Preferences.SaveLanguage(preference); L.Use(preference); }
+        catch (Exception e) { ShowActivity(L.Message("Ui.LanguageError", UiMessage.FromException(e))); }
+    }
+
+    void LanguageChanged()
+    {
+        if (IsDisposed || Disposing || quitting) return;
+        if (InvokeRequired) { Post(() => { ApplyLanguage(); if (!previewOnly) Nudge(); }); return; }
+        ApplyLanguage();
+        if (!previewOnly) Nudge();
+    }
+
+    void ApplyLanguage()
+    {
+        refreshingLanguage = true;
+        try
+        {
+            var culture = CultureInfo.GetCultureInfo(L.CurrentLanguage);
+            section.Text = L.Text("Ui.ModeSection"); speakerSection.Text = L.Text("Ui.SpeakerSection");
+            details.Text = L.Text("Ui.Logs"); details.AccessibleDescription = L.Text("Ui.LogsDescription");
+            pause.Text = L.Text(paused ? "Ui.Resume" : "Ui.Pause");
+            modeButtons["Auto"].Text = L.Text("Ui.NativeMode"); modeButtons["Xbox"].Text = L.Text("Ui.XboxMode");
+            modeButtons["Auto"].AccessibleDescription = L.Text("Ui.NativeDescription");
+            modeButtons["Xbox"].AccessibleDescription = L.Text("Ui.XboxDescription");
+            foreach (var pair in speakerButtons)
+            {
+                var label = SpeakerLevels.Label(pair.Key);
+                pair.Value.Text = label.ToUpper(culture);
+                pair.Value.AccessibleDescription = L.Text("Ui.SpeakerLevel", label);
+                speakerItems[pair.Key].Text = culture.TextInfo.ToTitleCase(label);
+            }
+            openItem.Text = L.Text("Ui.Open"); pauseItem.Text = L.Text("Ui.TogglePause");
+            speakerMenu.Text = L.Text("Ui.SpeakerMenu"); languageMenu.Text = L.Text("Ui.Language");
+            autostart.Text = L.Text("Ui.Autostart"); quitItem.Text = L.Text("Ui.Quit");
+            language.AccessibleName = L.Text("Ui.Language"); language.AccessibleDescription = L.Text("Ui.LanguageDescription");
+            // Keep the native list stable while a user navigates its open dropdown.
+            // Rebuilding it inside SelectedIndexChanged resets the highlighted item.
+            var automaticCaption = L.Text("Ui.LanguageAuto");
+            if (language.Items[0] is LanguageChoice automatic && automatic.Caption != automaticCaption)
+                language.Items[0] = new LanguageChoice("auto", automaticCaption);
+            for (int i = 0; i < language.Items.Count; i++)
+            {
+                if (language.Items[i] is not LanguageChoice choice) continue;
+                languageItems[choice.Code].Text = choice.Caption;
+                languageItems[choice.Code].Checked = choice.Code == L.Preference;
+                if (choice.Code == L.Preference && language.SelectedIndex != i) language.SelectedIndex = i;
+            }
+            hero.AccessibleName = L.Text("Ui.ControllerState");
+            RefreshStatusText();
+            header.Invalidate(); hero.Invalidate();
+            foreach (var button in modeButtons.Values.Concat(speakerButtons.Values)) button.Invalidate();
+            FitLabels();
+        }
+        finally { refreshingLanguage = false; }
+    }
+
+    void RefreshStatusText()
+    {
+        var hint = L.Text(hero.Xbox ? "Ui.XboxHint" : "Ui.NativeHint");
+        if (modeHint.Text != hint) { modeHint.Text = hint; FitLabel(modeHint, 10, 8.5f, true); }
+        activity.Text = displayedMessage.Render();
+        activity.AccessibleDescription = displayedMessage.Message.Render();
+        var battery = hero.Connected && hero.Signals is { Battery: >= 0 } sig ? L.Text("Ui.TrayBattery", sig.Battery) : "";
+        tray.Text = Truncate(L.Text(hero.Connected ? "Ui.TrayReady" : paused ? "Ui.TrayPaused" : "Ui.TrayWaiting") + battery, 63);
+    }
+
+    void ShowActivity(UiMessage message)
+    {
+        displayedMessage = new(DateTime.Now, message);
+        Interlocked.Exchange(ref lastMessage, displayedMessage);
+        activity.Text = displayedMessage.Render();
+        activity.AccessibleDescription = message.Render();
+    }
+
+    void FitLabels()
+    {
+        FitLabel(modeHint, 10, 8.5f, true);
+        FitLabel(section, 8, 7.5f, false);
+        FitLabel(speakerSection, 8, 7.5f, false);
+    }
+
+    void FitLabel(Label label, float largest, float smallest, bool wrap)
+    {
+        if (label.ClientSize.Width < 1 || label.ClientSize.Height < 1) return;
+        var available = new Size(Math.Max(1, label.ClientSize.Width - label.Padding.Horizontal), Math.Max(1, label.ClientSize.Height - label.Padding.Vertical));
+        var flags = TextFormatFlags.NoPadding | (wrap ? TextFormatFlags.WordBreak : TextFormatFlags.SingleLine);
+        Font? chosen = null;
+        for (float size = largest; size >= smallest; size -= .25f)
+        {
+            var candidate = new Font(label.Font.FontFamily, size, label.Font.Style);
+            var measured = TextRenderer.MeasureText(label.Text, candidate, available, flags);
+            if ((measured.Width <= available.Width && measured.Height <= available.Height) || size <= smallest)
+            { chosen = candidate; break; }
+            candidate.Dispose();
+        }
+        if (chosen is null) return;
+        if (Math.Abs(label.Font.Size - chosen.Size) < .01f) chosen.Dispose();
+        else
+        {
+            fittedFonts.Remove(label, out var old);
+            label.Font = chosen; fittedFonts[label] = chosen; old?.Dispose();
+        }
+    }
+
+    /// <summary>Visual QA fixture. It never starts a bridge or creates global control events.</summary>
+    internal void SetPreviewState(bool connected, bool paused, bool xbox, BridgeSignals? signals, UiMessage? status = null)
+    {
+        if (!previewOnly) throw new InvalidOperationException("Preview state requires previewOnly.");
+        this.paused = paused; hero.Connected = connected; hero.Paused = paused; hero.Xbox = xbox;
+        hero.Signals = signals; hero.Status = status ?? L.Message("Ui.WaitingInstructions");
+        foreach (var pair in modeButtons) pair.Value.Selected = xbox ? pair.Key == "Xbox" : pair.Key == "Auto";
+        foreach (var pair in speakerButtons) pair.Value.Enabled = !xbox;
+        foreach (var pair in speakerItems) pair.Value.Enabled = !xbox;
+        ApplyLanguage();
     }
 
     void AdjustAnimation() => animation.Interval = Visible && WindowState != FormWindowState.Minimized ? 250 : 1000;
@@ -191,15 +349,16 @@ sealed class MainWindow : Form
     void TogglePause()
     {
         if (quitting) return;
-        paused = !paused; pause.Text = paused ? "Reanudar" : "Pausar";
+        paused = !paused; pause.Text = L.Text(paused ? "Ui.Resume" : "Ui.Pause");
+        if (previewOnly) { hero.Paused = paused; RefreshStatusText(); hero.Invalidate(); return; }
         var shouldPause = paused;
-        Send(b => { if (shouldPause) { b.Stop(); b.Log("En pausa · mando liberado."); } else b.Start(); });
+        Send(b => { if (shouldPause) { b.Stop(); b.Log(L.Message("Ui.PausedMessage")); } else b.Start(); });
     }
 
     /// <summary>Queues a bridge command and wakes the worker so it runs now, not on the next second.</summary>
     void Send(Action<Bridge> command)
     {
-        if (quitting) return;
+        if (quitting || previewOnly) return;
         commands.Writer.TryWrite(command);
         Nudge();
     }
@@ -215,7 +374,7 @@ sealed class MainWindow : Form
         try { await RunBridge().ConfigureAwait(false); }
         catch (Exception e)
         {
-            Post(() => { activity.Text = "No se pudo iniciar el puente: " + e.Message; hero.Status = "No se pudo iniciar el puente. Consulta los registros."; hero.Connected = false; hero.Invalidate(); });
+            Post(() => { ShowActivity(L.Message("Ui.BridgeStartError", UiMessage.FromException(e))); hero.Status = L.Message("Ui.BridgeStartFailed"); hero.Connected = false; hero.Invalidate(); });
             try { File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "ui-error.log"), $"{DateTimeOffset.Now:O} {e}\n"); } catch { }
         }
     }
@@ -223,28 +382,28 @@ sealed class MainWindow : Form
     async Task RunBridge()
     {
         using var bridge = new Bridge();
-        bridge.Message += message => { lastMessage = $"{DateTime.Now:HH:mm:ss} · {message}"; };
+        bridge.Message += message => Interlocked.Exchange(ref lastMessage, new ActivityEntry(DateTime.Now, message));
         bridge.WakeRequested += Nudge;
-        try { bridge.Start(); } catch (Exception e) { lastMessage = e.Message; }
+        try { bridge.Start(); } catch (Exception e) { Interlocked.Exchange(ref lastMessage, new ActivityEntry(DateTime.Now, UiMessage.FromException(e))); }
         try
         {
             while (!lifetime.IsCancellationRequested)
             {
                 while (commands.Reader.TryRead(out var command))
-                    try { command(bridge); } catch (Exception e) { lastMessage = e.Message; }
-                try { bridge.Update(); } catch (Exception e) { lastMessage = e.Message; }
+                    try { command(bridge); } catch (Exception e) { Interlocked.Exchange(ref lastMessage, new ActivityEntry(DateTime.Now, UiMessage.FromException(e))); }
+                try { bridge.Update(); } catch (Exception e) { Interlocked.Exchange(ref lastMessage, new ActivityEntry(DateTime.Now, UiMessage.FromException(e))); }
                 var running = bridge.Ready;
                 var status = bridge.DisplayStatus;
                 var mode = bridge.Mode;
                 var speakerLevel = bridge.Speaker;
-                var message = lastMessage;
+                var message = Volatile.Read(ref lastMessage);
                 var signals = bridge.Signals;
                 var notifyLowBattery = CheckLowBattery(signals);
                 Post(() =>
                 {
                     hero.Connected = running;
                     hero.Paused = paused;
-                    hero.Status = paused ? "Conexión en pausa" : status;
+                    hero.Status = status;
                     hero.Signals = running ? signals : null;
                     hero.Xbox = mode == "Xbox";
                     hero.Invalidate();
@@ -252,13 +411,9 @@ sealed class MainWindow : Form
                     // The speaker only exists for the DualSense persona; an Xbox pad has none.
                     foreach (var pair in speakerButtons) { pair.Value.Selected = pair.Key == speakerLevel; pair.Value.Enabled = mode != "Xbox"; pair.Value.Invalidate(); }
                     foreach (var pair in speakerItems) { pair.Value.Checked = pair.Key == speakerLevel; pair.Value.Enabled = mode != "Xbox"; }
-                    modeHint.Text = mode == "Xbox"
-                        ? "El juego ve un mando de Xbox: botones, sticks y vibración normal. Sin hápticos ni gatillos adaptativos.\nPara juegos fuera de Steam que solo aceptan Xbox."
-                        : "El juego ve un DualSense por USB, con hápticos, gatillos adaptativos y altavoz si los soporta.\nSi el juego lo soporta en nativo, desactiva Steam Input para ese juego. MadSense no toca Steam.";
-                    activity.Text = message.Split('\n')[0];
-                    var battery = running && signals.Battery >= 0 ? $" · Batería {signals.Battery} %" : "";
-                    tray.Text = Truncate(running ? "MadSense · Listo para jugar" + battery : paused ? "MadSense · En pausa" : "MadSense · Esperando al mando", 63);
-                    if (notifyLowBattery) tray.ShowBalloonTip(6000, "Batería baja", $"Al DualSense le queda un {signals.Battery} %.", ToolTipIcon.Warning);
+                    displayedMessage = message;
+                    RefreshStatusText();
+                    if (notifyLowBattery) tray.ShowBalloonTip(6000, L.Text("Ui.LowBatteryTitle"), L.Text("Ui.LowBatteryBody", signals.Battery), ToolTipIcon.Warning);
                 });
                 // Sleep until a command, a device event or the bridge's own schedule needs us.
                 try { await wake.WaitAsync(Math.Min(1000, bridge.MillisUntilDue), lifetime.Token).ConfigureAwait(false); }
@@ -266,7 +421,7 @@ sealed class MainWindow : Form
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception e) { Post(() => { activity.Text = "Error del puente: " + e.Message; }); }
+        catch (Exception e) { Post(() => ShowActivity(L.Message("Ui.BridgeError", UiMessage.FromException(e)))); }
         finally { bridge.WakeRequested -= Nudge; }
         // Dispose completes on this same worker, never concurrently with Update.
     }
@@ -292,12 +447,47 @@ sealed class MainWindow : Form
     async Task QuitAsync()
     {
         if (quitting) return;
-        quitting = true; pause.Enabled = false; activity.Text = "Liberando el mando…";
+        quitting = true; pause.Enabled = false; activity.Text = L.Text("Ui.Releasing");
         animation.Stop(); commands.Writer.TryComplete(); lifetime.Cancel();
         try { await worker; } catch (Exception e) { Debug.WriteLine(e); }
         tray.Visible = false; tray.Dispose(); animation.Dispose();
-        showSignal.Dispose(); stopSignal.Dispose(); installerStopSignal.Dispose(); lifetime.Dispose(); wake.Dispose();
+        showSignal?.Dispose(); stopSignal?.Dispose(); installerStopSignal?.Dispose();
+        if (!previewOnly) { lifetime.Dispose(); wake.Dispose(); }
         Close();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            L.Changed -= LanguageChanged;
+            if (previewOnly)
+            {
+                animation.Dispose(); tray?.ContextMenuStrip?.Dispose(); tray?.Dispose();
+                lifetime.Dispose(); wake.Dispose();
+            }
+            foreach (var font in fittedFonts.Values) font.Dispose();
+            fittedFonts.Clear();
+        }
+        base.Dispose(disposing);
+    }
+
+    // Use a bounded font fit for translated artwork; the full text also remains accessible.
+    static void DrawFitted(Graphics graphics, string text, string family, float largest, float smallest, FontStyle style, Brush brush, RectangleF bounds, bool wrap = false)
+    {
+        using var format = new StringFormat(StringFormat.GenericDefault)
+        {
+            FormatFlags = wrap ? 0 : StringFormatFlags.NoWrap,
+            Trimming = StringTrimming.None,
+            LineAlignment = StringAlignment.Near
+        };
+        for (float size = largest; size >= smallest; size -= .5f)
+        {
+            using var font = new Font(family, size, style, GraphicsUnit.Pixel);
+            var measured = graphics.MeasureString(text, font, wrap ? new SizeF(bounds.Width, 1000) : new SizeF(10000, bounds.Height), format);
+            if ((measured.Width <= bounds.Width + .5f && measured.Height <= bounds.Height + .5f) || size <= smallest)
+            { graphics.DrawString(text, font, brush, bounds, format); return; }
+        }
     }
 
     // All artwork is native vector drawing: no textures, browser or animation framework.
@@ -312,11 +502,11 @@ sealed class MainWindow : Form
             var save = g.Save(); g.TranslateTransform(5, 10); g.RotateTransform(-6);
             using (var orange = new SolidBrush(Hot)) g.FillRectangle(orange, 1, 1, 68, 68);
             Logo.Draw(g, new RectangleF(5, 4, 58, 58)); g.Restore(save);
-            using var title = new Font("Impact", 57, FontStyle.Regular, GraphicsUnit.Pixel);
             using var small = new Font("Consolas", 10.5f, FontStyle.Bold, GraphicsUnit.Pixel);
             using var ink = new SolidBrush(Ink);
-            g.DrawString("MADSENSE", title, ink, 78, 0);
-            g.DrawString("DUALSENSE POR BLUETOOTH: HÁPTICOS, GATILLOS Y ALTAVOZ", small, ink, 82, 65);
+            float textRight = w > 650 ? w - 161 : w;
+            DrawFitted(g, "MADSENSE", "Impact", 57, 40, FontStyle.Regular, ink, new RectangleF(78, 0, textRight - 78, 70));
+            DrawFitted(g, L.Text("Ui.HeaderTagline"), "Consolas", 10.5f, 8, FontStyle.Bold, ink, new RectangleF(82, 65, textRight - 82, 26), true);
             using var line = new Pen(Ink, 3);
             g.DrawLine(line, 0, 94, w, 94);
             if (w > 650)
@@ -324,10 +514,9 @@ sealed class MainWindow : Form
                 float x = w - 146;
                 g.FillRectangle(ink, x, 12, 146, 63);
                 using var paper = new SolidBrush(Paper);
-                using var tag = new Font("Consolas", 13, FontStyle.Bold, GraphicsUnit.Pixel);
                 g.DrawString("BLUETOOTH / PC", small, paper, x + 11, 20);
                 using var acid = new SolidBrush(Acid); g.FillRectangle(acid, x + 10, 42, 126, 25);
-                g.DrawString("VERSIÓN 0.4", tag, ink, x + 16, 45);
+                DrawFitted(g, L.Text("Ui.Version", DisplayVersion), "Consolas", 13, 10, FontStyle.Bold, ink, new RectangleF(x + 16, 45, 114, 22));
                 for (int i = 0; i < 12; i++)
                     g.FillRectangle(ink, w - 145 + i * 12, 84, i % 3 == 0 ? 6 : 2, 6);
             }
@@ -337,11 +526,11 @@ sealed class MainWindow : Form
     sealed class HeroPanel : Panel
     {
         public bool Connected, Paused, Xbox;
-        public string Status = "Pulsa PS en el mando. Tiene que estar emparejado por Bluetooth en Windows.";
+        public UiMessage Status = L.Message("Ui.WaitingInstructions");
         public float Phase;
         /// <summary>Live feedback lamps; <c>null</c> hides the row (not connected).</summary>
         public BridgeSignals? Signals;
-        public HeroPanel() { DoubleBuffered = true; Margin = Padding.Empty; AccessibleName = "Estado del mando"; }
+        public HeroPanel() { DoubleBuffered = true; Margin = Padding.Empty; }
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e); var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -371,32 +560,34 @@ sealed class MainWindow : Form
             g.Restore(tilted);
             // Sharp speech-label, distinct state text even without color perception.
             using var tiny = new Font("Consolas", 10.5f, FontStyle.Bold, GraphicsUnit.Pixel);
-            using var headline = new Font("Impact", 55, FontStyle.Regular, GraphicsUnit.Pixel);
-            using var second = new Font("Impact", 35, FontStyle.Regular, GraphicsUnit.Pixel);
-            g.DrawString(Xbox ? "MODO XBOX" : "MODO DUALSENSE", tiny, paper, 23, 20);
-            string top = Paused ? "EN PAUSA." : Connected ? "LISTO." : "PULSA PS";
-            string bottom = Paused ? "MANDO LIBRE." : Connected ? "ABRE EL JUEGO." : "EN EL MANDO.";
-            g.DrawString(top, headline, paper, 20, 45);
-            g.DrawString(bottom, second, paper, 23, 106);
+            float headlineWidth = w * .51f - 34;
+            DrawFitted(g, L.Text(Xbox ? "Ui.HeroXbox" : "Ui.HeroDualSense"), "Consolas", 10.5f, 9, FontStyle.Bold, paper, new RectangleF(23, 20, headlineWidth, 20));
+            string top = L.Text(Paused ? "Ui.HeroPaused" : Connected ? "Ui.HeroReady" : "Ui.HeroPressPs");
+            string bottom = L.Text(Paused ? "Ui.HeroReleased" : Connected ? "Ui.HeroPlay" : "Ui.HeroOnController");
+            DrawFitted(g, top, "Impact", 55, 28, FontStyle.Regular, paper, new RectangleF(20, 45, headlineWidth, 68));
+            DrawFitted(g, bottom, "Impact", 35, 22, FontStyle.Regular, paper, new RectangleF(23, 112, headlineWidth, 45));
             float labelY = Math.Max(164, baseY - 45);
-            var badge = new RectangleF(25, labelY, 212, 28);
+            string state = L.Text(Paused ? "Ui.BadgePaused" : Connected ? "Ui.BadgeReady" : "Ui.BadgeWaiting");
+            float badgeWidth = Math.Min(headlineWidth - 12, Math.Max(212, g.MeasureString(state, tiny).Width + 40));
+            var badge = new RectangleF(25, labelY, badgeWidth, 28);
             g.FillPolygon(Connected ? acid : paper, new PointF[] { new(badge.X, badge.Y), new(badge.Right + 6, badge.Y - 3), new(badge.Right, badge.Bottom), new(badge.X - 3, badge.Bottom + 2) });
-            string state = Paused ? "// EN PAUSA" : Connected ? "// LISTO PARA JUGAR" : "// ESPERANDO AL MANDO";
-            g.DrawString(state, tiny, ink, badge.X + 12, badge.Y + 7);
+            DrawFitted(g, state, "Consolas", 10.5f, 9, FontStyle.Bold, ink, new RectangleF(badge.X + 12, badge.Y + 7, badge.Width - 38, 18));
             if (!Paused && (int)(Phase * 2) % 2 == 0)
                 g.FillRectangle(ink, badge.Right - 18, badge.Y + 10, 6, 6);
             g.Restore(save);
             // Functional status is printed on a calm strip, separated from the artwork.
             g.FillRectangle(paper, 2, baseY, w - 4, h - baseY - 2);
             using var outline = new Pen(Ink, 3); g.DrawRectangle(outline, 1.5f, 1.5f, w - 3, h - 3);
-            using var normal = new Font("Segoe UI", 13, FontStyle.Regular, GraphicsUnit.Pixel);
             using var index = new Font("Consolas", 11, FontStyle.Bold, GraphicsUnit.Pixel);
             g.DrawString("LINK", index, ink, 17, baseY + 23);
             g.DrawLine(outline, 64, baseY + 13, 64, h - 15);
             // Live lamps on the right of the strip: what the game is really driving on the pad.
             float lampsWidth = Signals is not null && w > 640 ? DrawLamps(g, w - 18, baseY + 12, h - baseY - 24, tiny, ink, paper, acid) : 0;
-            g.DrawString(Status, normal, ink, new RectangleF(79, baseY + 12, w - 96 - lampsWidth, 48));
-            AccessibleDescription = Status + (Signals is { } sig ? $" Hápticos {(sig.Haptics ? "activos" : "en reposo")}, gatillos {(sig.Triggers ? "con efecto" : "libres")}, audio {(sig.Audio ? "en curso" : "en reposo")}." : "");
+            string status = Paused ? L.Text("Ui.ConnectionPaused") : Status.Render();
+            DrawFitted(g, status, "Segoe UI", 13, 10.5f, FontStyle.Regular, ink, new RectangleF(79, baseY + 10, w - 96 - lampsWidth, 52), true);
+            AccessibleDescription = status + (Signals is { } sig ? Xbox
+                ? L.Text("Ui.RumbleState", L.Text(sig.Rumble ? "Ui.Active" : "Ui.Idle"))
+                : L.Text("Ui.FeedbackState", L.Text(sig.Haptics || sig.Rumble ? "Ui.Active" : "Ui.Idle"), L.Text(sig.Triggers ? "Ui.Active" : "Ui.Idle"), L.Text(sig.Audio ? "Ui.Active" : "Ui.Idle")) : "");
         }
 
         /// <summary>Draws the lamp row right-aligned at <paramref name="right"/> and returns its width.</summary>
@@ -405,8 +596,8 @@ sealed class MainWindow : Form
             var sig = Signals!;
             // Xbox mode has no native haptics or trigger lane: show what that persona can carry.
             (string Label, bool On)[] lamps = Xbox
-                ? [("VIBRACIÓN", sig.Rumble)]
-                : [("HÁPTICOS", sig.Haptics || sig.Rumble), ("GATILLOS", sig.Triggers), ("AUDIO", sig.Audio)];
+                ? [(L.Text("Ui.Rumble"), sig.Rumble)]
+                : [(L.Text("Ui.Haptics"), sig.Haptics || sig.Rumble), (L.Text("Ui.Triggers"), sig.Triggers), (L.Text("Ui.Audio"), sig.Audio)];
             const float gap = 14, box = 9;
             float x = right;
             using var outline = new Pen(Ink, 1.5f);
@@ -470,7 +661,15 @@ sealed class MainWindow : Form
             using var fill = new SolidBrush(!Enabled ? Color.FromArgb(212, 209, 198) : Selected ? Acid : Accent ? Hot : hovered ? Color.White : Paper);
             g.FillRectangle(fill, r);
             using var outline = new Pen(Ink, 2 * s); g.DrawRectangle(outline, r.X, r.Y, r.Width, r.Height);
-            TextRenderer.DrawText(g, Text, Font, Rectangle.Round(r), Enabled ? Ink : Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            var textBounds = Rectangle.Inflate(Rectangle.Round(r), -(int)(10 * s), -(int)(4 * s));
+            const TextFormatFlags flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
+            for (float size = Font.Size; size >= 7; size -= .25f)
+            {
+                using var candidate = new Font(Font.FontFamily, size, Font.Style);
+                var measured = TextRenderer.MeasureText(g, Text, candidate, Size.Empty, flags);
+                if ((measured.Width <= textBounds.Width && measured.Height <= textBounds.Height) || size <= 7)
+                { TextRenderer.DrawText(g, Text, candidate, textBounds, Enabled ? Ink : Muted, flags); break; }
+            }
             if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(Rectangle.Round(r), -(int)(6 * s), -(int)(6 * s)), Ink, Paper);
         }
     }

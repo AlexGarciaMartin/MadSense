@@ -96,6 +96,32 @@ Assert-LanguageContract ($languages.Count -gt 1) 'The installer must offer more 
 Assert-LanguageContract ($languages[0].Id -ceq 'english') 'English must be the first language, as the fallback'
 Assert-LanguageContract ($languages[0].Files[0] -ieq 'compiler:Default.isl') 'English must inherit compiler:Default.isl'
 
+# The installer selection seeds the app's first launch. The files are ordinary
+# installed assets so upgrades refresh the seed and uninstalls remove it, while
+# an explicit preferences.json language continues to take precedence.
+$appLanguageCodes = @{
+    english = 'en'; spanish = 'es'; french = 'fr'; german = 'de'; italian = 'it'; brazilianportuguese = 'pt-BR'
+}
+Assert-LanguageContract ($languages.Count -eq $appLanguageCodes.Count) 'Installer and app must expose the same six languages'
+$filesSection = [regex]::Match($installer, '(?ms)^\[Files\]\s*\r?\n(?<body>.*?)(?=^\[|\z)')
+Assert-LanguageContract $filesSection.Success 'MadSense.iss has no [Files] section'
+$fileEntries = @($filesSection.Groups['body'].Value -split '\r?\n' | Where-Object { $_ -notmatch '^\s*(;.*)?$' })
+foreach ($language in $languages) {
+    $id = $language.Id
+    Assert-LanguageContract ($appLanguageCodes.ContainsKey($id)) "No app language mapping for '$id'"
+    $seed = (Read-Utf8 (Join-Path $setupDirectory "app-languages/$id.txt")).Trim()
+    Assert-LanguageContract ($seed -ceq $appLanguageCodes[$id]) "Wrong app language seed for '$id': '$seed'"
+    $sourcePattern = '(?i)(?:^|;)\s*Source:\s*"' + [regex]::Escape("app-languages\$id.txt") + '"'
+    $entries = @($fileEntries | Where-Object { $_ -match $sourcePattern })
+    Assert-LanguageContract ($entries.Count -eq 1) "Expected exactly one installed app language seed for '$id'"
+    $entry = $entries[0]
+    Assert-LanguageContract ($entry -match '(?i)(?:^|;)\s*DestDir:\s*"\{app\}"') "App language seed for '$id' must be installed beside the app"
+    Assert-LanguageContract ($entry -match '(?i)(?:^|;)\s*DestName:\s*"installer-language\.txt"') "Wrong destination name for '$id' app language seed"
+    Assert-LanguageContract ($entry -match ('(?i)(?:^|;)\s*Languages:\s*"' + [regex]::Escape($id) + '"')) "App language seed for '$id' must be restricted to that installer language"
+    Assert-LanguageContract ($entry -match '(?i)(?:^|;)\s*Flags:\s*[^;]*\bignoreversion\b') "App language seed for '$id' must refresh during upgrades"
+    Assert-LanguageContract ($entry -notmatch '(?i)\buninsneveruninstall\b') "App language seed for '$id' must be removed during uninstall"
+}
+
 # A global override would replace every translation, even if the local catalogs
 # are complete. Keep these overrides in the per-language .isl files instead.
 foreach ($sectionName in @('Messages', 'CustomMessages')) {
@@ -129,6 +155,6 @@ foreach ($language in $languages) {
     }
     $sidebar = Join-Path $setupDirectory "assets/localized/sidebar-$($language.Id).bmp"
     Assert-Sidebar $sidebar $language.Id
-    Write-Host "PASS $($language.Id): catalog keys, arguments, line breaks and 492x942 BMP"
+    Write-Host "PASS $($language.Id): catalog keys, arguments, line breaks, 492x942 BMP and app language seed"
 }
 Write-Host "Installer language checks passed: $($languages.Count) languages, $($referencedKeys.Count) referenced custom messages."

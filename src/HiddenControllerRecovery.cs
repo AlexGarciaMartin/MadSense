@@ -17,15 +17,15 @@ internal static class HiddenControllerRecovery
             ? new HideLease(JsonSerializer.Deserialize<string>(json)!, false, true)
             : JsonSerializer.Deserialize<HideLease>(json);
         if (lease == null || string.IsNullOrWhiteSpace(lease.Id) || !lease.Id.StartsWith("HID\\", StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Registro de recuperación HidHide no válido.");
+            throw new IOException(L.Text("Recovery.InvalidJournal"));
 
         var state = createState();
-        if (!state.IsAvailable) throw new IOException("HidHide no está operativo; reinicia Windows y vuelve a intentarlo.");
+        if (!state.IsAvailable) throw new IOException(L.Text("Recovery.HidHideUnavailable"));
         state.SetHidden(lease.Id, lease.WasHidden);
         state.Active = lease.WasActive;
         // The strict adapter propagates driver read failures instead of treating them as 'false'.
         if (state.IsHidden(lease.Id) != lease.WasHidden || state.Active != lease.WasActive)
-            throw new IOException("No se pudo restaurar HidHide. Se conserva el registro de recuperación.");
+            throw new IOException(L.Text("Recovery.RestoreFailed"));
         File.Delete(journal);
     }
 }

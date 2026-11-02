@@ -15,6 +15,8 @@ $results=New-Object 'System.Collections.Generic.List[object]'
 $initialProcesses=@(Get-Process MadSense -ErrorAction SilentlyContinue | ForEach-Object { [pscustomobject]@{Id=$_.Id;Path=$_.Path} })
 $key='HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\MadSense.Installer.Test_is1'
 $shortcut=Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\MadSense Installer Test.lnk'
+$appLanguageCodes=@{english='en';spanish='es';french='fr';german='de';italian='it';brazilianportuguese='pt-BR'}
+$expectedAppLanguage=$appLanguageCodes[$Language]
 function Assert([bool]$Condition,[string]$Message) { if(!$Condition){throw $Message} }
 function Invoke-TestSetup([string]$Scenario,[string]$Target,[string]$Label) {
     $log=Join-Path $qa ($Label+'.log')
@@ -67,11 +69,15 @@ try {
     Assert (Test-Path -LiteralPath (Join-Path $target 'MadSense.exe')) 'No copio la app.'
     Assert (Test-Path -LiteralPath $key) 'No registro desinstalacion en HKCU.'
     Assert (Test-Path -LiteralPath $shortcut) 'No creo acceso en Inicio del usuario.'
+    $languageSeed=Join-Path $target 'installer-language.txt'
+    Assert (Test-Path -LiteralPath $languageSeed) 'No instalo la seleccion de idioma de la app.'
+    Assert ([IO.File]::ReadAllText($languageSeed).Trim() -ceq $expectedAppLanguage) 'Idioma inicial de app distinto al seleccionado en Setup.'
     $preferences=Join-Path $target 'preferences.json'
-    $sentinel='{"mode":"Xbox","speaker":"Bajo","installer-test":true}'
+    $sentinel='{"mode":"Xbox","speaker":"Bajo","language":"fr","installer-test":true}'
     [IO.File]::WriteAllText($preferences,$sentinel)
     Assert ((Invoke-TestSetup normal $target '02-upgrade') -eq 0) 'Falla actualizacion.'
     Assert ([IO.File]::ReadAllText($preferences) -ceq $sentinel) 'Actualizacion sobrescribe ajustes.'
+    Assert ([IO.File]::ReadAllText($languageSeed).Trim() -ceq $expectedAppLanguage) 'Actualizacion perdio el idioma seleccionado en Setup.'
     # Invalid JSON fails before any HidHide API call, so this is safe on the live PC.
     $journal=Join-Path $target 'hidden-controller.json'
     [IO.File]::WriteAllText($journal,'invalid-test-journal')
@@ -84,6 +90,7 @@ try {
     Remove-Item -LiteralPath $journal -Force
     Assert ((Invoke-TestUninstall $target '04-uninstall') -eq 0) 'Falla desinstalacion normal.'
     Assert (!(Test-Path -LiteralPath (Join-Path $target 'MadSense.exe'))) 'No elimino binarios.'
+    Assert (!(Test-Path -LiteralPath $languageSeed)) 'Desinstalacion conserva el seed de idioma instalado.'
     Assert ([IO.File]::ReadAllText($preferences) -ceq $sentinel) 'Desinstalacion borro ajustes.'
     Assert (!(Test-Path -LiteralPath $key)) 'Queda registro de desinstalacion.'
     Assert (!(Test-Path -LiteralPath $shortcut)) 'Queda acceso de Inicio.'

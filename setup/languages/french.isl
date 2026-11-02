@@ -1,6 +1,6 @@
 [Messages]
 WelcomeLabel1=INSTALLER%nMADSENSE
-WelcomeLabel2=DualSense en Bluetooth sur PC.%n%nApplication et pilotes inclus. Windows peut demander une autorisation pour les installer.%n%nSeul l'installateur est traduit. L'application reste en espagnol.
+WelcomeLabel2=DualSense en Bluetooth sur PC.%n%nApplication et pilotes inclus. Windows peut demander l'autorisation d'installer les pilotes.%n%nVous pouvez changer la langue dans MadSense à tout moment.
 WizardReady=TOUT EST PRÊT.
 ReadyLabel1=Cliquez sur Installer pour préparer MadSense.
 WizardPreparing=VÉRIFICATION.

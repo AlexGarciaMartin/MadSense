@@ -21,19 +21,19 @@ internal static class InstallerMaintenance
         MaintenanceResult result;
         try
         {
-            if (commands.Length != 1) throw new ArgumentException("Indica una única operación de mantenimiento.");
+            if (commands.Length != 1) throw new ArgumentException(L.Text("Maintenance.SingleOperation"));
             var options = new Dictionary<string, string>(StringComparer.Ordinal);
             for (var i = 0; i < args.Length; i++)
             {
                 if (args[i] == commands[0]) continue;
                 if (args[i] is not ("--install-path" or "--result-path") || i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
-                    throw new ArgumentException("Argumentos de mantenimiento no válidos.");
-                if (!options.TryAdd(args[i], args[++i])) throw new ArgumentException("Opción de mantenimiento duplicada.");
+                    throw new ArgumentException(L.Text("Maintenance.InvalidArguments"));
+                if (!options.TryAdd(args[i], args[++i])) throw new ArgumentException(L.Text("Maintenance.DuplicateOption"));
             }
             if (options.TryGetValue("--result-path", out var requestedResultPath))
             {
                 if (!Path.IsPathFullyQualified(requestedResultPath))
-                    throw new ArgumentException("La ruta del resultado debe ser absoluta.");
+                    throw new ArgumentException(L.Text("Maintenance.AbsoluteResultPath"));
                 resultPath = requestedResultPath;
             }
 
@@ -41,20 +41,20 @@ internal static class InstallerMaintenance
             if (commands[0] == "--installer-check-running")
             {
                 result = processes.Find().Any(p => p.Id != processes.CurrentId)
-                    ? new(Busy, "MadSense ya está abierta. La instalación no abrirá otra copia.")
-                    : new(Ready, "No hay otra copia de MadSense abierta.");
+                    ? new(Busy, L.Text("Maintenance.AlreadyRunning"))
+                    : new(Ready, L.Text("Maintenance.NotRunning"));
             }
             else
             {
                 if (!options.TryGetValue("--install-path", out var installPath))
-                    throw new ArgumentException("Falta --install-path con la ruta absoluta de MadSense.exe.");
+                    throw new ArgumentException(L.Text("Maintenance.MissingInstallPath"));
                 result = Prepare(installPath, processes,
                     directory => File.Exists(Path.Combine(directory, HiddenControllerRecovery.JournalName)),
                     directory => HiddenControllerRecovery.Recover(directory, () => new HidHideRecoveryState()));
             }
         }
         catch (ArgumentException e) { result = new(InvalidArguments, e.Message); }
-        catch (Exception e) { result = new(RecoveryFailed, "No se pudo preparar MadSense: " + e.Message); }
+        catch (Exception e) { result = new(RecoveryFailed, L.Text("Maintenance.PreparationFailed", e.Message)); }
 
         if (resultPath != null)
         {
@@ -70,41 +70,41 @@ internal static class InstallerMaintenance
     {
         if (!Path.IsPathFullyQualified(executablePath) ||
             !string.Equals(Path.GetFileName(executablePath), "MadSense.exe", StringComparison.OrdinalIgnoreCase))
-            return new(InvalidArguments, "La ruta de instalación debe ser absoluta y terminar en MadSense.exe.");
+            return new(InvalidArguments, L.Text("Maintenance.InvalidInstallPath"));
         var target = Path.GetFullPath(executablePath);
         var directory = Path.GetDirectoryName(target)!;
         var snapshots = processes.Find().Where(p => p.Id != processes.CurrentId).ToArray();
         if (snapshots.Any(p => p.ExecutablePath == null))
-            return new(Busy, "Hay una copia de MadSense cuya ubicación no se puede comprobar. Ciérrala desde la bandeja y vuelve a intentarlo.");
+            return new(Busy, L.Text("Maintenance.UnknownLocation"));
 
         var owned = snapshots.Where(p => SamePath(p.ExecutablePath!, target)).ToArray();
         if (owned.Any(p => p.SessionId != processes.CurrentSessionId))
-            return new(Busy, "Esta instalación de MadSense está abierta en otra sesión de Windows. Ciérrala antes de continuar.");
+            return new(Busy, L.Text("Maintenance.OtherSession"));
         foreach (var process in owned)
         {
             // Never use the old global stop event: it can belong to a development copy.
             if (!processes.RequestStop(process))
-                return new(Busy, "Cierra esta copia de MadSense desde la bandeja: «Salir y liberar el mando». Después vuelve a intentarlo.");
+                return new(Busy, L.Text("Maintenance.CloseFromTray"));
         }
         foreach (var process in owned)
             if (!processes.WaitForExit(process, TimeSpan.FromSeconds(12)))
-                return new(Busy, "MadSense sigue liberando el mando. Espera a que termine de cerrar y vuelve a intentarlo.");
+                return new(Busy, L.Text("Maintenance.WaitForExit"));
 
         var remaining = processes.Find().Where(p => p.Id != processes.CurrentId).ToArray();
         if (remaining.Any(p => p.ExecutablePath == null || SamePath(p.ExecutablePath, target)))
-            return new(Busy, "La copia que se va a modificar sigue abierta. No se han forzado cierres ni borrado sus datos.");
+            return new(Busy, L.Text("Maintenance.StillRunning"));
         var recoveryPending = hasJournal(directory);
         if (recoveryPending && remaining.Length != 0)
-            return new(Busy, "Hay una recuperación del mando pendiente y otra copia de MadSense abierta. Cierra esa copia antes de continuar.");
+            return new(Busy, L.Text("Maintenance.PendingRecovery"));
         using var recoveryGuard = recoveryPending ? processes.TryGuardRecovery() : null;
         if (recoveryPending && recoveryGuard == null)
-            return new(Busy, "Otra copia de MadSense se ha abierto durante la comprobación. Ciérrala y vuelve a intentarlo.");
+            return new(Busy, L.Text("Maintenance.OpenedDuringCheck"));
         try { recover(directory); }
         catch (Exception e)
         {
-            return new(RecoveryFailed, "No se pudo restaurar el estado del mando. Se conservan sus datos de recuperación. " + e.Message);
+            return new(RecoveryFailed, L.Text("Maintenance.RecoveryFailed", e.Message));
         }
-        return new(Ready, "MadSense está preparada. El mando y sus datos de recuperación se han comprobado.");
+        return new(Ready, L.Text("Maintenance.Ready"));
     }
 
     internal static bool SamePath(string left, string right) =>
