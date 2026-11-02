@@ -36,7 +36,7 @@ sealed class MainWindow : Form
     readonly HeroPanel hero = new() { Dock = DockStyle.Fill };
     readonly RoundedButton pause = new() { Accent = true, Width = 144, Height = 40 };
     readonly Label modeHint = new() { Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
-    readonly Label activity = new() { Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
+    readonly Label activity = new SingleLineLabel { Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
     readonly Dictionary<string, RoundedButton> modeButtons = new();
     readonly Dictionary<string, RoundedButton> speakerButtons = new();
     readonly Dictionary<string, ToolStripMenuItem> speakerItems = new();
@@ -636,6 +636,25 @@ sealed class MainWindow : Form
             using var hatch = new Pen(Ink, 1.2f);
             for (int i = 0; i < 5; i++) { g.DrawLine(hatch, 20 + i * 4, 88, 16 + i * 4, 107); g.DrawLine(hatch, 174 + i * 4, 88, 178 + i * 4, 107); }
             g.Restore(save);
+        }
+    }
+
+    // The activity footer has one line at every width. Label.AutoEllipsis can still wrap;
+    // custom painting keeps the full Text available to accessibility without clipped rows.
+    sealed class SingleLineLabel : Label
+    {
+        public SingleLineLabel()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var bounds = new Rectangle(Padding.Left, Padding.Top,
+                Math.Max(0, ClientSize.Width - Padding.Horizontal), Math.Max(0, ClientSize.Height - Padding.Vertical));
+            TextRenderer.DrawText(e.Graphics, Text, Font, bounds, ForeColor,
+                TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.PreserveGraphicsClipping);
         }
     }
 
