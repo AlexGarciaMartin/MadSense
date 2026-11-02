@@ -5,7 +5,7 @@ namespace DualSenseClient.Hid.Interop;
 
 /// <summary>
 /// Decodes native HIDAPI <c>wchar_t</c> strings, whose width is platform-dependent
-/// (UTF-16 on Windows, UTF-32 on Linux).
+/// (UTF-16 on Windows, UTF-32 on Linux and macOS).
 /// </summary>
 internal static unsafe class HidStringMarshal
 {

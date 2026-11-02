@@ -5,8 +5,7 @@ namespace DualSenseClient.Hid.Interop;
 
 /// <summary>
 /// Resolves P/Invoke calls to hidapi against the native binary embedded in this
-/// assembly (Windows), falling back to the system HIDAPI library
-/// (Linux hidraw backend).
+/// assembly (Windows), the application bundle (macOS), or a system HIDAPI library.
 /// </summary>
 internal static class HidNativeLibrary
 {
@@ -92,6 +91,23 @@ internal static class HidNativeLibrary
     /// <returns>The loaded native library handle, or <see cref="IntPtr.Zero"/>.</returns>
     private static IntPtr Load()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            // Do not extract a dylib from a resource into a temporary directory:
+            // the signed .app owns and signs its native libraries in place.
+            foreach (string candidate in GetMacCandidates(AppContext.BaseDirectory))
+            {
+                if (NativeLibrary.TryLoad(candidate, out IntPtr handle))
+                {
+                    return handle;
+                }
+            }
+
+            throw new DllNotFoundException(
+                "macOS HIDAPI was not found. Package libhidapi.dylib alongside MadSense " +
+                "or in MadSense.app/Contents/Frameworks. Developer builds can install HIDAPI with Homebrew.");
+        }
+
         bool windows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
         string resourceName = windows ? WinX64Resource : LinuxX64Resource;
         using (Stream? stream = typeof(HidNativeLibrary).Assembly.GetManifestResourceStream(resourceName))
@@ -120,6 +136,25 @@ internal static class HidNativeLibrary
         }
 
         return IntPtr.Zero;
+    }
+
+    internal static IEnumerable<string> GetMacCandidates(string baseDirectory)
+    {
+        // Bundle locations take priority over Homebrew and dyld search paths.
+        foreach (string directory in new[]
+                 {
+                     baseDirectory,
+                     Path.GetFullPath(Path.Combine(baseDirectory, "..", "Frameworks")),
+                     "/opt/homebrew/lib",
+                     "/usr/local/lib"
+                 })
+        {
+            yield return Path.Combine(directory, "libhidapi.dylib");
+            yield return Path.Combine(directory, "libhidapi.0.dylib");
+        }
+
+        yield return "libhidapi.dylib";
+        yield return "libhidapi.0.dylib";
     }
 
     /// <summary>

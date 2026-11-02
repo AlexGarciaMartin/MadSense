@@ -76,6 +76,17 @@ internal static unsafe class HidApi
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "hid_open_path", ExactSpelling = true)]
     internal static extern HidDeviceHandle* OpenPath(byte* path);
 
+    // Darwin's open policy is process-global. HidDevice serializes changes with
+    // opening the device and restores the previous policy before releasing its lock.
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "hid_darwin_set_open_exclusive", ExactSpelling = true)]
+    internal static extern void DarwinSetOpenExclusive(int exclusive);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "hid_darwin_get_open_exclusive", ExactSpelling = true)]
+    internal static extern int DarwinGetOpenExclusive();
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "hid_darwin_is_device_open_exclusive", ExactSpelling = true)]
+    internal static extern int DarwinIsDeviceOpenExclusive(HidDeviceHandle* device);
+
     /// <summary>
     /// Writes an output report. The first byte of <paramref name="data"/> must contain the report ID.
     /// </summary>

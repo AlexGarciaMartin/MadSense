@@ -166,11 +166,11 @@ public sealed class HidStringMarshalTests
     }
 
     [Test]
-    public void PtrToString_DecodesSupplementaryPlaneCharacterOnLinux()
+    public void PtrToString_DecodesSupplementaryPlaneCharacterOnUnix()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            Assert.Ignore("UTF-32 decoding is Linux-only.");
+            Assert.Ignore("UTF-32 wchar_t decoding targets Linux and macOS.");
         }
 
         string decoded;
@@ -186,11 +186,11 @@ public sealed class HidStringMarshalTests
     }
 
     [Test]
-    public void PtrToString_SkipsInvalidCodePointsOnLinux()
+    public void PtrToString_SkipsInvalidCodePointsOnUnix()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            Assert.Ignore("UTF-32 decoding is Linux-only.");
+            Assert.Ignore("UTF-32 wchar_t decoding targets Linux and macOS.");
         }
 
         string decoded;

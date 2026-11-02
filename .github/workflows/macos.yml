@@ -1,0 +1,84 @@
+name: macOS port
+on:
+  push:
+    branches: [feature/macos]
+  pull_request:
+    paths: ['macos/**', 'vendor/**', 'tests/**', '.github/workflows/macos.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            rid: osx-arm64
+          - runner: macos-15-intel
+            rid: osx-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install HIDAPI
+        run: brew install hidapi
+      - name: Native build and ABI tests
+        run: |
+          cmake -S macos/native -B .build/native -DCMAKE_BUILD_TYPE=Release
+          cmake --build .build/native --parallel
+          ctest --test-dir .build/native --output-on-failure
+      - name: Record signed virtual HID loopback
+        run: |
+          mkdir -p dist/macos
+          codesign --force --sign - --entitlements macos/native/virtual-hid.entitlements .build/native/madsense_hid_tests
+          set +e
+          .build/native/madsense_hid_tests --require-device > dist/macos/native-loopback.json 2> dist/macos/native-loopback.stderr
+          result=$?
+          echo "$result" > dist/macos/native-loopback.exit-code
+          cat dist/macos/native-loopback.json
+          echo "Signed native loopback exit code: $result" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - name: Managed protocol tests
+        run: dotnet test macos/tests/MadSense.Mac.Tests.csproj -c Release --logger 'trx;LogFileName=mac-protocol.trx' --results-directory test-results
+      - name: Shared controller and HID regression tests
+        env:
+          DYLD_LIBRARY_PATH: /opt/homebrew/lib:/usr/local/lib
+        run: >-
+          dotnet test tests/DualSenseClient.Tests/DualSenseClient.Tests.csproj -c Release
+          --filter 'FullyQualifiedName~HidMacPortabilityTests|FullyQualifiedName~HidStringMarshalTests|FullyQualifiedName~DualSenseRawReportTests|FullyQualifiedName~DualSenseFeature|FullyQualifiedName~VirtualDualSenseController|FullyQualifiedName~BluetoothAudioReportBuilderTests|FullyQualifiedName~NativeHapticsQueueTests'
+          --logger 'trx;LogFileName=shared.trx' --results-directory test-results
+      - name: Package native app
+        run: bash macos/package.sh '${{ matrix.rid }}' dist/macos
+      - name: Check packaged runtime
+        run: |
+          dist/macos/MadSense.app/Contents/MacOS/backend/MadSense.Backend --protocol-check
+          dist/macos/MadSense.app/Contents/MacOS/backend/MadSense.Backend --diagnose > dist/macos/diagnostic.json
+      - name: Native virtual-device access report
+        run: |
+          set +e
+          dist/macos/MadSense.app/Contents/MacOS/backend/MadSense.Backend --probe-native > dist/macos/native-probe.json 2> dist/macos/native-probe.stderr
+          result=$?
+          echo "$result" > dist/macos/native-probe.exit-code
+          cat dist/macos/native-probe.json
+          echo "Native probe exit code: $result (0 = created; other = inspect diagnostic; not a hardware test)" >> "$GITHUB_STEP_SUMMARY"
+          # Permission-denied is evidence, not an assertion that the bridge is functional.
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MadSense-macOS-${{ matrix.rid }}
+          path: |
+            dist/macos/*.zip
+            dist/macos/*.json
+            dist/macos/*.stderr
+            dist/macos/*.exit-code
+            test-results/*.trx
+          if-no-files-found: error
+          retention-days: 14

@@ -294,6 +294,15 @@ public class HidDeviceEnumerator : IHidDeviceEnumerator
     /// </summary>
     private List<IHidDeviceInfo> FilterConnected(List<IHidDeviceInfo> all)
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            // IOHIDManager enumerates current IORegistry services rather than the
+            // cached paired-device entries exposed by Windows. Probe-opening on
+            // macOS would interfere with our exclusive handle and incorrectly
+            // remove an already-owned controller from the connection snapshot.
+            return all;
+        }
+
         // Split USB and BT — USB passes through, BT probes in parallel for liveness.
         List<IHidDeviceInfo> result = new List<IHidDeviceInfo>(all.Count);
         List<IHidDeviceInfo> btDevices = new List<IHidDeviceInfo>(all.Count);
@@ -456,6 +465,23 @@ public class HidDeviceEnumerator : IHidDeviceEnumerator
         EnsureInitialized();
         _log.Debug($"Opening HID device '{path}'");
         return new HidDevice(path);
+    }
+
+    /// <summary>
+    /// Opens and verifies a macOS IOHID seize-device handle. It must remain open
+    /// throughout the bridge session, and be disposed to restore normal access.
+    /// Ordinary <see cref="OpenDevice"/> opens shared on macOS.
+    /// </summary>
+    public HidDevice OpenDeviceExclusive(string path)
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            throw new PlatformNotSupportedException("Exclusive HID seizure is only implemented for macOS.");
+        }
+
+        EnsureInitialized();
+        _log.Debug($"Opening HID device exclusively: '{path}'");
+        return new HidDevice(path, requireExclusive: true);
     }
 
     /// <inheritdoc/>

@@ -1,0 +1,23 @@
+cmake_minimum_required(VERSION 3.20)
+project(madsense_hid LANGUAGES CXX OBJCXX)
+if(NOT APPLE)
+  message(FATAL_ERROR "The virtual HID backend requires macOS and the Apple SDK")
+endif()
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_OBJCXX_STANDARD 17)
+set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS version")
+add_library(madsense_hid SHARED madsense_hid.mm)
+target_compile_options(madsense_hid PRIVATE -fblocks -fno-objc-arc -Wall -Wextra -Werror)
+target_link_libraries(madsense_hid PRIVATE "-framework CoreFoundation" "-framework IOKit")
+target_include_directories(madsense_hid PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+set_target_properties(madsense_hid PROPERTIES CXX_VISIBILITY_PRESET hidden
+  OBJCXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES
+  MACOSX_RPATH ON INSTALL_NAME_DIR "@rpath")
+add_executable(madsense_hid_tests tests/native_tests.mm)
+target_compile_options(madsense_hid_tests PRIVATE -fblocks -fno-objc-arc -Wall -Wextra -Werror)
+target_link_libraries(madsense_hid_tests PRIVATE madsense_hid
+  "-framework CoreFoundation" "-framework IOKit")
+enable_testing()
+add_test(NAME native_abi COMMAND madsense_hid_tests --abi-only)
+add_test(NAME virtual_hid_loopback COMMAND madsense_hid_tests)
+set_tests_properties(virtual_hid_loopback PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)

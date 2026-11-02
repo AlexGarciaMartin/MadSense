@@ -82,13 +82,28 @@ public sealed class HidDevice : IHidDevice
     /// </summary>
     private int _disposed;
 
+    private static readonly Lock DarwinOpenLock = new();
+
+    /// <summary>
+    /// True only when macOS accepted a seize-device open for this live handle.
+    /// This is temporary ownership, not a persistent HidHide policy. Closing the
+    /// handle releases it; visibility through other APIs needs hardware validation.
+    /// </summary>
+    public bool IsExclusiveOpen { get; private set; }
+
     /// <summary>
     /// Opens a HID device by its platform path.
     /// </summary>
     /// <param name="path">The platform device path.</param>
     /// <exception cref="HidException">Thrown when hid_open_path fails.</exception>
-    internal unsafe HidDevice(string path)
+    internal unsafe HidDevice(string path, bool requireExclusive = false)
     {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        if (requireExclusive && !OperatingSystem.IsMacOS())
+        {
+            throw new PlatformNotSupportedException("Exclusive HID seizure is only implemented for macOS.");
+        }
+
         DevicePath = path;
 
         int byteCount = Encoding.UTF8.GetByteCount(path);
@@ -100,7 +115,45 @@ public sealed class HidDevice : IHidDevice
 
         pathPtr[byteCount] = 0;
 
-        _device = HidApi.OpenPath(pathPtr);
+        if (OperatingSystem.IsMacOS())
+        {
+            lock (DarwinOpenLock)
+            {
+                int previousPolicy = HidApi.DarwinGetOpenExclusive();
+                try
+                {
+                    HidApi.DarwinSetOpenExclusive(requireExclusive ? 1 : 0);
+                    _device = HidApi.OpenPath(pathPtr);
+                    if (_device != null)
+                    {
+                        IsExclusiveOpen = HidApi.DarwinIsDeviceOpenExclusive(_device) == 1;
+                        if (requireExclusive && !IsExclusiveOpen)
+                        {
+                            HidApi.Close(_device);
+                            _device = null;
+                            throw new HidException("macOS did not grant exclusive ownership of the controller.");
+                        }
+                    }
+                }
+                catch
+                {
+                    if (_device != null)
+                    {
+                        HidApi.Close(_device);
+                        _device = null;
+                    }
+                    throw;
+                }
+                finally
+                {
+                    HidApi.DarwinSetOpenExclusive(previousPolicy);
+                }
+            }
+        }
+        else
+        {
+            _device = HidApi.OpenPath(pathPtr);
+        }
 
         if (_device == null)
         {
@@ -284,7 +337,7 @@ public sealed class HidDevice : IHidDevice
         }
         else
         {
-            // Linux wchar_t is 4 bytes (UTF-32), unlike Windows UTF-16.
+            // Linux and macOS wchar_t are 4 bytes (UTF-32), unlike Windows UTF-16.
             int* buf = stackalloc int[256];
             int result = HidApi.GetProductString(_device, (IntPtr)buf, 256);
             name = result < 0 ? string.Empty : HidStringMarshal.BufferToString((IntPtr)buf, result);
@@ -367,6 +420,7 @@ public sealed class HidDevice : IHidDevice
             }
 
             _device = null;
+            IsExclusiveOpen = false;
         }
     }
 }
