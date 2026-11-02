@@ -35,15 +35,16 @@ AppUpdatesURL=https://github.com/AlexGarciaMartin/MadSense/releases
 DefaultDirName={localappdata}\Programs\{#ProductDirectory}
 DefaultGroupName={#ProductName}
 PrivilegesRequired=lowest
+SetupArchitecture=x64
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0.19045
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
-DisableReadyPage=no
+DisableReadyPage=yes
 WizardStyle=modern light
-WizardSizePercent=115
+WizardSizePercent=125
 WizardBackColor=#f0ebdc
 WizardImageFile=assets\wizard-large.bmp,assets\wizard-large@2x.bmp,assets\wizard-large@3x.bmp
 WizardSmallImageFile=assets\wizard-small.bmp,assets\wizard-small@2x.bmp,assets\wizard-small@3x.bmp
@@ -70,19 +71,22 @@ VersionInfoCompany=Alex García Martín
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Messages]
-WelcomeLabel1=INSTALA.%nMADSENSE.
-WelcomeLabel2=DualSense por Bluetooth en PC.%n%nEste asistente instala MadSense y prepara los controladores que falten.%n%nGratis. Código abierto. Sin periodo de prueba.
+WelcomeLabel1=INSTALAR%nMADSENSE
+WelcomeLabel2=DualSense por Bluetooth en PC.%n%nSe prepararán la app y sus controladores. Si faltan, Windows te pedirá permiso para instalarlos.
 WizardReady=TODO PREPARADO.
 ReadyLabel1=Pulsa Instalar para preparar MadSense.
+WizardPreparing=COMPROBANDO.
+PreparingDesc=Revisando la app y los controladores.
 WizardInstalling=PREPARANDO MADSENSE.
 InstallingLabel=Copiando los archivos de MadSense.
-FinishedHeadingLabel=MADSENSE INSTALADO.
-FinishedLabel=Empareja tu DualSense en Bluetooth de Windows si aún no lo has hecho. Abre MadSense y pulsa PS.%n%nPara las funciones nativas en Steam, desactiva Steam Input en las propiedades del juego.
-FinishedRestartLabel=MadSense ya está instalado. Reinicia Windows para activar los controladores. Después abre MadSense y pulsa PS en el mando.%n%nEl mando debe estar emparejado por Bluetooth en Windows.
+FinishedHeadingLabel=INSTALADO.
+FinishedLabel=Abre MadSense y pulsa PS en tu mando.%n%nLa primera vez, empareja el DualSense desde el Bluetooth de Windows.%n%nEn juegos con soporte nativo, desactiva Steam Input.
+FinishedRestartLabel=Reinicia Windows para activar los controladores.%n%nDespués, abre MadSense y pulsa PS en tu mando.
 ButtonNext=&Continuar
 ButtonInstall=&Instalar
 ButtonFinish=&Terminar
-ClickNext=Pulsa Continuar para empezar.
+ClickNext=
+ClickFinish=
 SelectTasksLabel2=Accesos directos:
 WizardSelectTasks=A TU MANERA.
 UninstallAppFullTitle=Desinstalar {#ProductName}
@@ -267,11 +271,23 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
+  if CurPageID = wpWelcome then WizardForm.NextButton.Caption := 'Instalar';
+  if CurPageID = wpFinished then begin
+    // Inno repositions these after InitializeWizard; apply the shared spacing last.
+    WizardForm.RunList.Top := ScaleY(267);
+    WizardForm.YesRadio.Top := ScaleY(267);
+    WizardForm.NoRadio.Top := ScaleY(299);
+  end;
+  if (CurPageID = wpFinished) and DriversRestart and not RegistrationFailed then begin
+    WizardForm.FinishedHeadingLabel.Caption := 'REINICIO' + #13#10 + 'PENDIENTE.';
+    WizardForm.NoRadio.Checked := True;
+  end;
   if (CurPageID = wpFinished) and RegistrationFailed then begin
     WizardForm.FinishedHeadingLabel.Caption := 'FALTA UN PASO.';
-    WizardForm.FinishedLabel.Caption := 'MadSense se ha copiado, pero HidHide no ha autorizado la aplicación.' + #13#10#13#10 +
-      RegistrationError + #13#10#13#10 + 'Vuelve a ejecutar este instalador para reparar la instalación.';
+    WizardForm.FinishedLabel.Caption := RegistrationError + #13#10#13#10 +
+      'Vuelve a ejecutar este instalador para reparar la instalación.';
     if DriversRestart then WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10 + 'Antes, reinicia Windows.';
+    WizardForm.FinishedLabel.Height := WizardForm.FinishedPage.ClientHeight - WizardForm.FinishedLabel.Top - ScaleY(24);
   end;
 end;
 
@@ -291,30 +307,44 @@ begin
 end;
 
 procedure InitializeWizard;
+var ContentLeft, ContentWidth: Integer;
 begin
+  ContentLeft := WizardForm.WizardBitmapImage.Width + ScaleX(30);
+  ContentWidth := WizardForm.WelcomePage.ClientWidth - ContentLeft - ScaleX(30);
   WizardForm.WelcomeLabel1.Font.Name := 'Segoe UI';
-  WizardForm.WelcomeLabel1.Font.Size := 24;
+  WizardForm.WelcomeLabel1.Font.Size := 22;
   WizardForm.WelcomeLabel1.Font.Style := [fsBold];
-  WizardForm.WelcomeLabel1.Height := ScaleY(94);
-  WizardForm.WelcomeLabel2.Top := WizardForm.WelcomeLabel1.Top + WizardForm.WelcomeLabel1.Height + ScaleY(12);
-  WizardForm.WelcomeLabel2.Height := ScaleY(145);
+  WizardForm.WelcomeLabel1.SetBounds(ContentLeft, ScaleY(34), ContentWidth, ScaleY(83));
+  WizardForm.WelcomeLabel2.Font.Size := 10;
+  WizardForm.WelcomeLabel2.SetBounds(ContentLeft, ScaleY(136), ContentWidth, ScaleY(104));
   DesktopChoice := TNewCheckBox.Create(WizardForm);
   DesktopChoice.Parent := WizardForm.WelcomeLabel2.Parent;
   DesktopChoice.Left := WizardForm.WelcomeLabel2.Left;
-  DesktopChoice.Top := WizardForm.WelcomeLabel2.Top + WizardForm.WelcomeLabel2.Height + ScaleY(10);
+  DesktopChoice.Top := ScaleY(267);
   DesktopChoice.Width := WizardForm.WelcomeLabel2.Width;
+  DesktopChoice.Height := ScaleY(28);
+  DesktopChoice.Font.Size := 10;
   DesktopChoice.Caption := 'Crear acceso directo en el escritorio';
   DesktopChoice.Checked := WizardIsTaskSelected('desktopicon');
   WizardForm.PageNameLabel.Font.Style := [fsBold];
   WizardForm.PageNameLabel.Font.Size := 12;
   WizardForm.NextButton.Font.Style := [fsBold];
-  WizardForm.FinishedHeadingLabel.Font.Size := 17;
+  WizardForm.FinishedHeadingLabel.SetBounds(ContentLeft, ScaleY(34), ContentWidth, ScaleY(64));
+  WizardForm.FinishedHeadingLabel.Font.Size := 21;
   WizardForm.FinishedHeadingLabel.Font.Style := [fsBold];
+  WizardForm.FinishedLabel.SetBounds(ContentLeft, ScaleY(116), ContentWidth, ScaleY(148));
+  WizardForm.FinishedLabel.Font.Size := 10;
+  WizardForm.RunList.SetBounds(ContentLeft, ScaleY(284), ContentWidth, ScaleY(52));
+  WizardForm.RunList.Font.Size := 10;
+  WizardForm.YesRadio.SetBounds(ContentLeft, ScaleY(284), ContentWidth, ScaleY(24));
+  WizardForm.YesRadio.Font.Size := 10;
+  WizardForm.NoRadio.SetBounds(ContentLeft, ScaleY(316), ContentWidth, ScaleY(24));
+  WizardForm.NoRadio.Font.Size := 10;
   StageLabel := TNewStaticText.Create(WizardForm);
   StageLabel.Parent := WizardForm;
-  StageLabel.Left := ScaleX(12);
+  StageLabel.Left := ScaleX(22);
   StageLabel.Top := WizardForm.CancelButton.Top + ScaleY(5);
-  StageLabel.Caption := 'MADSENSE / WINDOWS';
+  StageLabel.Caption := 'WINDOWS / {#AppVersion}';
   StageLabel.Font.Name := 'Consolas';
   StageLabel.Font.Size := 9;
 #ifdef InstallerTestBuild

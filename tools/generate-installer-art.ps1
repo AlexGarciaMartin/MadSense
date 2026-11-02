@@ -55,18 +55,15 @@ public static class MadSenseInstallerArt
     }
     static void Sidebar(Graphics g) {
         g.Clear(Paper);
-        // Screen-print dots and offset blocks deliberately remain flat, like the app.
-        using(var b=new SolidBrush(Color.FromArgb(45,Ink)))
-            for(int y=9;y<136;y+=10) for(int x=8;x<164;x+=10) g.FillEllipse(b,x,y,1.3f,1.3f);
-        Logo(g,30,25,104,-6,true);
-        Text(g,"MADSENSE",26,Ink,14,138);
-        Rect(g,Ink,0,176,164,138);
-        Polygon(g,Ink,0,170,164,176,0,176);
-        Text(g,"ENCIENDE.",29,Paper,13,184);
-        Text(g,"JUEGA.",36,Paper,13,216);
-        Polygon(g,Acid,9,267,156,262,153,296,7,298);
-        Text(g,"SIN CABLE.",28,Ink,14,260);
-        for(int i=0;i<9;i++) Rect(g,i%3==0?Orange:Paper,15+i*15,307,i%3==0?6:2,3);
+        // One mark, no second headline: leave the instructions to the live UI.
+        Rect(g,Ink,0,0,164,314);
+        using(var b=new SolidBrush(Color.FromArgb(34,Paper)))
+            for(int y=14;y<314;y+=12) for(int x=12;x<164;x+=12) g.FillEllipse(b,x,y,1.3f,1.3f);
+        Logo(g,30,45,100,-6,false);
+        Polygon(g,Orange,0,257,164,232,164,314,0,314);
+        Polygon(g,Acid,0,278,164,253,164,265,0,290);
+        Rect(g,Ink,18,301,26,3);
+        Rect(g,Ink,50,301,5,3);
     }
     static void Small(Graphics g) { g.Clear(Paper); Logo(g,6,6,42,-6,false); }
     static void Header(Graphics g) {

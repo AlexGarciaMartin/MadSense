@@ -5,7 +5,9 @@ Trabajo de la rama `feature/windows_installer`. La versión de la app se mantien
 ## Diseño y alcance
 
 - Asistente Inno Setup por usuario, con logo, paleta y tipografía de la web convertidos a imágenes. No instala fuentes.
+- Bienvenida con acción directa **Instalar** y opción de acceso al escritorio; no hay una segunda página de resumen. El lateral conserva solo la marca y los colores, sin repetir el lema de la web.
 - Windows 10 22H2 (build 19045) o Windows 11, x64 nativo Intel/AMD. Se rechazan x86 y ARM64.
+- El propio Setup y su desinstalador se compilan como x64 mediante `SetupArchitecture=x64`. No basta con instalar archivos en modo de 64 bits: un Setup de 32 bits puede redirigir `System32` y ejecutar PowerShell de 32 bits. El helper comprueba la arquitectura del proceso y rechaza ese caso antes de cambiar controladores.
 - Aplicación y datos del usuario en `%LOCALAPPDATA%\Programs\MadSense`. La app actual escribe sus preferencias y registros junto al EXE; no se mueve a `Program Files`.
 - El asistente conserva el usuario original. Solo eleva el helper de instalación/reparación de los controladores, espera su resultado y no eleva MadSense al finalizar.
 - USBip 0.9.8.1 e HidHide 1.5.230 incluidos como instaladores oficiales sin modificar. Versiones, descargas y SHA-256 se fijan en `dependencies.json`; también se verifica Authenticode antes de ejecutarlos.
@@ -102,11 +104,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\installer\test-s
 
 El build `TEST` usa identidad, nombre y carpeta distintos, simula el helper de controladores y no abre la app al terminar. La prueba **sí copia y elimina sus propios archivos, crea su acceso de Inicio y registra su propio desinstalador en HKCU**. Verifica hash y metadatos del EXE de prueba antes de lanzarlo; rechaza el EXE normal.
 
+La simulación mantiene la exigencia de PowerShell de 64 bits. Antes de los escenarios del asistente, `test-setup.ps1` ejecuta el helper falso en hosts reales de 32 y 64 bits y comprueba sus códigos y el INI: el primero debe fallar, el segundo debe aceptar la inspección. Durante la instalación `TEST`, una redirección accidental a PowerShell de 32 bits también impide anunciar éxito.
+
 Los escenarios cubren instalación, actualización conservando preferencias, desinstalación, error de driver, petición de reinicio, error de autorización y bloqueo cuando no se puede restaurar el diario. Evidencias del asistente en `.build/installer-qa/`. El build de prueba admite `/TESTSCENARIO=normal`, `driver-failure`, `reboot` o `register-failure`; esos escenarios no pertenecen al producto normal.
 
 ## Matriz manual antes de una release
 
-Realizar en Windows limpio o una VM con instantánea, fuera del PC de desarrollo. Las pruebas de Bluetooth y sensaciones del mando requieren hardware real accesible a ese entorno; una VM sin acceso al adaptador no valida esos pasos. Registrar versión/build de Windows, cuenta, escala de pantalla, códigos, logs y resultado de cada fila. La tabla es un plan de validación, **no una afirmación de que ya esté superado**.
+La instalación real en el PC de desarrollo ya ha confirmado la carpeta por usuario, la autorización exacta del EXE en HidHide y el arranque con DualSense por Bluetooth, USBip y reenvío de audio activos. Los drivers ya estaban instalados en ese equipo: **siguen pendientes la instalación de controladores desde cero y el primer arranque tras el reinicio**. Esto tampoco sustituye una comprobación física de los efectos del mando en un juego.
+
+Completar los casos pendientes en Windows limpio o una VM con instantánea, fuera del PC de desarrollo. Las pruebas de Bluetooth y sensaciones del mando requieren hardware real accesible a ese entorno; una VM sin acceso al adaptador no valida esos pasos. Registrar versión/build de Windows, cuenta, escala de pantalla, códigos, logs y resultado de cada fila. La tabla es un plan de validación, **no una afirmación de que ya esté superado**.
 
 | Caso | Comprobación esperada |
 |---|---|

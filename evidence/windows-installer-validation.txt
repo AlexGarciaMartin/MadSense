@@ -10,9 +10,18 @@ Completed on the existing Windows development machine:
 - Old public v0.4 payload without maintenance protocol is rejected before execution.
 - Real read-only driver inspection: USBip and HidHide operational, no install needed.
 - Real HidHide --app-list output parsed correctly for the development app path.
-- Existing development MadSense process remained open throughout the tests.
+- Initial isolated pass left the development process untouched. During the later
+  real installation pass, development was closed gracefully with user authorization.
+
+Issue discovered only by real installation:
+- A 32-bit Setup launched 32-bit PowerShell despite 64-bit install mode. Inspect
+  correctly rejected it, so no installation succeeded falsely.
+- Fixed with SetupArchitecture=x64 for both Setup and Uninstall. The fake helper
+  now rejects 32-bit hosts too, and its host architecture is explicitly tested.
 
 Full TEST installer lifecycle (fake driver helper; real files, shortcuts and HKCU):
+00-helper-32-bits                   exit 1; expected rejection, ProcessBits=32
+00-helper-64-bits                   exit 0; ProcessBits=64
 01-install                         exit 0
 02-upgrade                         exit 0; preferences preserved
 02b-upgrade-recovery-failure        exit 7; maintenance diagnosis logged, data preserved
@@ -24,19 +33,41 @@ Full TEST installer lifecycle (fake driver helper; real files, shortcuts and HKC
 08-registration-failure            exit 1; incomplete installation explicitly logged
 09-uninstall-registration-failure  exit 0
 
-In this live-host lifecycle run, another development instance was present. The
-pending-journal cases therefore exercise the protective busy path. Isolated .NET
-tests separately cover recovery failure and journal retention without that instance.
+The initial lifecycle run covered the protective busy path with development open.
+The second full run had no app open: both pending-journal cases reached maintenance
+exit 3 for invalid JSON and preserved the journal. All 12 rows above passed.
+
+Real production installer, with the existing operational drivers:
+- Installed to the current user's Programs directory and registered Windows uninstall.
+- HidHide authorized the exact new executable path.
+- Launched from Setup and connected the physical DualSense over Bluetooth.
+- USBip virtual DualSense and host audio forwarding reached running state.
+- Changed speaker to Bajo, then updated with the installed app still open.
+- Update closed only that instance gracefully, preserved preferences byte-for-byte,
+  and launched a new process from the installed path; it reconnected the controller.
+- Opened and cancelled Uninstall: the same process continued running.
+- Uninstalled with the app still open: exit 0, process closed, binaries and uninstall
+  registration removed, preferences retained, recovery journal cleared.
+- HidHide application list, device list and global cloak state matched the baseline
+  exactly after real uninstall. Shared driver installations were retained.
+- Reinstalled the final package, verified the Start menu target and retained settings,
+  then launched it from Setup. Native DualSense and Xbox emulation both reached ready;
+  returned to DualSense and restored the original speaker level Alto.
+- The installed copy remains running; the development files and main branch are intact.
 
 Visual review:
-- Native welcome/tasks screens inspected before final layout simplification.
-- Final change moves the desktop shortcut option into welcome and skips its
-  separate page. A final visual pass was interrupted by physical Escape.
-- Final 100/150/200 percent DPI matrix remains pending.
+- Welcome, successful completion, incomplete installation, restart and uninstall
+  confirmation reviewed in the actual native assistant on this display.
+- Removed the sidebar slogan and redundant completion instructions, widened the
+  window and restored consistent padding; the desktop checkbox no longer clips.
+- Welcome proceeds directly to Install. Restart is clearly labelled and defaults
+  to later; the visual restart scenario was finished without rebooting Windows.
+- Separate 100/150/200 percent DPI matrix remains pending.
 
 Limits (not validated here):
 - First installation of real kernel drivers on a clean Windows machine.
-- Reboot followed by first app launch and physical controller/game validation.
+- First launch after newly installing drivers and rebooting a clean machine.
+- Physical haptic/trigger sensation and game latency were not remeasured here.
 - UAC using credentials from a different administrator account.
 - Production Setup has no MadSense code-signing certificate.
 
@@ -44,4 +75,4 @@ The TEST installer does not install drivers, change the live HidHide allowlist o
 launch the app. Its success is not evidence of clean-machine kernel-driver success.
 Use setup/README.md's manual matrix before publishing a release. Neither main nor
 the public release is changed by this branch. Raw machine-specific logs stay in
-.build/installer-qa/ and are excluded from Git.
+.build/installer-qa/ and .build/real-qa/ and are excluded from Git.

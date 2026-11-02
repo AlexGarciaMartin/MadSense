@@ -38,6 +38,28 @@ function Invoke-TestUninstall([string]$Target,[string]$Label) {
     return $p.ExitCode
 }
 try {
+    # Exercise both real PowerShell hosts so the fake helper cannot silently mask
+    # System32 redirection by a 32-bit Setup process. No drivers are accessed.
+    Assert ([Environment]::Is64BitOperatingSystem) 'Las pruebas requieren Windows de 64 bits.'
+    $nativeSystem=if ([Environment]::Is64BitProcess) { 'System32' } else { 'Sysnative' }
+    foreach ($bits in 32,64) {
+        $system=if ($bits -eq 32) { 'SysWOW64' } else { $nativeSystem }
+        $hostExe=Join-Path $env:WINDIR ($system+'\WindowsPowerShell\v1.0\powershell.exe')
+        $resultFile=Join-Path $qa ('helper-architecture-'+$bits+'.ini')
+        if (Test-Path -LiteralPath $resultFile) { Remove-Item -LiteralPath $resultFile -Force }
+        $fake=Join-Path $PSScriptRoot 'FakeDriverSetup.ps1'
+        $p=Start-Process -FilePath $hostExe -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+            '-File',('"'+$fake+'"'),'-Action','Inspect','-ResultPath',('"'+$resultFile+'"')) -WindowStyle Hidden -PassThru
+        if (!$p.WaitForExit(15000)) { throw "La comprobacion de PowerShell $bits no termina (PID $($p.Id))." }
+        $p.Refresh()
+        $expectedExit=if ($bits -eq 64) { 0 } else { 1 }
+        $expectedSuccess=if ($bits -eq 64) { 1 } else { 0 }
+        $resultText=Get-Content -LiteralPath $resultFile -Raw -Encoding Unicode
+        Assert ($p.ExitCode -eq $expectedExit) "Codigo incorrecto del helper bajo PowerShell $bits."
+        Assert ($resultText -match "(?m)^Success=$expectedSuccess`r?$" -and $resultText -match "(?m)^ProcessBits=$bits`r?$") "Resultado INI incorrecto bajo PowerShell $bits."
+        if ($bits -eq 32) { Assert ($resultText -match '(?m)^Error=.*PowerShell de 64 bits\.') 'Falta diagnostico del host de 32 bits.' }
+        $results.Add([pscustomobject]@{Case=('00-helper-'+$bits+'-bits');ExitCode=$p.ExitCode;Log=[IO.Path]::GetFileName($resultFile)})
+    }
     $target=Join-Path $qa 'normal install\MadSense-Installer-Test'
     Assert ((Invoke-TestSetup normal $target '01-install') -eq 0) 'Falla instalacion normal.'
     Assert (Test-Path -LiteralPath (Join-Path $target 'MadSense.exe')) 'No copio la app.'
