@@ -13,8 +13,8 @@ wizard-small@2x.bmp / @3x.bmp: 110 x 110 / 165 x 165.
 brand-header.bmp / @2x.bmp: optional 600 x 84 / 1200 x 168 top banner.
 The PNG previews are the 2x images and are not installer payload requirements.
 
-The main sidebar is intentionally quiet: the original mark, paper, ink and orange
-blocks, with a small acid accent. It contains no slogan or instructions. The native
+The main sidebar is intentionally quiet: the original mark on ink with subtle dots.
+There are no bottom bands, decorative strokes, slogans or instructions. The native
 welcome page carries the installation heading and explanation, with a direct
 Install action and an optional desktop shortcut; there is no repeated summary page.
 

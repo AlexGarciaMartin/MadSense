@@ -50,7 +50,7 @@ Real production installer, with the existing operational drivers:
   registration removed, preferences retained, recovery journal cleared.
 - HidHide application list, device list and global cloak state matched the baseline
   exactly after real uninstall. Shared driver installations were retained.
-- Reinstalled the final package, verified the Start menu target and retained settings,
+- Reinstalled the package used for this functional validation, verified the Start menu target and retained settings,
   then launched it from Setup. Native DualSense and Xbox emulation both reached ready;
   returned to DualSense and restored the original speaker level Alto.
 - The installed copy remains running; the development files and main branch are intact.
@@ -63,6 +63,13 @@ Visual review:
 - Welcome proceeds directly to Install. Restart is clearly labelled and defaults
   to later; the visual restart scenario was finished without rebooting Windows.
 - Separate 100/150/200 percent DPI matrix remains pending.
+
+Subsequent artwork-only revision:
+- Removed the lower orange/lime bands and decorative strokes from the sidebar.
+- Regenerated all three image sizes and rebuilt Setup. No installer or app logic changed.
+- windows-installer-welcome-clean-sidebar.png records the updated native welcome.
+  The earlier screenshots remain evidence of the functional validation above.
+- Functional suites and driver installation were not repeated for this visual change.
 
 Limits (not validated here):
 - First installation of real kernel drivers on a clean Windows machine.

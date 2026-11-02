@@ -60,10 +60,6 @@ public static class MadSenseInstallerArt
         using(var b=new SolidBrush(Color.FromArgb(34,Paper)))
             for(int y=14;y<314;y+=12) for(int x=12;x<164;x+=12) g.FillEllipse(b,x,y,1.3f,1.3f);
         Logo(g,30,45,100,-6,false);
-        Polygon(g,Orange,0,257,164,232,164,314,0,314);
-        Polygon(g,Acid,0,278,164,253,164,265,0,290);
-        Rect(g,Ink,18,301,26,3);
-        Rect(g,Ink,50,301,5,3);
     }
     static void Small(Graphics g) { g.Clear(Paper); Logo(g,6,6,42,-6,false); }
     static void Header(Graphics g) {
