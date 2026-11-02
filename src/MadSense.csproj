@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="../vendor/DualSenseClient/DualSenseClient.Controllers/DualSenseClient.Controllers.csproj" />
     <ProjectReference Include="../vendor/DualSenseClient/DualSenseClient.HidHide/DualSenseClient.HidHide.csproj" />
+    <None Update="InstallerProtocol.json" TargetPath="MadSense.installer.json" CopyToOutputDirectory="Always" CopyToPublishDirectory="Always" />
   </ItemGroup>
 </Project>
 

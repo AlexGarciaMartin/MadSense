@@ -24,6 +24,7 @@ static class Program
     [STAThread]
     static int Main(string[] args)
     {
+        if (InstallerMaintenance.TryRun(args, out var maintenanceExit)) return maintenanceExit;
         Directory.SetCurrentDirectory(AppContext.BaseDirectory);
         DualSenseClientLogger.Configure(LogLevel.Info, new LocalLog());
         if (args.Contains("--stop"))
@@ -51,6 +52,7 @@ static class Program
         if (args.Contains("--probe") || args.Contains("--soak") || args.Contains("--exercise"))
         {
             using var stop = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\MadSense-Stop");
+            using var installerStop = InstallerStopSignal.Create();
             using var bridge = new Bridge { MeasureAudio = args.Contains("--diagnostic-audio") };
             bridge.SetMode(args.Contains("--xbox") ? "Xbox" : "Native", false);
             try
@@ -58,7 +60,7 @@ static class Program
                 bridge.Start();
                 for (var i = 0; i < (args.Contains("--soak") ? 900 : 20); i++)
                 {
-                    if (stop.WaitOne(1000)) break;
+                    if (WaitHandle.WaitAny([stop, installerStop], 1000) != WaitHandle.WaitTimeout) break;
                     bridge.Update(); bridge.Log(bridge.Status);
                     if (i == 5 && args.Contains("--exercise")) bridge.ExerciseHostOutput();
                     if (i == 2 && args.Contains("--exercise-stream")) bridge.ExerciseHostOutput();
@@ -361,14 +363,7 @@ sealed class Bridge : IDisposable
     }
     void RecoverHiddenController()
     {
-        if (!File.Exists("hidden-controller.json")) return;
-        var json = File.ReadAllText("hidden-controller.json");
-        var lease = json.TrimStart().StartsWith('"') ? new HideLease(JsonSerializer.Deserialize<string>(json)!, false, true) : JsonSerializer.Deserialize<HideLease>(json);
-        if (lease == null || !lease.Id.StartsWith("HID\\", StringComparison.OrdinalIgnoreCase)) throw new IOException("Registro de recuperación HidHide no válido.");
-        hiding.SetControllerHidden(lease.Id, lease.WasHidden);
-        hiding.GlobalHidingEnabled = lease.WasActive;
-        if (hiding.IsControllerHidden(lease.Id) == lease.WasHidden && hiding.GlobalHidingEnabled == lease.WasActive) File.Delete("hidden-controller.json");
-        else throw new IOException("No se pudo restaurar HidHide. Se conserva el registro de recuperación.");
+        HiddenControllerRecovery.Recover(AppContext.BaseDirectory, () => new HidHideRecoveryState());
     }
     public void Dispose()
     {
@@ -376,8 +371,6 @@ sealed class Bridge : IDisposable
         finally { try { actions.Dispose(); } finally { try { tracker.Dispose(); } finally { enumerator.Dispose(); } } }
     }
 }
-
-sealed record HideLease(string Id, bool WasHidden, bool WasActive);
 
 sealed class LocalLog : ILogSink
 {

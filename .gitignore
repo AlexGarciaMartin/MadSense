@@ -3,6 +3,8 @@
 **/obj/
 app/
 dist/
+.build/
+.tools/
 test-results/
 *.user
 

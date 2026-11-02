@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "minimumWindowsBuild": 19045,
+  "architecture": "AMD64",
+  "drivers": [
+    {
+      "id": "USBip",
+      "version": "0.9.8.1",
+      "file": "USBip-0.9.8.1-x64.exe",
+      "url": "https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.1/USBip-0.9.8.1-x64.exe",
+      "sha256": "38CAD6D4432B52D5BB9409D9AD03B72FDFFC4ADA4CD3A48FBECA1A2752A8518A",
+      "relativeExecutable": "USBip\\usbip.exe",
+      "service": "usbip2_ude",
+      "arguments": ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/RESTARTEXITCODE=3010", "/TYPE=compact", "/TASKS=vcredist"]
+    },
+    {
+      "id": "HidHide",
+      "version": "1.5.230.0",
+      "file": "HidHide_1.5.230_x64.exe",
+      "url": "https://github.com/nefarius/HidHide/releases/download/v1.5.230.0/HidHide_1.5.230_x64.exe",
+      "sha256": "F4BBBCB82E6258641B887C74BC81C4C5F66E4AA811808DFC304347687B7605F6",
+      "relativeExecutable": "Nefarius Software Solutions\\HidHide\\x64\\HidHideCLI.exe",
+      "service": "HidHide",
+      "arguments": ["/exenoui", "/qn", "/norestart"]
+    }
+  ]
+}

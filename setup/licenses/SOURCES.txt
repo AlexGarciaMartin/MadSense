@@ -1,0 +1,29 @@
+Exact license sources for the Windows installer branch (2026-11-02).
+Files are copied in full without editing the license text.
+
+USBip-0.9.8.1-BSD-2-Clause.txt
+  https://raw.githubusercontent.com/vadimgrn/usbip-win2/v.0.9.8.1/LICENSE.txt
+  Source tag: v.0.9.8.1
+  Applies to the bundled official USBip-0.9.8.1-x64.exe package.
+
+HidHide-1.5.230-MIT.txt
+  https://raw.githubusercontent.com/nefarius/HidHide/v1.5.230.0/LICENSE
+  Source tag: v1.5.230.0
+  Applies to the bundled official HidHide_1.5.230_x64.exe package.
+
+Inno-Setup-7.1.0.txt
+  tools/license.txt from the exact Tools.InnoSetup 7.1.0 package used to compile.
+  https://api.nuget.org/v3-flatcontainer/tools.innosetup/7.1.0/tools.innosetup.7.1.0.nupkg
+  Upstream project: https://jrsoftware.org/isinfo.php
+  Official license: https://jrsoftware.org/files/is/license.txt
+
+Tools.InnoSetup-7.1.0-NuGet.txt
+  license.txt at the root of that same NuGet package. This includes the
+  packaging/support-files notice and its included Inno Setup license text.
+
+Anton artwork font and its full SIL Open Font License are stored separately in
+setup/assets/Anton-Regular.ttf and setup/assets/OFL-Anton.txt. The font generates
+the raster wizard artwork and is not installed on the end user's system.
+
+The vendor installers retain their own components and notices, including any
+Microsoft Visual C++ redistributable they contain. Their payloads are not modified.

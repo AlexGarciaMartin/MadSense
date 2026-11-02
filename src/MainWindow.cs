@@ -20,6 +20,7 @@ sealed class MainWindow : Form
     readonly CancellationTokenSource lifetime = new();
     readonly EventWaitHandle showSignal = new(false, EventResetMode.AutoReset, "Local\\MadSense-Show");
     readonly EventWaitHandle stopSignal = new(false, EventResetMode.AutoReset, "Local\\MadSense-Stop");
+    readonly EventWaitHandle installerStopSignal = InstallerStopSignal.Create();
     readonly System.Windows.Forms.Timer animation = new() { Interval = 250 };
     readonly NotifyIcon tray;
     readonly ToolStripMenuItem autostart;
@@ -147,7 +148,7 @@ sealed class MainWindow : Form
         tray.DoubleClick += (_, _) => RestoreWindow();
         animation.Tick += async (_, _) =>
         {
-            if (stopSignal.WaitOne(0)) { await QuitAsync(); return; }
+            if (stopSignal.WaitOne(0) || installerStopSignal.WaitOne(0)) { await QuitAsync(); return; }
             if (showSignal.WaitOne(0)) RestoreWindow();
             // No drawing or high-frequency timer wakeups when the window is hidden.
             if (Visible && WindowState != FormWindowState.Minimized) { phase += .2f; hero.Phase = phase; hero.Invalidate(); }
@@ -295,7 +296,7 @@ sealed class MainWindow : Form
         animation.Stop(); commands.Writer.TryComplete(); lifetime.Cancel();
         try { await worker; } catch (Exception e) { Debug.WriteLine(e); }
         tray.Visible = false; tray.Dispose(); animation.Dispose();
-        showSignal.Dispose(); stopSignal.Dispose(); lifetime.Dispose(); wake.Dispose();
+        showSignal.Dispose(); stopSignal.Dispose(); installerStopSignal.Dispose(); lifetime.Dispose(); wake.Dispose();
         Close();
     }
 

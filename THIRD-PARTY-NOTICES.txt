@@ -22,12 +22,19 @@ Windows x64 binary downloaded from the official release.
 HIDAPI offers a choice of BSD-3-Clause, GPL-3.0, or HIDAPI licenses.
 The BSD license is included with the vendored binary.
 
-usbip-win2, Vadim Grinberg and contributors — BSD-2-Clause.
+usbip-win2, Vadym Hrynchyshyn and contributors — BSD-2-Clause.
 https://github.com/vadimgrn/usbip-win2
-Official signed version 0.9.8.1 installed separately; not linked into this application.
+Official signed version 0.9.8.1 is installed as a separate Windows driver;
+it is not linked into this application. The Windows Setup branch bundles its
+unmodified official installer. Full license: setup/licenses/USBip-0.9.8.1-BSD-2-Clause.txt
+(installed as licenses/USBip-0.9.8.1-BSD-2-Clause.txt).
 
-HidHide driver, Nefarius Software Solutions — separately installed existing dependency.
+HidHide driver 1.5.230, Nefarius Software Solutions — MIT.
 https://github.com/nefarius/HidHide
+The Windows Setup branch bundles the unmodified official signed installer;
+HidHide remains a separate, shared Windows driver after MadSense is uninstalled.
+Full license: setup/licenses/HidHide-1.5.230-MIT.txt
+(installed as licenses/HidHide-1.5.230-MIT.txt).
 
 NuGet package dependencies and license metadata are recorded in dependency-notices.txt.
 The self-contained distribution includes Microsoft .NET runtime components under their respective licenses.
@@ -97,7 +104,26 @@ MadSense 0.4 speaker follow-up (1 November 2026):
 - src/: speaker level (SpeakerLevels, Preferences {"mode","speaker"}, Bridge.
   SetSpeaker, ALTAVOZ DEL MANDO row and tray submenu); tools/ui-check.ps1
   (PrintWindow capture + UI Automation click) for UI evidence.
-- setup/ (install.ps1, uninstall.ps1, Instalar.cmd, Desinstalar.cmd) and
-  tools/build-release.ps1: installable package. The installer downloads
+- Historical v0.4 ZIP: setup/ (install.ps1, uninstall.ps1, Instalar.cmd,
+  Desinstalar.cmd) and tools/build-release.ps1. Its installer downloads
   usbip-win2 0.9.8.1 (BSD-2) and HidHide 1.5.230 (MIT) from their official
-  GitHub releases with pinned SHA-256; neither binary is redistributed here.
+  GitHub releases with pinned SHA-256; those binaries were not inside that ZIP.
+
+Windows installer branch, 2 November 2026:
+- Inno Setup 7.1.0, Jordan Russell and Martijn Laan.
+  https://jrsoftware.org/isinfo.php
+  Used to compile the Windows Setup and uninstaller. Original notices are
+  retained. Full license: setup/licenses/Inno-Setup-7.1.0.txt (licenses/ when installed).
+- Tools.InnoSetup 7.1.0 provides the portable compiler through NuGet. Its
+  package/support files are declared public domain; Inno Setup itself retains
+  its own license. Full package notice: setup/licenses/Tools.InnoSetup-7.1.0-NuGet.txt.
+  This is a build tool, not a runtime dependency of the MadSense application.
+- Anton, Copyright 2020 The Anton Project Authors, SIL Open Font License 1.1.
+  https://github.com/googlefonts/AntonFont
+  The website's existing font is used to render wizard artwork. It is not
+  installed as a system font. Source font and full license: setup/assets/
+  Anton-Regular.ttf and OFL-Anton.txt. Bitmap artwork does not embed font software.
+- USBip and HidHide vendor setup packages are now included unchanged in the
+  Setup.exe. Exact URLs, versions and hashes: setup/dependencies.json.
+  Full upstream licenses and source references: setup/licenses/.
+  Vendor installers retain their own component notices and redistributables.

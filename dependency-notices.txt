@@ -8,3 +8,14 @@ SoundFlow/1.4.1 | License: LICENSE.md | Project: https://github.com/LSXPrime/Sou
 SoundFlow.Codecs.FFMpeg/1.4.0 | License: LICENSE.md | Project: https://github.com/LSXPrime/SoundFlow
 System.ComponentModel.Annotations/5.0.0 | License: MIT | Project: https://github.com/dotnet/runtime
 Tmds.DBus/0.95.1 | License: MIT | Project: 
+
+Windows installer packaging (feature/windows_installer):
+usbip-win2/0.9.8.1 | License: BSD-2-Clause | Official installer bundled unchanged | Project: https://github.com/vadimgrn/usbip-win2 | Full text: setup/licenses/USBip-0.9.8.1-BSD-2-Clause.txt
+HidHide/1.5.230.0 | License: MIT | Official installer bundled unchanged | Project: https://github.com/nefarius/HidHide | Full text: setup/licenses/HidHide-1.5.230-MIT.txt
+Inno Setup/7.1.0 | License: Inno Setup License | Setup compiler/engine | Project: https://jrsoftware.org/isinfo.php | Full text: setup/licenses/Inno-Setup-7.1.0.txt
+Tools.InnoSetup/7.1.0 | Package/support files: public domain; Inno Setup retains its own license | Build-only portable tool | Source: https://www.nuget.org/packages/Tools.InnoSetup/7.1.0 | Full text: setup/licenses/Tools.InnoSetup-7.1.0-NuGet.txt
+Anton-Regular | License: SIL OFL-1.1 | Artwork generation only; not installed as a system font | Project: https://github.com/googlefonts/AntonFont | Full text: setup/assets/OFL-Anton.txt
+
+The installed distribution copies setup/licenses/ to licenses/. The build-tool
+font stays in the source tree; the installer uses rendered BMP artwork. Vendor
+driver installers retain their own component notices and redistributables.

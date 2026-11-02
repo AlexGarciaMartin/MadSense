@@ -1,74 +1,59 @@
-# Publicar MadSense en GitHub
+# Preparar y publicar el instalador de MadSense
 
-El repositorio vive en https://github.com/AlexGarciaMartin/MadSense (público, rama `main`, GPL-3.0) y la primera versión instalable está en su Release `v0.4`. Se publicó el 1 de noviembre de 2026 con Git y GitHub CLI (`gh`), ya instalados e identificados en este PC.
+El repositorio es [AlexGarciaMartin/MadSense](https://github.com/AlexGarciaMartin/MadSense), GPL-3.0. La release pública `v0.4` conserva el ZIP publicado el 1 de noviembre de 2026. El trabajo de `feature/windows_installer` añade un `Setup.exe`; **compilarlo no publica una release ni modifica la descarga de la web**.
 
-## Publicar una versión nueva (resumen)
+## Preparar el artefacto
 
-```powershell
-app\MadSense.exe --stop
-tools\build-release.ps1
-git add -A
-git commit -m "MadSense 0.5: ..."
-git push
-gh release create v0.5 dist\MadSense-0.5-win-x64.zip dist\MadSense-0.5-win-x64.zip.sha256 --title "MadSense 0.5" --notes-file dist\release-notes-0.5.md --latest
-```
-
-Antes, sube `<Version>` en `src/MadSense.csproj` y la etiqueta "VERSIÓN" de la ventana. Lo que sigue es la guía completa, por si hay que repetirlo en otro PC.
-
-Pasos para subir este repositorio y publicar la versión instalable. Todo se hace desde PowerShell en la carpeta del proyecto.
-
-## 1. Git
-
-Si `git --version` no responde, instálalo con winget y abre una ventana nueva de PowerShell:
+Trabaja en esta rama o en un worktree dedicado. Necesitas Windows x64 y .NET SDK 10. No hace falta cerrar la copia de desarrollo para compilar el instalador:
 
 ```powershell
-winget install --id Git.Git -e --source winget
+git status --short
+.\tools\build-installer.ps1
 ```
 
-La primera vez, dile a Git quién eres (aparece en cada commit):
+La app se publica en una carpeta nueva de `.build/`. Si no se indica `-IsccPath` y `ISCC.exe` no está en PATH, el script descarga la versión portable fijada `Tools.InnoSetup 7.1.0` desde NuGet, comprueba el SHA-256 y la extrae en `.tools/`. No instala el compilador en Windows.
 
-```powershell
-git config --global user.name "Tu nombre"
-git config --global user.email "tu@correo"
-```
+También descarga USBip 0.9.8.1 e HidHide 1.5.230 desde sus releases oficiales, comprueba sus SHA-256 y firmas Authenticode e incorpora esos paquetes al instalador. Las versiones, URLs y hashes se mantienen en `setup/dependencies.json`.
 
-## 2. Repositorio local
+Con `<Version>0.4.0</Version>` se generan:
 
-```powershell
-git init -b main
-git add .
-git status
-```
+- `dist/installer/MadSense-0.4.0-Setup.exe`
+- `dist/installer/MadSense-0.4.0-Setup.exe.sha256`
+- `dist/installer/MadSense-0.4.0-Setup.exe.json`
 
-`git status` no debe listar `app/`, `dist/`, `bin/`, `obj/`, `test-results/`, `MadSense.lnk` ni ningún `.log` fuera de `evidence/`: `.gitignore` los excluye. Las evidencias se versionan con las rutas y la MAC del mando anonimizadas.
+El JSON describe el commit, si había cambios sin confirmar, compilador y paquetes incorporados. No sustituye las pruebas del instalador. Para una release reproducible, confirma el código que se va a distribuir y vuelve a compilar desde ese estado limpio.
 
-```powershell
-git commit -m "MadSense 0.4: DualSense por Bluetooth con hápticos, gatillos y altavoz"
-```
+Parámetros de `tools/build-installer.ps1`:
 
-## 3. Repositorio en GitHub
+| Parámetro | Uso |
+|---|---|
+| `-IsccPath` | Ruta a un `ISCC.exe` ya disponible; usar una versión compatible y registrar cuál se utilizó. |
+| `-DotnetPath` | Ruta al ejecutable del SDK .NET 10. |
+| `-PublishDirectory` | Publicación completa existente para reutilizar en lugar de compilar. Debe corresponder al código de la release. |
+| `-DependencyDirectory` | Caché de los instaladores oficiales; no omite la verificación. |
+| `-InstallerTestBuild` | EXE de pruebas con identidad separada, helper simulado y arranque final desactivado. No distribuir. |
 
-1. En GitHub: **New repository**, nombre `MadSense`, público, **sin** README, licencia ni .gitignore (ya existen aquí).
-2. Conecta y sube:
+`app/`, `dist/`, `.build/`, `.tools/`, `bin/`, `obj/` y los resultados locales no deben subirse como código. Comprueba `git status` antes de confirmar. El ZIP de `tools/build-release.ps1` es el formato histórico, no el nuevo procedimiento de distribución.
 
-```powershell
-git remote add origin https://github.com/<tu-usuario>/MadSense.git
-git push -u origin main
-```
+## Validar antes de publicar
 
-Git pedirá iniciar sesión en GitHub la primera vez (ventana del navegador).
+1. Ejecuta las pruebas específicas de [`setup/README.md`](setup/README.md) y las del núcleo afectado.
+2. Revisa el asistente a escala normal y con escalado alto: texto completo, botones utilizables y reinicio indicado cuando proceda.
+3. Completa la matriz en Windows limpio, incluido usuario estándar que introduce otra cuenta administradora, cancelación de UAC, reinicio pendiente y actualización de una instalación antigua.
+4. Tras instalar y reiniciar, comprueba conexión Bluetooth, modos DualSense/Xbox y salida limpia. La simulación de drivers no acredita esta prueba física.
+5. Desinstala desde Aplicaciones instaladas y verifica que se conserve la configuración del usuario, que no se quiten drivers compartidos ni otras autorizaciones de HidHide, y que un fallo de recuperación bloquee el borrado.
+6. Comprueba el hash del EXE final después de cualquier firma o modificación. No distribuyas el archivo `-TEST.exe`.
 
-## 4. Versión instalable (Release)
+La rama no declara por sí sola que esta matriz esté superada. Registra resultados, sistema utilizado y limitaciones; mantén como pendientes las pruebas que no se hayan realizado. Firmar el EXE es un paso independiente: compilar con Inno Setup no le añade una firma Authenticode.
 
-El zip no va en el repositorio; se adjunta a una *release*.
+## Publicación posterior
 
-```powershell
-app\MadSense.exe --stop
-tools\build-release.ps1
-```
+Cuando se apruebe la versión, elige su número y actualiza `src/MadSense.csproj` y la versión visible de la app, si procede. No sobrescribas silenciosamente el ZIP existente ni reutilices su hash para el EXE nuevo.
 
-Deja `dist\MadSense-0.4-win-x64.zip` y su `.sha256`. Luego en GitHub: **Releases → Draft a new release**, etiqueta `v0.4`, título `MadSense 0.4`, adjunta el zip y pega el contenido del `.sha256` en la descripción. Como texto de la release sirve la sección "Novedades de 0.4" del README.
+Sube la rama para revisión, integra los cambios cuando corresponda y publica el instalador, su hash y las notas de esa versión en una nueva release o prerelease. No marques el artefacto como estable ni cambies la descarga de la web mientras la validación siga incompleta. Conserva el código exacto correspondiente a los binarios distribuidos bajo GPL-3.0.
 
-## 5. Licencias
+## Licencias y atribución
 
-El proyecto es GPL-3.0 (`LICENSE`); el núcleo vendido en `vendor/DualSenseClient` también. `THIRD-PARTY-NOTICES.txt` y `dependency-notices.txt` recogen el resto. El instalador descarga USBip (BSD-2) e HidHide (MIT) de sus GitHub oficiales con la huella SHA-256 comprobada; no se redistribuyen sus binarios.
+`LICENSE` contiene GPL-3.0; `THIRD-PARTY-NOTICES.txt` y `dependency-notices.txt` recogen los componentes de la app y el nuevo empaquetado. El Setup redistribuye los **instaladores oficiales sin modificar** de USBip (BSD-2-Clause) e HidHide (MIT), cuyos textos íntegros y procedencia están en `setup/licenses/`.
+
+El motor del asistente procede de Inno Setup. Se conservan sus avisos de copyright, y se incluye su licencia en `setup/licenses/`. `Tools.InnoSetup` es el paquete de herramientas que facilita el compilador; no es una dependencia del funcionamiento de MadSense. La fuente Anton se usa para generar las imágenes del asistente y se conserva con OFL en `setup/assets/`; no se instala como fuente del sistema.

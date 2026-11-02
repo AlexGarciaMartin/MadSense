@@ -1,0 +1,47 @@
+MadSense Windows installer validation — 2026-11-02
+Branch: feature/windows_installer
+App version: 0.4.0
+
+Completed on the existing Windows development machine:
+- Existing default core suite: 364 passed, 0 failed, 0 skipped.
+- Installer maintenance/recovery/protocol .NET suite: 22 passed.
+- Driver helper isolated suite under Windows PowerShell 5.1: 16 passed.
+- Production and TEST Inno Setup packages compile successfully.
+- Old public v0.4 payload without maintenance protocol is rejected before execution.
+- Real read-only driver inspection: USBip and HidHide operational, no install needed.
+- Real HidHide --app-list output parsed correctly for the development app path.
+- Existing development MadSense process remained open throughout the tests.
+
+Full TEST installer lifecycle (fake driver helper; real files, shortcuts and HKCU):
+01-install                         exit 0
+02-upgrade                         exit 0; preferences preserved
+02b-upgrade-recovery-failure        exit 7; maintenance diagnosis logged, data preserved
+03-uninstall-recovery-failure       exit 1; executable and recovery journal retained
+04-uninstall                       exit 0; preferences retained, registration removed
+05-driver-failure                  exit 7; app not copied
+06-reboot                          exit 3010
+07-uninstall-reboot                exit 0
+08-registration-failure            exit 1; incomplete installation explicitly logged
+09-uninstall-registration-failure  exit 0
+
+In this live-host lifecycle run, another development instance was present. The
+pending-journal cases therefore exercise the protective busy path. Isolated .NET
+tests separately cover recovery failure and journal retention without that instance.
+
+Visual review:
+- Native welcome/tasks screens inspected before final layout simplification.
+- Final change moves the desktop shortcut option into welcome and skips its
+  separate page. A final visual pass was interrupted by physical Escape.
+- Final 100/150/200 percent DPI matrix remains pending.
+
+Limits (not validated here):
+- First installation of real kernel drivers on a clean Windows machine.
+- Reboot followed by first app launch and physical controller/game validation.
+- UAC using credentials from a different administrator account.
+- Production Setup has no MadSense code-signing certificate.
+
+The TEST installer does not install drivers, change the live HidHide allowlist or
+launch the app. Its success is not evidence of clean-machine kernel-driver success.
+Use setup/README.md's manual matrix before publishing a release. Neither main nor
+the public release is changed by this branch. Raw machine-specific logs stay in
+.build/installer-qa/ and are excluded from Git.
