@@ -92,11 +92,18 @@ $suffix = if ($InstallerTestBuild) { '-TEST' } else { '' }
 $installer = Join-Path $outputDir "MadSense-$version-Setup$suffix.exe"
 $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $([IO.Path]::GetFileName($installer))" | Set-Content -LiteralPath ($installer + '.sha256') -Encoding ASCII
+$compilerVersion = (Get-Item -LiteralPath $IsccPath).VersionInfo.FileVersion
+if (!$compilerVersion -or $compilerVersion -eq '0.0.0.0') {
+    # The portable Inno 7 compiler has a placeholder Win32 file version.
+    $engineVersion = (& $IsccPath --version 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -eq 0 -and $engineVersion -match '^\d+\.\d+\.\d+(\.\d+)?$') { $compilerVersion = $engineVersion }
+}
 $evidence = [ordered]@{
     version = $version; installer = [IO.Path]::GetFileName($installer); sha256 = $hash;
     bytes = (Get-Item -LiteralPath $installer).Length; testBuild = [bool]$InstallerTestBuild;
     sourceCommit = (& git -C $root rev-parse HEAD 2>$null); sourceDirty = [bool](& git -C $root status --porcelain 2>$null);
-    compilerVersion = (Get-Item -LiteralPath $IsccPath).VersionInfo.FileVersion;
+    compilerVersion = $compilerVersion;
+    compilerSha256 = (Get-FileHash -LiteralPath $IsccPath -Algorithm SHA256).Hash.ToLowerInvariant();
     payloadFiles = (Get-ChildItem -LiteralPath $stage -Recurse -File).Count;
     dependencies = @($manifest.drivers | Select-Object id,version,file,sha256);
 }
