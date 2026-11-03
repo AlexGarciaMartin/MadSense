@@ -63,7 +63,8 @@ public sealed class EmulationServer : IDisposable
             TimeProvider = options.TimeProvider,
             InterruptInterval = options.InterruptInterval,
             ImmediateInputDelivery = options.ImmediateInputDelivery,
-            MeasureIsoOutLatency = options.MeasureIsoOutLatency
+            MeasureIsoOutLatency = options.MeasureIsoOutLatency,
+            PackIsoInPayload = options.PackIsoInPayload
         };
         _server = new UsbIpServer(serverOptions);
         _logger = options.Logger;

@@ -41,6 +41,9 @@ public sealed class UsbIpServerOptions
     public bool ImmediateInputDelivery { get; set; }
     /// <summary>Enable aggregate ISO OUT submit-to-delivery timing diagnostics.</summary>
     public bool MeasureIsoOutLatency { get; set; }
+    /// <summary>Pack only actual ISO IN bytes for Linux vhci_hcd; preserve true short-packet lengths.
+    /// False retains the existing usbip-win2 padded layout.</summary>
+    public bool PackIsoInPayload { get; set; }
 }
 
 /// <summary>
@@ -1220,14 +1223,33 @@ public sealed class UsbIpServer : IDisposable
 
             try
             {
-                int payloadLength = PrepareIsoInPayload(transfer);
-                ReadOnlyMemory<byte> payload = transfer.Data is null
-                    ? ReadOnlyMemory<byte>.Empty
-                    : transfer.Data.AsMemory(0, payloadLength);
+                ReadOnlyMemory<byte> payload;
+                if (_server._options.PackIsoInPayload)
+                {
+                    // Linux usbip_pad_iso restores offsets after receiving compact actual bytes.
+                    // Never invent samples by expanding an interior short packet to its capacity.
+                    IsoPacketDescriptor[] packets = transfer.IsoPackets ?? [];
+                    int total = checked((int)packets.Sum(packet => (long)packet.ActualLength));
+                    byte[] packed = new byte[total];
+                    int offset = 0;
+                    foreach (IsoPacketDescriptor packet in packets)
+                    {
+                        int count = checked((int)packet.ActualLength);
+                        if (count != 0)
+                            transfer.Data.AsSpan(checked((int)packet.Offset), count).CopyTo(packed.AsSpan(offset));
+                        offset += count;
+                    }
+                    payload = packed;
+                }
+                else
+                {
+                    int length = PrepareIsoInPayload(transfer);
+                    payload = transfer.Data is null ? ReadOnlyMemory<byte>.Empty : transfer.Data.AsMemory(0, length);
+                }
                 SendIsoRetSubmit(
                     transfer.SeqNum,
                     transfer.Status,
-                    (uint)payloadLength,
+                    (uint)payload.Length,
                     transfer.StartFrame,
                     transfer.ErrorCount,
                     transfer.IsoPackets ?? [],

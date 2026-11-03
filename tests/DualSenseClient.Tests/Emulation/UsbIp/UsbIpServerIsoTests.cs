@@ -328,6 +328,38 @@ public sealed class UsbIpServerIsoTests
     }
 
     [Test]
+    public void IsoIn_LinuxPacking_PreservesShortEmptyPacketsAndOmitsDeclaredGaps()
+    {
+        TestVirtualUsbDevice device = new(TestDevices.CreateIsoDevice());
+        using ServerHarness harness = new(device, packIsoInPayload: true);
+        using UsbIpClient client = harness.Connect();
+        ImportIsoDevice(client);
+        device.EnqueueIsoInPacket([0x11, 0x12]);
+        device.EnqueueIsoInPacket([]);
+        device.EnqueueIsoInPacket([0x31, 0x32, 0x33]);
+        IsoPacketDescriptor[] packets =
+        [
+            new() { Offset = 2, Length = 4 },
+            new() { Offset = 8, Length = 4 },
+            new() { Offset = 16, Length = 4 }
+        ];
+        client.Send(CreateIsoSubmitFrame(260, UsbIpDirection.In,
+            EndpointNumberOf(TestDevices.IsoInAddress), 20, packets));
+        SendBarrier(client, 261);
+        harness.TimeProvider.Advance(3 * FrameDuration);
+        RetFrame ret = ReadRetFrame(client);
+        Assert.That(ret.Status, Is.Zero);
+        Assert.That(ret.ActualLength, Is.EqualTo(5u));
+        Assert.That(client.ReadExactly(5), Is.EqualTo(new byte[] { 0x11, 0x12, 0x31, 0x32, 0x33 }));
+        IsoPacketDescriptor[] response = ReadIsoDescriptors(client, 3);
+        Assert.That(response.Select(packet => packet.Offset), Is.EqualTo(new uint[] { 2, 8, 16 }));
+        Assert.That(response.Select(packet => packet.ActualLength), Is.EqualTo(new uint[] { 2, 0, 3 }));
+        Assert.That(response.Select(packet => packet.Length), Is.EqualTo(new uint[] { 4, 4, 4 }));
+        Assert.That(response.All(packet => packet.Status == UsbIpStatus.Success), Is.True);
+        SendBarrier(client, 262);
+    }
+
+    [Test]
     public void IsoIn_ManyQueuedUrbs_CompleteInSubmissionOrderWithoutCap()
     {
         const int UrbCount = 32;
@@ -1457,7 +1489,7 @@ public sealed class UsbIpServerIsoTests
     {
         /// <summary>Starts the server and registers <paramref name="device"/>.</summary>
         /// <param name="device">Device to register.</param>
-        public ServerHarness(VirtualUsbDevice device, bool measureIsoOutLatency = false)
+        public ServerHarness(VirtualUsbDevice device, bool measureIsoOutLatency = false, bool packIsoInPayload = false)
         {
             TimeProvider = new ManualTimeProvider();
             Logger = new RecordingLogger();
@@ -1467,7 +1499,8 @@ public sealed class UsbIpServerIsoTests
                 TimeProvider = TimeProvider,
                 Logger = Logger,
                 InterruptInterval = TimeSpan.FromMilliseconds(4),
-                MeasureIsoOutLatency = measureIsoOutLatency
+                MeasureIsoOutLatency = measureIsoOutLatency,
+                PackIsoInPayload = packIsoInPayload
             });
             Server.Start();
             Server.AddDevice(TestBusId, device);

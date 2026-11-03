@@ -1,0 +1,65 @@
+name: Linux app
+on:
+  push:
+    branches: [feature/linux]
+  pull_request:
+    paths: ['linux/**', 'vendor/**', 'tests/**', '.github/workflows/linux.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: linux-app-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  app:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            rid: linux-x64
+          - runner: ubuntu-24.04-arm
+            rid: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install desktop runtime dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libhidapi-hidraw0 libx11-6 libice6 libsm6 libfontconfig1 libfreetype6 fonts-dejavu-core xvfb dbus-x11
+      - name: Build native architecture app
+        run: |
+          dotnet restore linux/app/MadSense.Linux.csproj --locked-mode
+          dotnet publish linux/app/MadSense.Linux.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o dist/linux/app
+      - name: Shared Bluetooth and USB protocol regressions
+        run: >-
+          dotnet test tests/DualSenseClient.Tests/DualSenseClient.Tests.csproj -c Release
+          --filter 'FullyQualifiedName~HidStringMarshalTests|FullyQualifiedName~DualSenseRawReportTests|FullyQualifiedName~DualSenseFeature|FullyQualifiedName~VirtualDualSenseController|FullyQualifiedName~BluetoothAudioReportBuilderTests|FullyQualifiedName~NativeHapticsQueueTests|FullyQualifiedName~DualSenseBtAudioPipelineTests|FullyQualifiedName~DualSenseAudioForwarderTests|FullyQualifiedName~Emulation.UsbIp'
+          --logger 'trx;LogFileName=linux-shared.trx' --results-directory test-results
+      - name: Real Linux X11 GUI without controller access
+        run: |
+          mkdir -p dist/linux/evidence
+          for language in en es fr de it pt-BR; do
+            timeout 25s dbus-run-session -- xvfb-run -a dist/linux/app/MadSense.Linux --ui-smoke "$PWD/dist/linux/evidence" --language "$language"
+          done
+          python3 linux/tests/verify_gui.py dist/linux/evidence
+      - name: Record environment
+        if: always()
+        run: |
+          mkdir -p dist/linux/evidence
+          uname -a > dist/linux/evidence/kernel.txt
+          dotnet --info > dist/linux/evidence/dotnet.txt
+          git rev-parse HEAD > dist/linux/evidence/source.txt
+          dpkg-query -W libhidapi-hidraw0 libx11-6 libfontconfig1 > dist/linux/evidence/dependencies.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-app-${{ matrix.rid }}
+          path: |
+            dist/linux/evidence
+            test-results
+          retention-days: 14

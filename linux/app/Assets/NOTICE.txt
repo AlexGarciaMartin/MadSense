@@ -1,0 +1,17 @@
+MadSense artwork and product text reuse this repository's Windows/Mac sources.
+The Linux layout retains the corrected optical logo gap and contained barcode.
+
+Anton-Regular.ttf: Copyright 2020 The Anton Project Authors.
+License: SIL Open Font License 1.1; full text in Anton-OFL.txt.
+Retrieved unchanged from google/fonts, commit
+cee74d7ca45d66d5c1878c828645c862f2788d2d, ofl/anton/Anton-Regular.ttf.
+https://github.com/google/fonts/tree/cee74d7ca45d66d5c1878c828645c862f2788d2d/ofl/anton
+No proprietary Impact font is distributed.
+brand-headlines.json contains only the fixed wordmark and 35 distinct existing
+localized headline phrases as vector artwork exported from the Windows design.
+It is not a font, glyph alphabet, substitute font package or dynamic text engine.
+The accessible text remains in the original localization catalogs.
+
+Avalonia Desktop and Simple theme are MIT; pinned NuGet dependencies and their
+transitive versions are recorded in packages.lock.json. Only open source runtime
+packages are used; no paid Avalonia products are needed.

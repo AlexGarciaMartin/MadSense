@@ -53,4 +53,6 @@ public sealed class EmulationServerOptions
     public bool ImmediateInputDelivery { get; set; }
     /// <summary>Opt-in aggregate ISO OUT queue diagnostics; no packet-by-packet logging.</summary>
     public bool MeasureIsoOutLatency { get; set; }
+    /// <summary>Use compact ISO IN responses with true short-packet lengths for Linux vhci_hcd.</summary>
+    public bool PackIsoInPayload { get; set; }
 }

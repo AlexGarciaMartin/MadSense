@@ -1,0 +1,51 @@
+name: Linux kernel USB-IP neutral integration
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/linux]
+    paths:
+      - '.github/workflows/linux-kernel.yml'
+      - 'linux/probe/**'
+      - 'linux/research/**'
+      - 'vendor/DualSenseClient/DualSenseClient.Emulation/**'
+      - 'tests/DualSenseClient.Tests/Emulation/**'
+permissions:
+  contents: read
+jobs:
+  kernel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        persona: [dualsense, edge, xbox]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Protocol regressions
+        run: |
+          dotnet test linux/probe/tests/MadSense.Linux.Protocol.Tests.csproj -c Release --logger 'trx;LogFileName=protocol.trx' --results-directory dist/linux-protocol
+          python3 -m unittest discover -s linux/research -p test_kernel_probe.py
+      - name: Build neutral exporter and independent host observer
+        run: |
+          dotnet publish linux/probe/MadSense.Linux.Probe.csproj -c Release -o dist/linux-probe
+          gcc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -Werror linux/research/host_probe.c -o dist/linux-host-probe
+      - name: Prepare standard kernel modules and client utilities
+        run: bash linux/research/prepare_kernel.sh
+      - name: Verify owned virtual device on the real Linux kernel
+        run: >-
+          python3 linux/research/kernel_probe.py --persona '${{ matrix.persona }}'
+          --probe dist/linux-probe/MadSense.Linux.Probe.dll
+          --host-probe dist/linux-host-probe --usbip "$USBIP_BINARY"
+          --output dist/linux-kernel
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-kernel-${{ matrix.persona }}
+          path: |
+            dist/linux-kernel/**
+            dist/linux-protocol/**
+          retention-days: 14
+          if-no-files-found: warn
