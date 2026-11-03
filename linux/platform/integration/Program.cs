@@ -73,6 +73,9 @@ try
     evidence.Event("physical-features", new { firmware = pad.FirmwareInfo, pairing = pad.PairingInfo });
     if (pad.FirmwareInfo is not { IsValid: true } || pad.PairingInfo is not { IsValid: true })
         throw new InvalidDataException("UHID firmware/pairing features did not reach the production constructor.");
+    string physicalMac = pad.PairingInfo?.ClientMac ?? throw new InvalidDataException("Physical pairing identity is missing.");
+    if (VirtualDeviceFilter.IsKnownVirtualMac(physicalMac))
+        throw new InvalidDataException("Synthetic physical fixture uses a reserved virtual identity.");
     var settings = new ControllerInfoService(controllersPath: Path.Combine(output, "controllers.json"));
     settings.RegisterController(pad.PairingInfo?.ClientMac, info.Path, "Synthetic UHID core integration");
     settings.SaveEmulationSettings(pad.PairingInfo?.ClientMac, info.Path, new EmulationSettings
@@ -96,6 +99,8 @@ try
             throw new InvalidOperationException("Production core did not attach: " + emulation.GetStatus(pad));
         await Task.Delay(50, deadline.Token);
     }
+    string? virtualMac = mode == "xbox" ? null : new PairingInfo(Convert.FromHexString(factory.Features["09"])).ClientMac;
+    if (virtualMac is not null) FixtureChecks.VerifyMacSeparation(physicalMac, virtualMac);
     evidence.Atomic("ready.json", new
     {
         schema = 1, scope = "production-core-synthetic-UHID", ownedGuestToken = token,
@@ -103,7 +108,8 @@ try
         pid = Environment.ProcessId, mode, devicePath = path, port = server!.BoundEndPoint.Port,
         busIds = server.BusIds, virtualDevicePath = emulation.GetStatus(pad).VirtualDevicePath,
         vendorId = factory.Last!.Descriptors.IdVendor, productId = factory.Last.Descriptors.IdProduct,
-        features = factory.Features, timestampFrequency = Stopwatch.Frequency
+        features = factory.Features, physicalMac, virtualMac,
+        timestampFrequency = Stopwatch.Frequency
     });
     while (start.Elapsed.TotalSeconds < seconds && !File.Exists(Path.Combine(output, "stop")))
     {
@@ -225,6 +231,13 @@ sealed class ObservedFactory(Evidence evidence) : IVirtualControllerFactory
 
 static class FixtureChecks
 {
+    public static void VerifyMacSeparation(string? physical, string? virtualMac)
+    {
+        if (physical != "02:FA:11:22:33:44" || VirtualDeviceFilter.IsKnownVirtualMac(physical) ||
+            !VirtualDeviceFilter.IsKnownVirtualMac(virtualMac) || string.Equals(physical, virtualMac, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Physical and virtual fixture identities are not independently classified.");
+    }
+
     public static void Verify(string path)
     {
         using var json = JsonDocument.Parse(File.ReadAllText(path));
@@ -246,7 +259,8 @@ static class FixtureChecks
         var features = root.GetProperty("features");
         var firmware = new FirmwareInfo(Convert.FromHexString(features.GetProperty("20").GetString()!));
         var pairing = new PairingInfo(Convert.FromHexString(features.GetProperty("09").GetString()!));
-        if (!firmware.IsValid || firmware.UpdateVersionValue != 0x0224 || !pairing.IsValid || pairing.ClientMac != "02:D5:11:22:33:44")
+        if (!firmware.IsValid || firmware.UpdateVersionValue != 0x0224 || !pairing.IsValid || pairing.ClientMac != "02:FA:11:22:33:44")
             throw new InvalidDataException("Production feature parser mismatch.");
+        VerifyMacSeparation(pairing.ClientMac, VirtualDeviceFilter.CreateOwnershipMac());
     }
 }

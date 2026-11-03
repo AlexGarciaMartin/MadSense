@@ -5,11 +5,21 @@ import struct
 import unittest
 import copy
 
-from production_fixture import descriptor, features, input_report, manifest
+from production_fixture import descriptor, features, fixture_identity_matches, input_report, manifest
 from qemu_core import REQUIRED_CORE_CASES, verify_core_result
 
 
 class FixtureTests(unittest.TestCase):
+    def test_kernel_pairing_mac_replaces_uniq_without_losing_exact_fixture_identity(self):
+        label = "madsense-app-owned-uuid"
+        prefix = f"HID_NAME={label}\nHID_PHYS=madsense-core-ci\n"
+        self.assertTrue(fixture_identity_matches(prefix + "HID_UNIQ=" + label, label))
+        self.assertTrue(fixture_identity_matches(prefix + "HID_UNIQ=02:FA:11:22:33:44", label))
+        self.assertFalse(fixture_identity_matches(prefix + "HID_UNIQ=02:D5:00:00:00:00", label))
+        self.assertFalse(fixture_identity_matches(prefix.replace(label, "other") + "HID_UNIQ=02:FA:11:22:33:44", label))
+        self.assertFalse(fixture_identity_matches(prefix + "HID_UNIQ=02:D5:11:22:33:44", label))
+        self.assertFalse(fixture_identity_matches(prefix.replace("madsense-core-ci", "other") + "HID_UNIQ=" + label, label))
+
     def test_manifest_matches_generated_source(self):
         self.assertEqual(json.loads(Path(__file__).with_name("fixtures.json").read_text()), manifest())
 

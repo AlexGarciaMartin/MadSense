@@ -63,6 +63,36 @@ class AclTests(unittest.TestCase):
             kvm.restore_exact(17, saved, 1001, info)
         mutate.assert_called_once_with(17, saved["original"])
 
+    def test_named_grant_removed_with_exact_redundant_mask_restores_original(self):
+        info, saved = self.saved()
+        observed = "user::rw-\ngroup::rw-\nmask::rw-\nother::---\n"
+        device = MagicMock(); device.lstat.return_value = info
+        with patch.object(kvm, "DEVICE", device), patch.object(kvm.os, "fstat", return_value=info), \
+             patch.object(kvm, "acl_text", side_effect=[observed, saved["original"]]), \
+             patch.object(kvm, "set_acl") as mutate:
+            result = kvm.restore_exact(17, saved, 1001, info)
+        mutate.assert_called_once_with(17, saved["original"])
+        self.assertEqual(result["observedAcl"], observed)
+        self.assertEqual(result["restoreReason"], "original-with-redundant-mask")
+
+    def test_redundant_mask_exception_never_accepts_changed_mask_entries_base_or_mode(self):
+        info, saved = self.saved()
+        redundant = "user::rw-\ngroup::rw-\nmask::rw-\nother::---\n"
+        variants = [(redundant.replace("mask::rw-", "mask::r--"), info),
+                    (redundant.replace("mask::rw-", "mask::rwx"), info),
+                    (redundant.replace("group::", "user:2000:rw-\ngroup::"), info),
+                    (redundant.replace("user::rw-", "user::r--"), info),
+                    (redundant.replace("other::---", "other::r--"), info),
+                    (redundant, types.SimpleNamespace(**{**vars(info), "st_mode": stat.S_IFCHR | 0o640}))]
+        for observed, current in variants:
+            with self.subTest(acl=observed, mode=current.st_mode):
+                device = MagicMock(); device.lstat.return_value = current
+                with patch.object(kvm, "DEVICE", device), patch.object(kvm.os, "fstat", return_value=current), \
+                     patch.object(kvm, "acl_text", return_value=observed), patch.object(kvm, "set_acl") as mutate, \
+                     self.assertRaises(kvm.AclRestorationError):
+                    kvm.restore_exact(17, saved, 1001, current)
+                mutate.assert_not_called()
+
     def test_partial_grant_failure_requires_restore_before_fallback(self):
         evidence = {}; access = kvm.TemporaryKvmAccess(evidence)
         with patch.object(kvm, "hosted"), patch.object(kvm.os, "geteuid", return_value=1001, create=True), \
@@ -104,6 +134,15 @@ class AclTests(unittest.TestCase):
                     observed = kvm.restore_exact(fd, saved, uid, os.fstat(fd))
                 self.assertEqual(observed["restoredAcl"], original)
                 self.assertEqual(stat.S_IMODE(path.stat().st_mode), saved["mode"])
+                # Reproduce the actual native failure: deleting only a named
+                # user leaves a mask. It must equal the original group exactly.
+                kvm.set_acl(fd, granted)
+                subprocess.run(["/usr/bin/setfacl", "--remove", f"u:{uid}", "/proc/self/fd/" + str(fd)],
+                               pass_fds=(fd,), check=True, capture_output=True, timeout=5)
+                with patch.object(kvm, "DEVICE", path):
+                    observed = kvm.restore_exact(fd, saved, uid, os.fstat(fd))
+                self.assertEqual(observed["restoreReason"], "original-with-redundant-mask")
+                self.assertEqual(kvm.acl_text(fd), original)
             finally:
                 os.close(fd)
 

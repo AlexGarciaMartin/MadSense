@@ -157,6 +157,21 @@ passed 82 C#, 67 broker/orchestration Python, nine core fixture/package, two app
 package and eight KVM tests. Native artifact digest:
 `777932724f1813b1e2a8f9efc628a61636b78b0f522f5cc30dfbffa687527779`.
 
+[Run 41610372588](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41610372588)
+at `6d54ee87b83832d1ff4ec95e845215a06d83dd60` passed all ten baseline cases
+under KVM, both idle upgrades and all four removal/reinstallation assertions.
+The generic fixture correction therefore reached its full native baseline.
+The production fixture's features09/20/05 and two Sony initialization outputs
+were captured, but discovery timed out because hid-playstation overwrote the
+fixture's `HID_UNIQ` with its pairing MAC. No C# core or app actor ran. Discovery
+now checks the stable exact name/physical path, expected MAC and UHID ancestry;
+the app actor guard was corrected too. Native validation of that change is pending.
+The existing KVM ACL failure repeated with exact observed evidence: the named
+UID grant was removed, leaving the original access and a redundant mask on the
+same device/mode. The workflow did not acknowledge ACL cleanup. All 54 payload
+source files and four installed helper files matched the commit. Native artifact:
+`d95603ebb38852a461d1468101212aa46ea2d561b90ab9069e60c7e7215cd670`.
+
 The workflow now gates the separate `integration/qemu_core.py` stage on this
 baseline, then checks two idle installer restarts and the production C# core on a
 full synthetic UHID fixture in the same guest. The core stage is not yet

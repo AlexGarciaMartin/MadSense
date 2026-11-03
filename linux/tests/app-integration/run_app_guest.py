@@ -144,7 +144,7 @@ def main():
         if not value or len(value["controllers"]) != 1:
             return None
         controller = value["controllers"][0]
-        require(controller["mac_address"] == "02:D5:11:22:33:44", "Unexpected pairing identity")
+        require(controller["mac_address"] == "02:FA:11:22:33:44", "Unexpected pairing identity")
         emulation = controller["emulation"]
         if volume is not None and emulation["forward"]["volume"] != volume:
             return None

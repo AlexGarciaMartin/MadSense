@@ -98,8 +98,23 @@ def restore_exact(fd, saved, uid, info):
                        expectedIdentity=saved["identity"], openedIdentity=node_identity(os.fstat(fd)),
                        pathIdentity=node_identity(DEVICE.lstat()), expectedMode=saved["mode"],
                        observedMode=stat.S_IMODE(os.fstat(fd).st_mode), capturedMonotonicNs=time.monotonic_ns())
-    if observed not in (saved["original"], saved["granted"]):
+    rows = saved["original"].strip().splitlines()  # Base-only ACL already validated by acl_for_uid.
+    redundant_mask = "\n".join([rows[0], rows[1], "mask::" + rows[1].split(":")[-1], rows[2]]) + "\n"
+    if observed == saved["original"]:
+        observation["restoreReason"] = "original-acl"
+    elif observed == saved["granted"]:
+        observation["restoreReason"] = "exact-granted-acl"
+    elif observed == redundant_mask and observation["observedMode"] == saved["mode"]:
+        # Hosted smoke 41610372556: another actor removed our named UID but
+        # left a redundant mask equal to the original owning-group rights.
+        # There are no named entries; every principal already has its original
+        # effective rights. Removing only this redundant mask restores bytes
+        # exactly, without re-granting the runner or discarding another grant.
+        observation["restoreReason"] = "original-with-redundant-mask"
+    else:
         raise AclRestorationError("KVM ACL changed outside this grant; no restoration mutation was attempted", observation)
+    if observation["openedIdentity"] != saved["identity"] or observation["pathIdentity"] != saved["identity"]:
+        raise AclRestorationError("KVM identity changed before restoration; no mutation was attempted", observation)
     set_acl(fd, saved["original"])
     observation["restoredAcl"] = acl_text(fd)
     observation["restoredMode"] = stat.S_IMODE(os.fstat(fd).st_mode)

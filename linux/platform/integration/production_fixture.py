@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import select
+import stat
 import struct
 import threading
 import time
@@ -53,8 +54,8 @@ def features():
     struct.pack_into("<H", firmware, 44, 0x0224)
     pairing = bytearray(20)
     pairing[0] = 9
-    pairing[1:7] = bytes.fromhex("44332211d502")
-    pairing[10:16] = bytes.fromhex("aabbccddd502")
+    pairing[1:7] = bytes.fromhex("44332211fa02")
+    pairing[10:16] = bytes.fromhex("aabbccddfa02")
     calibration = bytearray(41)
     calibration[0] = 5
     # Synthetic symmetric calibration, nonzero denominators. This is delivered
@@ -78,6 +79,15 @@ def manifest():
         inputs[name] = {"bluetooth": report.hex(), "usb": (b"\x01" + report[2:65]).hex()}
     return {"schema": 1, "scope": "synthetic-protocol-only", "descriptor": descriptor().hex(),
             "input": inputs, "features": {f"{key:02x}": value.hex() for key, value in features().items()}}
+
+
+def fixture_identity_matches(uevent, label):
+    fields = dict(line.split("=", 1) for line in uevent.splitlines() if "=" in line)
+    mac = ":".join(f"{byte:02x}" for byte in reversed(features()[9][1:7]))
+    # hid-playstation replaces hdev->uniq with the pairing MAC during probe.
+    # The UHID name/physical path retain our exact creation identity.
+    return (fields.get("HID_NAME") == label and fields.get("HID_PHYS") == "madsense-core-ci"
+            and fields.get("HID_UNIQ", "").lower() in (label.lower(), mac))
 
 
 class SyntheticDualSense:
@@ -104,8 +114,11 @@ class SyntheticDualSense:
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             for candidate in Path("/sys/bus/hid/devices").glob(f"0005:054C:{product:04X}.*"):
-                if f"HID_UNIQ={label}" in (candidate / "uevent").read_text().splitlines():
+                if fixture_identity_matches((candidate / "uevent").read_text(), label):
                     self.parent = candidate.resolve()
+                    if self.parent.parent != Path("/sys/devices/virtual/misc/uhid"):
+                        self.close()
+                        raise RuntimeError("Fixture identity must belong to the owned UHID subtree")
                     raw = [p for p in Path("/sys/class/hidraw").glob("hidraw*")
                            if (p / "device").resolve().is_relative_to(self.parent)]
                     events = [p for p in Path("/sys/class/input").glob("event*")
@@ -113,7 +126,9 @@ class SyntheticDualSense:
                     # The production Sony driver creates a gamepad, motion and
                     # touchpad evdev node. Wait for all three, not its early
                     # hidraw registration before the feature handshake.
-                    if len(raw) == 1 and len(events) >= 3 and {5, 9, 0x20}.issubset(self.feature_requests):
+                    nodes = [Path("/dev", p.name) for p in raw] + [Path("/dev/input", p.name) for p in events]
+                    if (len(raw) == 1 and len(events) >= 3 and {5, 9, 0x20}.issubset(self.feature_requests)
+                            and all(node.exists() and stat.S_ISCHR(node.stat().st_mode) for node in nodes)):
                         if (self.parent / "driver").resolve().name != "playstation":
                             self.close()
                             raise RuntimeError("Synthetic fixture must bind hid-playstation")

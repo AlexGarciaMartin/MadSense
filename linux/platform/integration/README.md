@@ -75,7 +75,13 @@ Initialization report replacement counts remain in the final proxy metrics.
 The first attempt assumed a generic UHID binding would survive loading the Sony
 driver. The native kernel rebound it, requested feature09, and rejected its
 missing CRC with `-EILSEQ`. The fixture now supports the production driver instead
-of suppressing it. The corrected fixture still needs a native run.
+of suppressing it. In run 41610372588 at `6d54ee8`, the driver successfully requested
+09/20/05 and emitted its initialization outputs, but fixture discovery timed out
+before starting the C# actor: hid-playstation replaces `HID_UNIQ` with the pairing
+MAC. Discovery now matches the exact UHID name/physical path plus its expected
+MAC, requires the virtual UHID parent and actual character nodes, and the app
+actor uses the same stable identity. This discovery correction remains pending
+native verification.
 
 Portable preparation:
 

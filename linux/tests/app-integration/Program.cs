@@ -31,7 +31,11 @@ static class Program
         if (!System.Text.RegularExpressions.Regex.IsMatch(path, "^/dev/hidraw[0-9]+$") || !label.StartsWith("madsense-app-", StringComparison.Ordinal))
             throw new ArgumentException("Expected exact synthetic fixture identity.");
         string[] uevent = File.ReadAllLines("/sys/class/hidraw/" + Path.GetFileName(path) + "/device/uevent");
-        if (!uevent.Contains("HID_UNIQ=" + label)) throw new InvalidOperationException("Device is not the runner's UHID fixture.");
+        // hid-playstation replaces UHID's uniq with feature09's pairing MAC.
+        // Name and physical path remain the exact runner-created identity.
+        if (!uevent.Contains("HID_NAME=" + label) || !uevent.Contains("HID_PHYS=madsense-core-ci") ||
+            !uevent.Any(line => line.Equals("HID_UNIQ=02:FA:11:22:33:44", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Device is not the runner's UHID fixture.");
         using (var enumerator = new HidDeviceEnumerator())
         {
             var candidates = enumerator.Enumerate(0x054c).Where(info => info.ProductId is 0x0ce6 or 0x0df2 &&

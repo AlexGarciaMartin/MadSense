@@ -53,6 +53,9 @@ una versión Linux válida informa de esa ausencia.
 
 ## Secuencia de validación
 
+Los criterios por función y los límites de cada prueba están en
+[VALIDATION.md](VALIDATION.md).
+
 1. Protocolo USB/IP: conservar la variante Windows y probar los paquetes ISO
    cortos, vacíos y con huecos con el formato de Linux.
 2. Kernel real: importar una persona propia DualSense, Edge y Xbox; comprobar

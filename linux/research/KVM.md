@@ -15,7 +15,13 @@ udev rules, module loading or mitigation changes are performed.
 Before mutation, the helper saves identity, mode and ACL under a unique root-owned
 0700 directory in `/run`, with a 0600 state file. ACL operations use the exact
 opened device through `/proc/self/fd`. Restoration refuses a changed node or an
-unexpected third-party ACL. It verifies the original owner, group, identity, mode
+unexpected third-party ACL. One observed hosted-runner case is accepted: the named
+runner entry has already disappeared, leaving only the original three entries
+plus a mask exactly equal to the original group permissions. The node identity
+and mode must also match the original. This has no named principals and already
+has precisely the original effective permissions, so the helper removes the
+redundant mask without re-granting the runner. Changed masks, additional named
+entries, base permissions, mode or identity are still rejected. It verifies the original owner, group, identity, mode
 and full ACL before removing that state. QEMU remains an ordinary user process.
 
 API 12 is only a candidate signal. QEMU starts paused with a private QMP socket;
@@ -35,7 +41,12 @@ readiness timings are software measurements, not controller latency.
 Root-operation JSON is retained even on a nonzero exit. A restore mismatch records
 the original, granted and observed ACL, opened/path identities and modes before
 refusing mutation. This distinguishes a real external change from an ACL text
-difference; neither is silently normalized or overwritten.
+difference. The narrow redundant-mask case records its observed ACL and
+`restoreReason: original-with-redundant-mask`; other unexpected ACLs are not
+normalized or overwritten. The first diagnostic run confirmed this exact state
+on the same inode/mode after QMP had confirmed KVM:
+[hosted smoke 41610372556](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41610372556).
+It did not establish which external component removed the named entry.
 
 `python3 linux/research/kvm_smoke.py --output dist/kvm-smoke` isolates this lifecycle
 without downloading or booting a guest image. It creates an empty owned QEMU,
