@@ -95,7 +95,15 @@ de este exportador y su integración recuperable con el servicio de producto.
 El [ensayo PCM en `86287d8`](tests/audio-hotplug/export/PCM.md) ya confirmó las
 48.000 muestras exactas de los cuatro canales en su control ALSA directo. Se
 detuvo al encontrar un vector de ganancia de dos canales antes de negociar el
-formato del exportador; todavía no valida su reproducción mediante PipeWire.
+formato del exportador. En `1252b16` las cuatro fases marcadas a través de
+PipeWire (directa, exportada, FL/2 y FR/4, restaurada) coincidieron muestra a
+muestra, pero el ensayo falló porque el mapa de canales ALSA de solo lectura
+pasó de `0,0,0,0` a `3,4,5,6` al negociar el formato. En `9aff32c` la
+comprobación conserva cuatro instantáneas del mezclador y el
+[run 41683346411](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41683346411)
+pasó: el mapa solo cambia mientras el exportador mantiene abierto el PCM y
+vuelve a ceros tras su EOF, con los demás controles y los Node Props idénticos.
+Sigue siendo ingreso PCM por software; no valida transmisión ni audio físico.
 El alcance y las fuentes están en [la prueba de exportación](tests/audio-hotplug/export/README.md).
 Estos resultados no equivalen a un escritorio ni a juegos reales.
 
@@ -132,6 +140,11 @@ desconexión ni desbordamientos. Persistieron 98/97/122/100 secuencias no observ
 en el mando virtual; se conservan como límites del transporte. Sólo hubo una
 pausa por falta de capacidad, de 386575 ns. Eso no demuestra que el búfer del
 kernel no pueda perder entrada ni mide latencia física.
+La repetición con [traza completa en `6a953b8`](tests/latency/README.md) localiza
+todas las secuencias omitidas de sus sesiones instrumentadas después de publicar
+el estado del mando y antes de construir la respuesta de interrupción USB. La
+causa concreta de planificación sigue en estudio; no se añade una cola que
+retrase los estados para mejorar artificialmente ese contador.
 No se ha medido Bluetooth físico: ninguno de estos resultados sustituye
 un mando o un juego real.
 
@@ -144,11 +157,19 @@ pasó los cuatro casos SDL, entregó sus 7.718 informes sin desbordamientos y
 confirmó la limpieza de los consumidores y el núcleo; no reapareció aquella
 espera. El ensayo sigue fallando por contratos de Wine y por el lanzamiento de
 GE-Proton todavía no validado. La repetición independiente con créditos completó
-sus requisitos previos y cerró ambos actores, pero GE sigue sin proporcionar el
-resultado de sus programas de prueba; se está corrigiendo su captura de salida.
+sus requisitos previos y cerró ambos actores, pero GE no proporcionó el
+resultado de sus programas de prueba. En [`a97ae98`](research/GE-UMU.md) los
+programas Win32 ya enumeran el DualSense virtual dentro de GE-Proton
+(capacidades HID, ContainerId, una colección Raw Input y tres informes de
+características) y fallan después de esperar cinco segundos un informe Raw
+Input; los dos programas HIDAPI leyeron un informe y escribieron 47 de 48 bytes
+sin error, resultado observado pero no verificado; PulseAudio no expuso ningún
+sink, así que WASAPI no llegó a probarse. Ningún juego ha sido validado.
 La [prueba de control USB](tests/control-report/README.md) confirmó además que el
-identificador incluido en `SET_REPORT` desplaza el subcomando de características
-en el decodificador actual. Su corrección y repetición están pendientes. La
+identificador incluido en `SET_REPORT` desplazaba el subcomando de características.
+En `727e8b9`, la misma petición capturada produjo la respuesta correcta de 64 bytes
+en el kernel real. La normalización se activa sólo en Linux; los valores
+predeterminados de Windows y macOS se conservan. La
 solicitud de salida por control recibió `EBUSY` del kernel y permanece sin validar;
 no se desconectó el driver para forzarla.
 

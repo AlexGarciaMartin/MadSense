@@ -370,6 +370,59 @@ against the fixed runtime's SHA256SUMS and source manifest. The source retains i
 copyright notices; these harness changes do not copy pressure-vessel code or
 redistribute its runtime. Existing GE/UMU/runtime licensing limitations still apply.
 
+## Raw Input wait after the marker correction
+
+[Run 41665176300](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41665176300)
+used commit `a97ae985c5d6e58e9377fb8dbe1aad6adde5aa5f` and remains failed. Its
+artifact SHA-256 values are: runtime
+`b7c442840f15f470fdc43e0ceab29719f7a23e2fc242cf13baa7ca9069d08427`, Linux
+consumers build `93bf778cbfaf5de1ddfd069cf2f92f603ec59a2b60e7fb909443103d649dc5f1`,
+Windows API consumer build
+`de2666133eb66cc117298900529cf71f7dfba48bba2e0dd9ae77efb7fcbe1158` and Windows
+HIDAPI consumer build
+`ede37f72ef60bdbf08e7b88e36bde074cd263ce1aedb6e8621ceef697b56f38a`. The
+independent audit (`work/audit_ge_41665176300.py`; JSON SHA-256
+`0a6abf03fc24a46f026b0153faa2427814668ffacbd1b9dc6bc2fd2937b7b177`) verified 99
+committed payload sources, four installed files, 31 build sources and both PE
+digests against that exact commit, plus the guest's complete payload checksum.
+
+The baseline passed ten broker and nine core cases. The GE actor retained eight
+cases, 25 raw USB output reports with zero rejected or unwritten snapshots, the
+final three neutralization reports byte for byte, no lost isolation and no input
+overflow. All five consumer ACLs, the disposable account, QEMU and the temporary
+KVM ACL were restored. The CI log lines "10 passed" for
+`owned-marker-layout-selection` and "14 overlapped completion policy regressions
+passed" come from the Windows API build job's host unit tests
+(`deviceAccess=false`, `wineExecuted=false`); they are not guest evidence.
+
+| Case | Exit | Last stage reached inside GE-Proton 11-11 (Wine 11.0 Staging) | Recorded result |
+| --- | --- | --- | --- |
+| ge-umu-sony-south | 1 | HID capabilities 64/48/64 bytes, `macMatched`, ContainerId `{0CE6054C-0001-0005-6549-180900000000}`, one Raw Input gamepad collection matching the selected path, features `09` (20), `20` (64) and `05` (41) | `No matching Raw Input report within five seconds (Win32=2)` |
+| ge-umu-sony-neutral | 1 | Identical enumeration | Identical failure |
+| ge-hidapi-windows-south | 0 | HIDAPI 0.15.0 enumeration, the same three features, the same ContainerId, one `hid_read`, `hid_write` returned 47 of 48 bytes without a library error | `observed`; output delivery and native Windows parity unverified |
+| ge-hidapi-windows-neutral | 0 | Identical | Identical |
+| ge-umu-wasapi | — | `pactl` sink list `[]` | Failed before any audio case: PulseAudio did not expose the owned ALSA sink |
+
+The scope-marker failure of the two previous runs is gone: the exact PE read the
+owned VM marker through pressure-vessel's read-only host `/etc`
+(`scopeMarkerLayout=pressure-vessel-readonly-host-etc`, `scopeMarkerCopied=false`)
+with the Windows `Z:` path, the ordinary account, the private network namespace
+and the verified runtime. Functional JSON now arrives on the launcher stdout
+pipe; `PROTON_LOG=0` left all four Proton log snapshots empty by design.
+
+The Win32 observer registers usage page 1 / usage 5 with `RIDEV_INPUTSINK` on a
+message-only window and pumps `PeekMessage` for five seconds; no `WM_INPUT` for
+the selected device arrived, while the HIDAPI observer read an input report from
+the same virtual device. This run does not establish whether Wine delivers Raw
+Input to message-only windows under Xvfb, whether a state change was issued
+during the wait, or whether the virtual device's report pipe was idle; no cause
+is claimed and no harness timeout or window policy is changed from this run. The
+empty PulseAudio sink list means the owned card was not visible to the ordinary
+account's PulseAudio; whether its module or ACL/udev exclusion is responsible is
+not established. The kernel wait capture retained two snapshots with transient
+`/proc` child misses and no `hidraw_write` cycle. No game, physical device,
+radio or latency result follows from this run.
+
 ## Primary references
 
 - [GE release](https://github.com/GloriousEggroll/proton-ge-custom/releases/tag/GE-Proton11-11),

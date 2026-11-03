@@ -136,7 +136,53 @@ The current observer transform records setup and original data at the base
 entry, before this normalization. Its retained source hashes distinguish it from
 the older `add0505` transform at `VirtualHidDevice.OnClassRequest`. Local tests
 cover the recorded `80 03 00` command, Edge65's complete echo, output shape,
-original USB/IP completion count and negative/size boundaries. Native corrected
-feature behavior is still pending. Output control remains natively unvalidated;
+original USB/IP completion count and negative/size boundaries. The second native
+run below verifies the corrected feature behavior. Output control remains natively unvalidated;
 `EBUSY` will continue to fail that case and the outer compatibility job even if
 the feature case succeeds. No driver detach is added.
+
+## Corrected native feature result
+
+[Run 41663090548](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41663090548)
+used commit `727e8b99245496276bef9cb3e811872e137228ee`. Build/tests passed and
+both original baselines passed again: ten broker cases and nine core cases,
+then nine cases in the fresh instrumented actor. Artifact SHA-256 values are:
+
+- Build: `47667006df07c02bc78642ac63caf263a55838ecb71c0cbd8126349771cf0d08`.
+- Runtime: `069185280b090aef4d8d45cf33fca9bc87f07fcd3a577c92bea49bdc0fb5e21d`.
+
+The original setup remains `21 09 0380 0003 0003` and the original OUT data
+remains `80 03 00` in the observer before normalization. SET returned 3 and GET
+returned 64. Comparing all 64 response bytes with the first run, **only byte 4
+changes, from `00` to `01`**: the new response starts `81 01 00 00 01`. This
+validates the Linux feature framing correction through the real guest kernel.
+Edge65 still has unit coverage only; this fixture did not execute an Edge case.
+
+| Case | Native observation after correction | Compatibility evidence |
+| --- | --- | --- |
+| hidraw write | Returned 48; exact USB48 then CRC-valid Bluetooth RGB `456789` | Verified synthetic forwarding |
+| HIDIOCSOUTPUT | Returned 48; exact USB48 then CRC-valid Bluetooth RGB `56789a`; no SET_REPORT | Verified interrupt route |
+| USBDEVFS_CONTROL | Returned -1, errno16 (`EBUSY`); no class request or output observed | Control-output payload remains untested |
+| FEATURE80 to 81 | Original wire request unchanged; exact expected 64-byte response, status byte 4=`01` | Verified feature correction |
+
+The recorder retained all 15 class requests with zero rejected/error snapshots;
+the raw-output recorder drained exactly. The core read and acknowledged all 584
+received reports, with no queued report or overflow on exit. All six consumer
+ACLs were restored byte-for-byte, the account/processes/files were removed, and
+QEMU exit plus restoration of the temporary host KVM ACL were verified. No
+physical actuation, games or latency result is claimed by this experiment.
+
+The independent audit imports no repository verifier. It checks artifact and
+build-member hashes, the exact source-copy transform, original setup/data,
+complete response comparison against the retained `add0505` audit, raw USB and
+Bluetooth CRC/markers, final recorder counts and cleanup. Its SHA-256 is
+`0a5dc555b38bb43f3d87bdd56f083e5e842806dd23f29e528362ca9824a35629`.
+
+The workflow's failure is retained deliberately: `observationComplete=true`
+and `protocolCompatibilityPassed=false`. There is no remaining observed feature
+mismatch in this run; the incomplete compatibility case is the kernel's USBFS
+interface refusal. The refusal does not test the control-output decoder, and
+successful interrupt output cannot substitute for that missing evidence. A
+useful report therefore lists **observation complete**, **feature correction
+verified**, and **control-output untested (`EBUSY`)** separately. It must not
+rename the overall result to a compatibility pass or suppress the failed case.

@@ -107,7 +107,34 @@ Kernel `usb_chmap_ctl_get` reports zeros when no current format exists, while
 `snd_usb_hw_free` clears that format. Sources:
 [USB channel-map getter](https://github.com/torvalds/linux/blob/v6.8/sound/usb/stream.c#L177),
 [PCM hardware free](https://github.com/torvalds/linux/blob/v6.8/sound/usb/pcm.c#L556).
-The new post-EOF comparison still needs a native run.
+[Run 41683346411](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41683346411)
+at `9aff32cdfae483cd6618b201cc9823e4bd930317` executed that revised check natively
+and passed (`pcmResult=measured`, both jobs green). Native artifact SHA-256
+`15aeff2ea6825cf3d0778af80162278da61d29b1d7af83723be97d284081d5b5`; contracts
+artifact `a37e4a0d5f6293e362d9dd9d44d0bd720ef64c2be2cb29fd4534de22ee9817fc`. The
+exact-source audit (`work/audit_audio_pcm.py`) rebuilt the verifiers from that
+commit, matched 124 payload sources and four installed files, verified the PCM
+overlay and the lifecycle gates (10 broker, 9 core, 10 app, idle upgrade 2/4).
+
+| Snapshot | Reader | `Playback Channel Map` (numid 1) | Other seven controls |
+| --- | --- | --- | --- |
+| `pcm-alsa-before` | UID/GID 1001, no groups, PID 13926 | `0,0,0,0` | Identical |
+| `pcm-alsa-negotiated` | UID/GID 1001, no groups, PID 14017 | `3,4,5,6` | Identical |
+| `pcm-alsa-after` | UID/GID 1001, no groups, PID 14158 | `3,4,5,6` | Identical |
+| `pcm-alsa-after-eof` | UID/GID 1001, no groups, PID 14163 | `0,0,0,0` | Identical |
+
+All four reads saw the same root-owned `/dev/snd/controlC0` (inode 1718) and
+the same card sysfs under the owned virtual USB parent; each ran as a bounded
+`amixer` process with exit 0. The four marked phases again matched all 48,000
+frames per channel (`direct`, `export`, `front-gain` FL/2 FR/4 with unchanged
+rear channels, `restored` at exact unity), Node Props returned to the original
+`[1,1,1,1]`, the default sink/source were preserved and the recorder retained
+7,427 packets / 2,851,968 bytes with no rejection. This confirms, on the real
+guest kernel, that the read-only map reports the negotiated positions only
+while the exporter holds the PCM open and returns to zeros after owner EOF.
+It remains software PCM ingress evidence: `transmissionValidated=false`,
+`physicalAudioValidated=false`. The earlier failed run `41663518548` is kept as
+is.
 
 This stage proves only software PCM ingress if it passes. Native haptics and
 Opus transmission require separate comparisons against the samples actually

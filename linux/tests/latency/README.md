@@ -433,3 +433,37 @@ the original KVM ACL restored. Sixteen post-case diagnostic commands and all 32
 output/error stream sizes and hashes were checked without timeout or truncation.
 The functional gates remained separate and passed. No production timing, queue,
 priority or loss-handling change was made from this observation.
+
+## Full-stage repeat with consumer credits
+
+[Run 41662440249](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41662440249)
+at `6a953b8f4bee35a727c845e80e93e49cd45ffa31` retained original runtime ZIP SHA-256
+`82d05e2e9774e4fa6a155a4b6d0675730432efb6a6112bc175b58eac65800e75`.
+The exact-source audit verified 115 payload sources, four installed files, all
+five overlay changes and the Git archive. All eight sessions completed without
+input overflow, setup discards, transport errno or unattempted samples. Functional
+gates, actor cleanup, owned QEMU shutdown and restoration of KVM ACLs passed.
+
+| Session, in execution order | Observed / written | Producer deadlines skipped | Missing after raw-slot publication |
+|---|---|---|---|
+| 100 Hz control 1 | 1000 / 1000 | 0 | No internal trace |
+| 100 Hz trace 1 | 999 / 1000 | 0 | 1 |
+| 100 Hz trace 2 | 1000 / 1000 | 0 | 0 |
+| 100 Hz control 2 | 1000 / 1000 | 0 | No internal trace |
+| 1000 Hz trace 1 | 9850 / 9988 | 12 | 138 |
+| 1000 Hz control 1 | 9809 / 9977 | 23 | No internal trace |
+| 1000 Hz control 2 | 9774 / 9985 | 15 | No internal trace |
+| 1000 Hz trace 2 | 9808 / 9972 | 28 | 164 |
+
+An independent CSV audit, without importing the result verifier, reproduced the
+written/observed sets and percentile calculations. In every instrumented session,
+each written sequence reached parsing and raw-slot publication exactly once. The
+unique interrupt-payload and completed-send sets equal the virtual reader's
+observed set. Thus the missing sequences in these captures are confined to the
+raw-slot-to-interrupt interval; none is attributed to a malformed Bluetooth
+report or a missing client dequeue. The trace has no overflow or invalid sequence,
+all writers finished before dumping, and its native clock was bracket-checked.
+This establishes the boundary, not whether a pending URB, notification worker,
+timer or scheduler delay caused a particular overwrite. No observer-cost estimate
+or physical latency conclusion follows. The lost 100 Hz sequence is retained;
+prior successful 100 Hz runs do not erase it. The result remains `transport-limit`.
