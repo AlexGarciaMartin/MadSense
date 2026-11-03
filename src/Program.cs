@@ -183,7 +183,7 @@ sealed class Bridge : IDisposable
     }
     public UiMessage DisplayStatus => controller == null ? (reconnect ? (lastConnectionError ?? L.Message("Bridge.Waiting")) : L.Message("Bridge.Paused")) :
         L.Message("Bridge.ConnectionDetails",
-            L.Message("Bridge.Battery", controller.InputReport?.Battery.Percentage?.ToString() ?? "?"),
+            BatteryPresentation.Connection(controller.InputReport?.Battery),
             controller.InputReport?.Connection.Headphone == true ? L.Message("Bridge.HeadsetSuffix") : UiMessage.Raw(""),
             Ready ? L.Message(Mode == "Xbox" ? "Bridge.ConnectedXbox" : "Bridge.ConnectedNative") : Running ? L.Message("Bridge.HidingController") : emulation?.GetStatus(controller).IsCreating == true ? L.Message("Bridge.CreatingController") : L.Message("Bridge.ActivationFailed"));
     public string Status => controller == null ? L.Text("Bridge.Disconnected") :

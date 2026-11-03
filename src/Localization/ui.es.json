@@ -1,4 +1,6 @@
 {
+  "Ui.TrayCharging": " · Cargando",
+  "Ui.TrayCharged": " · Carga completa",
   "Ui.Active": "en curso",
   "Ui.Idle": "en reposo",
   "Ui.Audio": "AUDIO",

@@ -287,7 +287,7 @@ sealed class MainWindow : Form
         if (modeHint.Text != hint) { modeHint.Text = hint; FitLabel(modeHint, 10, 8.5f, true); }
         activity.Text = displayedMessage.Render();
         activity.AccessibleDescription = displayedMessage.Message.Render();
-        var battery = hero.Connected && hero.Signals is { Battery: >= 0 } sig ? L.Text("Ui.TrayBattery", sig.Battery) : "";
+        var battery = hero.Connected && hero.Signals is { } sig ? BatteryPresentation.Tray(sig.Battery, sig.Charging) : "";
         tray.Text = Truncate(availableUpdate is { } update
             ? L.Text("Ui.UpdateAvailable", update.Version)
             : L.Text(hero.Connected ? "Ui.TrayReady" : paused ? "Ui.TrayPaused" : "Ui.TrayWaiting") + battery, 63);
