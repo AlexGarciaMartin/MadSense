@@ -2,12 +2,25 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
-from run_wine_variant import registry_sdl_disabled, run_after_default
+from run_wine_variant import registry_sdl_disabled, run_after_default, audited_wine_version, configure_udev
 
 
 class WineVariantTests(unittest.TestCase):
+    def test_version_allowlist_rejects_unaudited_families_and_suffix_versions(self):
+        for version in ('wine-9.0', 'wine-9.0 (Ubuntu 9.0~repack-4build3)', 'wine-10.0 (Debian 10.0~repack-6)\n'):
+            self.assertIn(audited_wine_version(version), ('9.0','10.0'))
+        for version in ('wine-8.0','wine-11.0','wine-10.1','wine-10.0-staging','wine-10.0\nignored'):
+            with self.assertRaises(RuntimeError): audited_wine_version(version)
+
+    def test_unsupported_version_records_request_without_configuration(self):
+        session = Mock(); session.result = {'wineSession':{}}
+        with self.assertRaisesRegex(RuntimeError, 'audited'):
+            configure_udev(session, Path('unused'), 'wine-11.0')
+        self.assertEqual(session.result['wineSession'], {'configurationRequested':True,'configured':False})
+        session.command.assert_not_called()
+
     def test_registry_readback_requires_exact_one_dword_zero(self):
         registry_sdl_disabled(b"HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Services\\winebus\r\n    Enable SDL    REG_DWORD    0x0\r\n")
         for value in (b"", b"Enable SDL REG_SZ 0x0", b"Enable SDL REG_DWORD 0x1",

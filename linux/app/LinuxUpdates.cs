@@ -28,12 +28,14 @@ static class LinuxUpdates
             if (size > Limit) return new(false, false);
             using var document = JsonDocument.Parse(bytes.AsMemory(0, size));
             var architecture = RuntimeInformation.ProcessArchitecture switch { Architecture.Arm64 => "arm64", Architecture.X64 => "x64", _ => "unsupported" };
-            return Parse(document.RootElement, new Version(0, 5, 0), architecture);
+            // Current packages and the visible version badge are development
+            // builds. Their first stable release may have the same base version.
+            return Parse(document.RootElement, new Version(0, 5, 0), architecture, developmentBuild: true);
         }
         catch (Exception error) when (error is HttpRequestException or IOException or JsonException or OperationCanceledException)
         { return new(false, false); }
     }
-    internal static LinuxUpdateResult Parse(JsonElement releases, Version current, string architecture)
+    internal static LinuxUpdateResult Parse(JsonElement releases, Version current, string architecture, bool developmentBuild = false)
     {
         if (architecture is not ("arm64" or "x64") || releases.ValueKind != JsonValueKind.Array) return new(false, false);
         LinuxUpdate? latest = null;
@@ -56,6 +58,7 @@ static class LinuxUpdates
                 asset.TryGetProperty("browser_download_url", out var url) && url.ValueKind == JsonValueKind.String && url.GetString() == download);
             if (matches == 1 && (latest == null || version > latest.Version)) latest = new(version, new Uri(download), new Uri(releaseUrl));
         }
-        return latest == null ? new(true, false) : new(true, true, latest.Version > current ? latest : null);
+        return latest == null ? new(true, false) : new(true, true,
+            latest.Version > current || (developmentBuild && latest.Version == current) ? latest : null);
     }
 }

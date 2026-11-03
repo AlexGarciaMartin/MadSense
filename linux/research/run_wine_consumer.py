@@ -158,7 +158,7 @@ def check_pcm(session, record, offsets):
     raise last or RuntimeError("Wine PCM did not reach core capture")
 
 
-def run_wine_suite(session, executable, fixture_state_callback, *, winebus_mode="default"):
+def run_wine_suite(session, executable, fixture_state_callback, *, winebus_mode="default", hidapi_executable=None):
     require(winebus_mode in ("default", "udev-diagnostic"), "Unknown Wine bus experiment mode")
     for command in ("wine", "wineserver", "Xvfb"):
         require(shutil.which(command), f"Missing test guest prerequisite: {command}")
@@ -179,10 +179,17 @@ def run_wine_suite(session, executable, fixture_state_callback, *, winebus_mode=
     session.save()
     if winebus_mode == "udev-diagnostic":
         from run_wine_variant import configure_udev
-        configure_udev(session, prefix, version.decode("utf-8", errors="strict"))
+        try:
+            configure_udev(session, prefix, version.decode("utf-8", errors="strict"))
+        except Exception as error:
+            session.result["wineSession"]["configurationError"] = str(error)
+            session.save()
+            raise
     def invoke(label, arguments, *, required=False):
         return session.command(label, ["wine", program_windows, *arguments], required=required)
-    run_windows_cases(session, invoke, fixture_state_callback)
+    from run_hidapi_windows import after_api
+    after_api(lambda: run_windows_cases(session, invoke, fixture_state_callback),
+              session, hidapi_executable, fixture_state_callback)
 
 
 def run_windows_cases(session, invoke, fixture_state_callback, *, result_key="wineSession", label_prefix="wine"):

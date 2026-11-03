@@ -456,25 +456,28 @@ def run_audio_defaults_observer(ready_path, evidence, physical_parent):
 
 def run_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
               observe_audio_defaults=False, observe_pipewire_defaults=False, wine_udev_variant=False,
-              adjust_owned_rear_unity=False, ge_umu_cache=None):
+              adjust_owned_rear_unity=False, ge_umu_cache=None, hidapi_windows_exe=None):
     def primary():
         return _run_primary_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
-                                  observe_audio_defaults, observe_pipewire_defaults, adjust_owned_rear_unity)
+                                  observe_audio_defaults, observe_pipewire_defaults, adjust_owned_rear_unity,
+                                  hidapi_windows_exe)
     def with_variant():
         if wine_udev_variant:
             from run_wine_variant import run_after_default
-            return run_after_default(primary, ready_path, wine_exe, fixture_state_callback, evidence, physical_parent)
+            return run_after_default(primary, ready_path, wine_exe, fixture_state_callback, evidence, physical_parent,
+                                     hidapi_executable=hidapi_windows_exe)
         return primary()
     if ge_umu_cache is not None:
         require(wine_udev_variant and wine_exe is not None, "GE/UMU requires the preceding Wine/UDEV experiment")
         from ge_umu_consumer import run_after_experiments
         return run_after_experiments(with_variant, ready_path, wine_exe, fixture_state_callback,
-                                     evidence, physical_parent, ge_umu_cache)
+                                     evidence, physical_parent, ge_umu_cache, hidapi_executable=hidapi_windows_exe)
     return with_variant()
 
 
 def _run_primary_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
-                       observe_audio_defaults=False, observe_pipewire_defaults=False, adjust_owned_rear_unity=False):
+                       observe_audio_defaults=False, observe_pipewire_defaults=False, adjust_owned_rear_unity=False,
+                       hidapi_windows_exe=None):
     """Fixture callback accepts 'south' or 'neutral'; it must not replace the device."""
     observation = pipewire_observation = gain_experiment = None
     if adjust_owned_rear_unity:
@@ -528,7 +531,7 @@ def _run_primary_suite(ready_path, binaries, wine_exe, fixture_state_callback, e
             if wine_exe is not None:
                 from run_wine_consumer import run_wine_suite
                 try:
-                    run_wine_suite(session, wine_exe, fixture_state_callback)
+                    run_wine_suite(session, wine_exe, fixture_state_callback, hidapi_executable=hidapi_windows_exe)
                 except Exception as error:
                     session.check_device()
                     failures.append(f"wine: {error}")

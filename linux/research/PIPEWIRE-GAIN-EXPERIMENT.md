@@ -78,7 +78,9 @@ the existing ALSA/ACL/account/process cleanup checks pass. This is neither a
 measurement nor a relaxed restoration gate. The twenty tests include rejection
 of the native inconsistent shape and continuation after a failed, unmodified
 experiment with verified cleanup; replay also rejects both valid-shaped 64d
-startup snapshots and accepts the d8 baseline. The new native run is pending.
+startup snapshots and accepts the d8 baseline. Run `41637839035` at `3a7f8a8`
+subsequently rejected an inconsistent baseline before mutation, verified ALSA,
+five ACLs and account/process cleanup, and continued into SDL/Wine consumers.
 
 The 64d gain result SHA-256 is
 `60d2c89bc404bef5fab340af82c62dafcd23d4086eae029f48afd3abc9578b40`;
@@ -105,6 +107,35 @@ it. The script, its hash, stdout and stderr remain in the evidence directory.
 The supported Noble `wireplumber` package includes
 [`/usr/bin/wpexec`](https://packages.ubuntu.com/noble/amd64/wireplumber/filelist);
 no SDK, new package or downloaded script is required.
+
+The first attempt at this phase, [run 41639823652](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41639823652)
+at `2a17811`, failed before mutation or playback. The exact-reader script
+incorrectly required the sink to expose only one `Props` parameter. The retained
+Node 39 instead has one complete quad volume parameter followed by an ALSA
+follower parameter containing `device`, `deviceName`, `cardName`,
+`latencyOffsetNsec` and configuration `params`, with no volume fields. The script
+reported `ambiguous node props`; its uncaught callback assertion left `wpexec`
+running until the ten-second outer deadline. The observer restored its pre-stack
+ALSA state, all five ACLs, and removed the private account/processes. Its
+`experimentCleanupVerified` was true, so later consumer sessions continued.
+This attempt contains no four-channel PCM measurement.
+
+The corrected reader ignores only property objects with no volume, mute or
+channel-map fields. Exactly one complete quad volume object is still required;
+partial or duplicate candidates and changed device/node identities fail. Callback
+errors produce an explicit JSON error and quit the read-only script; Python
+rejects that error even though WirePlumber 0.4's `Core.quit` has no exit-status
+argument. Three additional Linux tests execute the exact embedded Lua through
+the distribution Lua 5.4 library with the retained parameter shapes, checking
+the unrelated follower in either order, duplicate/partial objects, changed
+identities and prompt error completion. They mock object delivery, not the Lua
+selection code, and do not start an audio daemon. These native tests and the
+corrected live measurement remain pending after the local Windows checks.
+
+The 2a pre-reader dump SHA-256 is
+`94d8f396fab0479f1ffcf8e0090ccefce436a3172563939acac9b93155afadd4`;
+the collected runtime archive SHA-256 is
+`3274906d30687a28b00e2840f6fff48b2dc2b8656490f99244bc9688d4868828`.
 
 `wpexec` runs under the session's ordinary UID with its private PipeWire socket;
 the script loads no policy components and performs no writes. Each invocation
@@ -267,6 +298,11 @@ cover these keys and the `Spa:Float` type name. In `alsa-acp-device.c`, enumerat
 of `SPA_PARAM_Route` passes that ID to `build_route`, which also uses it for the
 nested `SPA_TYPE_OBJECT_Props`. The nested object's `object_id` is therefore
 `Route`, while the Node's separately enumerated property object's ID is `Props`.
+The [PipeWire 1.0.5 audio adapter](https://github.com/PipeWire/pipewire/blob/1.0.5/spa/plugins/audioconvert/audioadapter.c)
+enumerates `Props` from both its converter and ALSA follower through
+`follower_enum_params`; multiple property parameters are therefore expected.
+The [WirePlumber 0.4 Core API implementation](https://github.com/PipeWire/wireplumber/blob/0.4.17/modules/module-lua-scripting/api/api.c)
+implements `Core.quit` by queuing a disconnect, without an exit-code parameter.
 
 PipeWire 1.0.5 [identity keys](https://github.com/PipeWire/pipewire/blob/1.0.5/src/pipewire/keys.h)
 define the client credential properties. The

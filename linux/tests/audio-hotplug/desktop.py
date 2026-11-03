@@ -105,7 +105,9 @@ class PrivateDesktop(ConsumerSession):
         self.graph_started_ns = time.monotonic_ns()
         self.names = {kind: "madsense-control-"+kind+"-"+uuid.uuid4().hex[:12] for kind in ("sink", "source")}
         for kind, name in self.names.items():
-            media = "Audio/Sink" if kind == "sink" else "Audio/Source/Virtual"
+            # wpctl 0.4 only accepts exact Audio/Source for explicit selection.
+            # It remains a software-only adapter (node.virtual, no ALSA parent).
+            media = "Audio/Sink" if kind == "sink" else "Audio/Source"
             properties = ('{ factory.name = support.null-audio-sink node.name = "'+name+'" '
                 'node.description = "Owned audio control" media.class = "'+media+'" '
                 'audio.position = [ FL FR ] audio.channels = 2 object.linger = true node.virtual = true '

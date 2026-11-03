@@ -7,6 +7,12 @@ on:
         type: boolean
         required: false
         default: false
+      guest_image:
+        description: 'Separate guest distribution; Debian requires ge_umu and keeps its original namespace policy'
+        type: choice
+        options: [ubuntu, debian13]
+        required: false
+        default: ubuntu
   push:
     branches: [feature/linux]
     paths:
@@ -45,6 +51,17 @@ on:
       - 'linux/research/test_ge_umu_consumer.py'
       - 'linux/research/test_ge_umu_payload.py'
       - 'linux/research/GE-UMU.md'
+      - 'linux/research/debian_qemu.py'
+      - 'linux/research/test_debian_qemu.py'
+      - 'linux/research/ge_namespace_probe.py'
+      - 'linux/research/prepare_debian_kernel.sh'
+      - 'linux/research/run_debian_broker_guest.sh'
+      - 'linux/research/DEBIAN-CONSUMERS.md'
+      - 'linux/research/hidapi_windows_*'
+      - 'linux/research/run_hidapi_windows.py'
+      - 'linux/research/test_hidapi_windows*'
+      - 'linux/research/build_hidapi_windows_consumer.sh'
+      - 'linux/research/HIDAPI-WINDOWS.md'
       - 'linux/research/ci_environment.py'
       - 'linux/research/wine_consumer.cpp'
       - 'linux/research/wine_overlapped.hpp'
@@ -60,6 +77,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Require distribution Lua for native precise-POD regressions
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y liblua5.4-0
+          python3 -c "import ctypes, ctypes.util; path=ctypes.util.find_library('lua5.4'); assert path, 'liblua5.4 is required'; ctypes.CDLL(path)"
       - name: Consumer scope and capture regressions
         run: |
           python3 -m unittest discover -s linux/research -p test_consumer_session.py -v
@@ -73,8 +95,36 @@ jobs:
           python3 -m unittest discover -s linux/research -p test_ge_umu.py -v
           python3 -m unittest discover -s linux/research -p test_ge_umu_consumer.py -v
           python3 -m unittest discover -s linux/research -p test_ge_umu_payload.py -v
+          python3 -m unittest discover -s linux/research -p test_debian_qemu.py -v
+          python3 -m unittest discover -s linux/research -p 'test_hidapi_windows*.py' -v
           python3 -m py_compile linux/research/consumer_session.py linux/research/run_wine_consumer.py linux/research/qemu_consumers.py
           bash -n linux/research/run_consumer_guest.sh
+          for script in prepare_debian_kernel.sh run_debian_broker_guest.sh build_hidapi_windows_consumer.sh; do
+            bash -n "linux/research/$script"
+          done
+  windows-hidapi-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare MinGW compiler for the real upstream Windows library
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y g++-mingw-w64-x86-64 ca-certificates
+      - name: Verify pinned HIDAPI source and compile without executing the PE
+        run: |
+          set -o pipefail
+          mkdir -p dist
+          bash linux/research/build_hidapi_windows_consumer.sh dist/hidapi-windows 2>&1 | tee dist/hidapi-windows-build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-hidapi-consumer-build
+          path: |
+            dist/hidapi-windows/**
+            dist/hidapi-windows-build.log
+          retention-days: 14
+          if-no-files-found: warn
   windows-api-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -131,7 +181,7 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
   runtime:
-    needs: [evidence-tests, consumers-build, windows-api-build]
+    needs: [evidence-tests, consumers-build, windows-api-build, windows-hidapi-build]
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.ge_umu && 65 || 50 }}
     steps:
@@ -147,6 +197,10 @@ jobs:
         with:
           name: windows-api-consumer-build
           path: dist/windows-build
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-hidapi-consumer-build
+          path: dist/hidapi-build
       - name: Publish neutral exporter and production core actor
         run: |
           dotnet publish linux/probe/MadSense.Linux.Probe.csproj -c Release -r linux-x64 --self-contained true -o dist/neutral-probe
@@ -169,16 +223,24 @@ jobs:
       - name: Ordinary SDL and Wine consumers of the production core in owned QEMU
         env:
           MADSENSE_GE_UMU: ${{ github.event_name == 'workflow_dispatch' && inputs.ge_umu && 'true' || 'false' }}
+          MADSENSE_GUEST_IMAGE: ${{ inputs.guest_image || 'ubuntu' }}
         run: |
           ge_arguments=()
           if [[ "$MADSENSE_GE_UMU" == true ]]; then
             ge_arguments=(--ge-umu-cache dist/ge-umu-private-cache)
           fi
+          audio_observers=(--observe-audio-defaults --observe-pipewire-defaults --adjust-owned-rear-unity)
+          if [[ "$MADSENSE_GUEST_IMAGE" == debian13 ]]; then
+            [[ "$MADSENSE_GE_UMU" == true ]] || { echo 'Debian is an explicit GE experiment' >&2; exit 2; }
+            # The private WirePlumber 0.4 adapters do not validate Debian 0.5.
+            audio_observers=(--observe-audio-defaults)
+          fi
           python3 linux/research/qemu_consumers.py \
             --neutral-probe-directory dist/neutral-probe --core-probe-directory dist/core-probe \
             --native-artifact dist/consumer-build/linux-consumers \
             --windows-artifact dist/windows-build/wine-consumer \
-            --observe-audio-defaults --observe-pipewire-defaults --adjust-owned-rear-unity \
+            --hidapi-artifact dist/hidapi-build/hidapi-windows --guest-image "$MADSENSE_GUEST_IMAGE" \
+            "${audio_observers[@]}" \
             --wine-udev-variant "${ge_arguments[@]}" \
             --output dist/consumer-runtime --work dist/consumer-qemu-private
       - uses: actions/upload-artifact@v4

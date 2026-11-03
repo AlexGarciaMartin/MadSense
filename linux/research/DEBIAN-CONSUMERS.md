@@ -1,0 +1,66 @@
+# Separate Debian 13 consumer experiment
+
+The consumer workflow has an opt-in `guest_image: debian13` selection which
+requires `ge_umu: true`. Ubuntu remains the default and still uses its existing
+GPG-verified image. Debian results are a separate distribution observation.
+No Debian guest has booted in CI yet; the pinned image bytes have been downloaded
+and verified locally, and the adapter's four portable regressions pass.
+
+The exact image is
+[`debian-13-generic-amd64-20261026-2643.qcow2`](https://cloud.debian.org/images/cloud/trixie/20261026-2643/debian-13-generic-amd64-20261026-2643.qcow2),
+438894592 bytes. Its SHA-512 is
+`5bd891c6e62d01639f52a5587b72a4607421e445732214be787dba6043cf9797a6ff90bed982aada6a6c7e619f1f956d961c4fad76757171abd607920aac098a`.
+The retained official `SHA512SUMS` has SHA-256
+`f9e3b6d25a73706755c83d34edf9ad52e990b543169d695a8fd95037b3f6155f`;
+the matching image JSON has SHA-256
+`53d4966f917a68aa71dfd5c546099620cce4b11751fd7565d0cfc72a521ec382`.
+The adapter rechecks all three before inspecting or booting the image, rejects
+external backing chains and uses only a private qcow2 overlay.
+
+These cloud artifacts are **not GPG signed**. Debian's
+[cloud-image publication policy](https://cloud.debian.org/images/cloud/)
+specifies HTTPS and checksums for current images and distinguishes the signed
+legacy OpenStack images. The adapter records `imageSignatureVerified=false`;
+HTTPS authentication and pinned digests do not become an independent signature.
+`generic` includes the normal driver set; `genericcloud` omits drivers and is not
+used. The pinned metadata identifies Linux `6.12.113+deb13-amd64`, AppArmor
+`4.1.0-1`, systemd `257.13-1~deb13u1` and Python `3.13.5`.
+
+The dedicated Debian setup installs distribution `usbip`, `usbutils`,
+`alsa-utils` and the native dependencies of the self-contained .NET actor,
+including `libicu76`, then requires the running kernel's `vhci_hcd`, `hid_playstation`,
+`snd_usb_audio`, `xpad` and `uhid` modules. It uses `/usr/sbin/usbip`, as listed in
+the [Debian package](https://packages.debian.org/trixie/amd64/usbip/filelist).
+It does not install another kernel or reboot the host. The existing synthetic
+broker baseline must pass before the production core and consumers run.
+
+Before that baseline, an ordinary guest UID must pass the same user/network
+namespace operation used by GE, with its current UID mapped to itself. The preflight records
+UID/GID, capabilities, seccomp, current AppArmor profile, relevant sysctls, the
+exact error and recent kernel journal. It checks the UID/GID stay unchanged and
+the private network has no route. Refusal stops before any core actor or GE
+launcher. No sysctl, profile, permissions or sandbox flags are changed.
+Debian documents user namespaces enabled by default in recent kernels, but that
+is a reason to test this image, not a substitute for the actual preflight.
+After that check, the existing broker baseline still creates and restores its
+explicitly labelled synthetic-device udev/polkit test fixtures. Those scoped
+fixtures do not change the namespace policy or authorize the GE runtime.
+
+The VM still has two virtual CPUs, 2 GiB RAM, bounded KVM/TCG startup, ephemeral
+SSH keys, loopback-only SSH forwarding, no host devices/radios, and mandatory
+owned QMP shutdown and KVM ACL restoration. Its `ubuntu` account name exists only
+to preserve the existing harness path convention; provenance identifies Debian.
+Image disks, private keys, GE archives and prefix caches never enter artifacts.
+
+Debian's Wine 10.0 is recorded separately from Ubuntu's Wine 9.0. The explicit
+fresh-prefix `Enable SDL=0` experiment is restricted to these two audited release
+families, with registry readback before and after owned-wineserver restart.
+Requested, applied and backend-observed status remain distinct. Debian's
+WirePlumber 0.5 is outside the existing 0.4 observer contract, so the workflow
+omits those optional PipeWire default/gain experiments for this image; it does
+not claim to validate its desktop defaults. The private Pulse observation and
+the controlled four-channel Wine audio setup retain their existing labels.
+
+HIDAPI, Win32 count parity, ContainerId/WASAPI, GE execution and final capture
+cleanup remain separate evidence. No game, native Windows parity, physical
+actuation or physical latency claim follows from a successful synthetic run.

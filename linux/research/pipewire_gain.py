@@ -57,7 +57,7 @@ local function volumes(p)
   end
   return array(p.channelVolumes), array(p.softVolumes)
 end
-om:connect("installed", function ()
+local function read_volumes()
   assert(om:get_n_objects() == 2, "missing exact device/node")
   local card, node
   for obj in om:iterate() do
@@ -77,14 +77,34 @@ om:connect("installed", function ()
     end
   end
   for param in node:iterate_params("Props") do
-    assert(not nr, "ambiguous node props")
-    nr, ns = volumes(properties(param:parse(), "Props"))
+    local p = properties(param:parse(), "Props")
+    -- The adapter also enumerates its ALSA follower's unrelated Props.
+    -- A partial volume object is still a candidate and must fail validation;
+    -- a second complete volume object remains ambiguous.
+    if p.volume ~= nil or p.mute ~= nil or p.channelMap ~= nil or p.channelVolumes ~= nil
+        or p.softMute ~= nil or p.softVolumes ~= nil or p.monitorMute ~= nil or p.monitorVolumes ~= nil then
+      assert(not nr, "ambiguous node volume props")
+      nr, ns = volumes(p)
+    end
   end
   assert(rr and rs and nr and ns, "missing volumes")
-  print(string.format('{"cardId":%d,"cardSerial":%d,"nodeId":%d,"nodeSerial":%d,' ..
+  return string.format('{"cardId":%d,"cardSerial":%d,"nodeId":%d,"nodeSerial":%d,' ..
     '"routeIndex":%d,"routeDevice":%d,"routeRaw":%s,"routeSoft":%s,"nodeRaw":%s,"nodeSoft":%s}',
     card["bound-id"], tonumber(card.properties["object.serial"]),
-    node["bound-id"], tonumber(node.properties["object.serial"]), route_index, route_device, rr, rs, nr, ns))
+    node["bound-id"], tonumber(node.properties["object.serial"]), route_index, route_device, rr, rs, nr, ns)
+end
+om:connect("installed", function ()
+  local ok, value = pcall(read_volumes)
+  if ok then
+    print(value)
+  else
+    -- Core.quit in 0.4 has no exit status. Return an explicit error record
+    -- which Python rejects, rather than waiting for its outer deadline.
+    local escaped = tostring(value):gsub('[%z\1-\31\\"]', function(c)
+      return string.format("\\u%04x", string.byte(c))
+    end)
+    print('{"error":"' .. escaped .. '"}')
+  end
   Core.quit()
 end)
 om:activate()
@@ -97,6 +117,8 @@ def dump_volumes(values):
 
 
 def exact_volumes(record, state):
+    if isinstance(record, dict) and set(record) == {"error"} and isinstance(record["error"], str):
+        raise RuntimeError("Precise volume reader failed: " + record["error"][:4096])
     keys = ("cardId", "cardSerial", "nodeId", "nodeSerial", "routeIndex", "routeDevice")
     require(isinstance(record, dict) and set(record) == set(keys) | {"routeRaw", "routeSoft", "nodeRaw", "nodeSoft"},
             "Unexpected precise volume record")

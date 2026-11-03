@@ -35,4 +35,19 @@ public sealed class LinuxUpdateTests
         Assert.That(current.HasLinuxRelease, Is.True); Assert.That(current.Update, Is.Null);
         Assert.That(Parse().HasLinuxRelease, Is.False);
     }
+
+    [Test]
+    public void DevelopmentBuildCanMoveToItsFirstStableVersionWithoutDowngrading()
+    {
+        using var same = JsonDocument.Parse(JsonSerializer.Serialize(new[]
+        { Release("linux-v0.5.0", "MadSense-0.5.0-linux-x64.tar.gz") }));
+        Assert.That(LinuxUpdates.Parse(same.RootElement, new Version(0, 5, 0), "x64", developmentBuild: true)
+            .Update?.Version, Is.EqualTo(new Version(0, 5, 0)));
+        Assert.That(LinuxUpdates.Parse(same.RootElement, new Version(0, 5, 0), "x64").Update, Is.Null);
+        Assert.That(LinuxUpdates.Parse(same.RootElement, new Version(0, 6, 0), "x64", developmentBuild: true).Update, Is.Null);
+        using var preview = JsonDocument.Parse(JsonSerializer.Serialize(new[]
+        { Release("linux-v0.5.0-alpha.1", "MadSense-0.5.0-linux-x64.tar.gz", prerelease: true) }));
+        Assert.That(LinuxUpdates.Parse(preview.RootElement, new Version(0, 5, 0), "x64", developmentBuild: true)
+            .HasLinuxRelease, Is.False);
+    }
 }

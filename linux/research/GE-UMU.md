@@ -1,7 +1,8 @@
 # GE-Proton and UMU: separate owned-VM experiment
 
-The acquisition path is implemented and verified. Native GE/UMU execution is
-**pending**. The consumer workflow exposes an explicit `ge_umu` dispatch input,
+Acquisition, native extraction and Valve's runtime verifier have completed.
+The first prepared guest refused the ordinary-user namespace preflight, so
+**no Windows consumer has executed under GE/UMU**. The consumer workflow exposes an explicit `ge_umu` dispatch input,
 default false; ordinary pushes and production components do not execute GE.
 This route uses GE-Proton, the UMU launcher and Valve's Steam Linux Runtime;
 it is neither distribution Wine nor an execution of official Valve Proton.
@@ -102,8 +103,8 @@ alongside its normal same-commit binary, output and private-work arguments.
 The guest accepts only the staged `ge-umu-private-cache` location and forwards
 it to `run_core_guest.py --ge-umu-cache`. Supplying GE without the preceding
 Wine/UDEV experiment fails before starting consumers. Preparation records actual
-extraction/verifier timing; no claim is made that it fits the total actor budget
-until native evidence is available.
+extraction/verifier timing. The first native preparation took 37.15 seconds;
+the total budget for actual Windows consumers remains unmeasured.
 
 `ge_umu_consumer.run_after_experiments(primary, ready_path, executable,
 fixture_state_callback, evidence, physical_parent, cache)` is implemented for
@@ -182,11 +183,40 @@ remains mandatory. Do not overlap this session with distribution Wine or the
 default-audio observers. The caller supplies a private authenticated display and
 an explicitly labelled audio stack if needed.
 
-Still pending: native extraction/pv-verify, UMU/pressure-vessel start, ordinary
+Still pending: UMU/pressure-vessel start, ordinary
 container device visibility, the PE assertions, SDL comparison, audio, cleanup
 under actual GE child processes and licensing work for any redistribution.
 Neither games, physical latency nor official Valve Proton compatibility is
 validated by this acquisition or the hook's implementation.
+
+## First native preparation and namespace refusal
+
+[Run 41637839035](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41637839035)
+at `3a7f8a88f5964e1e91f58d36a7167053886b15b4` retained runtime artifact SHA-256
+`940e9dea31ba04c7c140b502b14b75fa07ecc03bc9cef1bf085c014856a78b6a`.
+All pinned assets were reverified in the owned Ubuntu guest. Extraction,
+`pv-verify`, the ordinary-UID install marker and UMU `--version` succeeded.
+Preparation took 37.15 seconds, excluding downloads. The subsequent
+`unshare --user --map-current-user --net` preflight returned exit 1 with
+`write failed /proc/self/uid_map: Operation not permitted`.
+
+The failed operation occurred before Xvfb, pressure-vessel or the Windows PE
+started. `runtimeExecutionConfirmed` and `consumerAssertionsPassed` remain false.
+The GE account, files and processes were removed and all five exact virtual
+device ACLs were restored. No runtime cache was included in the artifact.
+SDL's four cases passed separately; distribution Wine and its explicit UDEV
+variant retained their ContainerId failures. The gain experiment refused its
+incoherent initial Route/Node state before mutation and verified cleanup.
+
+The artifact records AppArmor initialization but no denial at the time of this
+namespace operation, and no relevant sysctl or current process profile snapshot.
+Ubuntu documents restricted unprivileged namespaces, but this capture alone
+does not establish which policy caused this refusal. No protection was disabled,
+and the preflight failure is not a GE compatibility result. The opt-in
+[Debian adapter](DEBIAN-CONSUMERS.md) retains its own unchanged policy and requires
+ordinary-UID preflight evidence before any broker or core actor starts. Its
+official cloud image is verified through HTTPS and pinned SHA-512, explicitly
+without a GPG signature. It does not replace the signed Ubuntu default.
 
 ## Primary references
 

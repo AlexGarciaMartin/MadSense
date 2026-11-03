@@ -1,4 +1,6 @@
 import copy
+import ctypes
+import ctypes.util
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -10,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from pipewire_defaults import PREFIX
-from pipewire_gain import (CHANNELS, compare_pcm_channels, control_snapshot, dump_volumes, exact_volumes,
+from pipewire_gain import (CHANNELS, EXACT_VOLUMES_LUA, compare_pcm_channels, control_snapshot, dump_volumes, exact_volumes,
                            front_preserving_request, marked_pcm, measure_pcm,
                            optional_result, restore_values, route_request, run_optional,
                            require_route_restorable, same_target, stream_binding, target_state)
@@ -297,6 +299,8 @@ class PreciseVolumeTests(unittest.TestCase):
         self.assertEqual(dump_volumes(wanted), [.904004, .904004, 1., 1.])
 
     def test_exact_reader_rejects_replacement_nonfloat32_unbounded_and_graph_disagreement(self):
+        with self.assertRaisesRegex(RuntimeError, "Precise volume reader failed: ambiguous"):
+            exact_volumes({"error": "ambiguous node volume props"}, self.state)
         for change in (dict(cardSerial=41), dict(nodeSerial=42), dict(routeDevice=3), dict(nodeId=True),
                        dict(extra='unknown'), dict(routeSoft=[.904004]*4), dict(nodeRaw=[float('nan')]*4),
                        dict(routeRaw=[True]*4), dict(nodeSoft=[1.01]*4), dict(nodeRaw=[1.0]*4)):
@@ -416,6 +420,146 @@ class OptionalGainTests(unittest.TestCase):
             result = subprocess.run([sys.executable, "-I", "-c", code, str(research)], cwd=root,
                                     capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+
+@unittest.skipUnless(sys.platform == "linux", "Uses the distribution Lua 5.4 library without an audio daemon")
+class PreciseLuaTests(unittest.TestCase):
+    """Run the exact embedded reader, not a Python copy of its selection logic."""
+    @classmethod
+    def setUpClass(cls):
+        name = ctypes.util.find_library("lua5.4")
+        if name is None:
+            raise RuntimeError("liblua5.4-0 is required for the Linux precise-reader regression")
+        cls.lua = ctypes.CDLL(name)
+        for symbol, restype, argtypes in (
+            ("luaL_newstate", ctypes.c_void_p, []),
+            ("luaL_openlibs", None, [ctypes.c_void_p]),
+            ("luaL_loadbufferx", ctypes.c_int, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                                              ctypes.c_char_p, ctypes.c_char_p]),
+            ("lua_pcallk", ctypes.c_int, [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                        ctypes.c_ssize_t, ctypes.c_void_p]),
+            ("lua_tolstring", ctypes.c_void_p, [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_size_t)]),
+            ("lua_close", None, [ctypes.c_void_p]),
+        ):
+            fn = getattr(cls.lua, symbol)
+            fn.restype, fn.argtypes = restype, argtypes
+
+    @staticmethod
+    def literal(value):
+        if isinstance(value, dict):
+            return "{" + ",".join("[" + PreciseLuaTests.literal(k) + "]=" + PreciseLuaTests.literal(v)
+                                  for k, v in value.items()) + "}"
+        if isinstance(value, list):
+            return "{" + ",".join(map(PreciseLuaTests.literal, value)) + "}"
+        return json.dumps(value)
+
+    def setUp(self):
+        self.identity = dict(cardId=38, cardSerial=40, nodeId=39, nodeSerial=41, routeIndex=2, routeDevice=4)
+        # Shape and unrelated fields retained from native 2a17811, run41639823652,
+        # pipewire-gain/004-precise-original-before.json SHA256
+        # 94d8f396fab0479f1ffcf8e0090ccefce436a3172563939acac9b93155afadd4.
+        # Rounded dump values below are representative float32 test inputs,
+        # not a claim that the dump retained native coefficient precision.
+        self.raw = struct.unpack("<f", struct.pack("<f", .063997))[0]
+        self.soft = struct.unpack("<f", struct.pack("<f", .904004))[0]
+        def array(kind, values):
+            return dict(pod_type="Array", value_type=kind) | {i+1: value for i, value in enumerate(values)}
+        self.volume = dict(mute=False, channelMap=array("Spa:Id", CHANNELS),
+                           channelVolumes=array("Spa:Float", [self.raw]*4),
+                           softVolumes=array("Spa:Float", [self.soft]*4))
+        self.follower = dict(device="surround40:0", deviceName="", cardName="", latencyOffsetNsec=0,
+                             params=["audio.channels", 4, "audio.rate", 0, "audio.format", "UNKNOWN",
+                                     "audio.position", "[ FL, FR, RL, RR ]"])
+
+    def execute(self, node_props, *, identity=None, node_identity=None):
+        def pod(properties, object_id="Props"):
+            return dict(pod_type="Object", object_id=object_id, properties=properties)
+        route = dict(index=2, device=4, direction="Output", save=False, props=pod(self.volume, "Route"))
+        card = {"bound-id": 38, "properties": {"object.serial": "40"}, "parameters": [pod(route, "Route")]}
+        node = {"bound-id": 39, "properties": node_identity or
+                {"object.serial": "41", "device.id": "38", "card.profile.device": "4"},
+                "parameters": [pod(p) for p in node_props]}
+        # Only WirePlumber object delivery is mocked. The production Lua performs
+        # every selection, identity check, POD check, float formatting and error exit.
+        wrapper = r'''
+local card, node, args = CARD, NODE, ARGS
+local function iterate(values, boxed)
+  local i = 0
+  return function ()
+    i = i + 1
+    local value = values[i]
+    if not value then return nil end
+    if boxed then return {parse=function() return value end} end
+    return value
+  end
+end
+for _, obj in ipairs({card, node}) do
+  obj.iterate_params = function(self) return iterate(self.parameters, true) end
+end
+local messages, quits = {}, 0
+print = function(value) table.insert(messages, value) end
+Core = {quit=function() quits = quits + 1 end}
+Interest = function(value) return value end
+Constraint = function(value) return value end
+ObjectManager = function()
+  return {
+    connect=function(self, _, callback) self.callback = callback end,
+    activate=function(self) self.callback() end,
+    get_n_objects=function() return 2 end,
+    iterate=function() return iterate({card, node}, false) end,
+  }
+end
+assert(load(SCRIPT, "exact-volumes.lua"))(args)
+assert(quits == 1, "reader must quit after success or failure")
+assert(#messages == 1, "reader must return exactly one result")
+return messages[1]
+'''
+        wrapper = wrapper.replace("CARD", self.literal(card)).replace("NODE", self.literal(node))
+        wrapper = wrapper.replace("ARGS", self.literal(identity or self.identity))
+        # Long Lua strings preserve the exact script bytes, including its escapes.
+        wrapper = wrapper.replace("SCRIPT", "[====[" + EXACT_VOLUMES_LUA + "]====]")
+        encoded = wrapper.encode()
+        state = self.lua.luaL_newstate()
+        self.assertTrue(state)
+        try:
+            self.lua.luaL_openlibs(state)
+            status = self.lua.luaL_loadbufferx(state, encoded, len(encoded), b"reader-regression", None)
+            if status == 0:
+                status = self.lua.lua_pcallk(state, 0, 1, 0, 0, None)
+            length = ctypes.c_size_t()
+            pointer = self.lua.lua_tolstring(state, -1, ctypes.byref(length))
+            text = ctypes.string_at(pointer, length.value).decode() if pointer else "<no Lua result>"
+            self.assertEqual(status, 0, text)
+            return json.loads(text)
+        finally:
+            self.lua.lua_close(state)
+
+    def test_native_follower_props_does_not_make_the_unique_volume_object_ambiguous(self):
+        expected = self.identity | dict(routeRaw=[self.raw]*4, routeSoft=[self.soft]*4,
+                                         nodeRaw=[self.raw]*4, nodeSoft=[self.soft]*4)
+        for rows in ([self.volume, self.follower], [self.follower, self.volume]):
+            with self.subTest(rows=rows):
+                self.assertEqual(self.execute(rows), expected)
+
+    def test_duplicate_or_partial_volume_props_fail_and_quit_immediately(self):
+        cases = [[self.volume, self.volume], [self.follower]]
+        for key in ("volume", "mute", "channelMap", "channelVolumes", "softMute", "softVolumes", "monitorMute", "monitorVolumes"):
+            partial = {key: self.volume.get(key, 1)}
+            cases.extend(([partial, self.volume], [self.volume, partial], [partial]))
+        for rows in cases:
+            with self.subTest(rows=rows):
+                result = self.execute(rows)
+                self.assertEqual(set(result), {"error"})
+                self.assertTrue(result["error"])
+                with self.assertRaisesRegex(RuntimeError, "Precise volume reader failed"):
+                    exact_volumes(result, {})
+
+    def test_replaced_node_or_wrong_profile_device_cannot_supply_volumes(self):
+        props = {"object.serial": "41", "device.id": "38", "card.profile.device": "4"}
+        for key in props:
+            with self.subTest(key=key):
+                result = self.execute([self.volume, self.follower], node_identity=props | {key: "999"})
+                self.assertEqual(set(result), {"error"})
 
 
 if __name__ == '__main__':

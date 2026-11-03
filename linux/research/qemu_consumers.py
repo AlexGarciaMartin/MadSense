@@ -57,6 +57,8 @@ def stage_consumer_research(payload):
                  "consumer_phases.py", "test_consumer_phases.py", "consumer_files.py", "test_consumer_files.py",
                  "consumer_stop.py", "test_consumer_stop.py", "run_wine_variant.py", "test_wine_variant.py"):
         shutil.copy2(research / name, target / name)
+    for name in ("run_hidapi_windows.py", "hidapi_windows_evidence.py", "test_hidapi_windows_runtime.py"):
+        shutil.copy2(research / name, target / name)
 
 
 def main():
@@ -70,17 +72,28 @@ def main():
     parser.add_argument("--core-probe-directory", type=Path, required=True)
     parser.add_argument("--native-artifact", type=Path, required=True)
     parser.add_argument("--windows-artifact", type=Path, required=True)
+    parser.add_argument("--hidapi-artifact", type=Path, help="Optional separately built real Windows HIDAPI observer")
     parser.add_argument("--observe-audio-defaults", action="store_true")
     parser.add_argument("--observe-pipewire-defaults", action="store_true")
     parser.add_argument("--adjust-owned-rear-unity", action="store_true")
     parser.add_argument("--wine-udev-variant", action="store_true")
     parser.add_argument("--ge-umu-cache", type=Path, help="Explicit private verified cache; requires Wine/UDEV; no download during actor")
+    parser.add_argument("--guest-image", choices=("ubuntu", "debian13"), default="ubuntu",
+                        help="Separate opt-in Debian experiment; default Ubuntu remains GPG verified")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     args = parser.parse_args()
     if args.ge_umu_cache is not None and not args.wine_udev_variant:
         parser.error("--ge-umu-cache requires --wine-udev-variant")
-    guest = OwnedQemu(args.output, args.work)
+    if args.guest_image == "debian13":
+        if args.ge_umu_cache is None:
+            parser.error("--guest-image debian13 requires the explicit GE/UMU experiment")
+        if args.observe_pipewire_defaults or args.adjust_owned_rear_unity:
+            parser.error("The WirePlumber 0.4 observers do not cover Debian's WirePlumber 0.5")
+        from debian_qemu import OwnedDebianQemu
+        guest = OwnedDebianQemu(args.output, args.work)
+    else:
+        guest = OwnedQemu(args.output, args.work)
     provenance = guest.provenance
     try:
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
@@ -91,9 +104,12 @@ def main():
                           pipewireGainExperimentRequested=args.adjust_owned_rear_unity,
                           configuredWineUdevVariantRequested=args.wine_udev_variant,
                           geUmuExperimentRequested=args.ge_umu_cache is not None)
+        provenance["guestImageSelection"] = args.guest_image
         native = verify_build(args.native_artifact, ("consumer_sdl2", "consumer_sdl3", "ff_probe"), commit)
         windows = verify_build(args.windows_artifact, ("wine_consumer.exe",), commit)
-        provenance["consumerBuildDigests"] = native | windows
+        hidapi = verify_build(args.hidapi_artifact, ("hidapi_windows_consumer.exe",), commit) if args.hidapi_artifact else {}
+        provenance["consumerBuildDigests"] = native | windows | hidapi
+        provenance["realHidapiWindowsRequested"] = args.hidapi_artifact is not None
         for name, source in (("native-build", args.native_artifact), ("windows-build", args.windows_artifact)):
             target = guest.output / name
             target.mkdir()
@@ -106,7 +122,15 @@ def main():
         shutil.copytree(args.core_probe_directory, payload / "core-probe")
         shutil.copytree(args.native_artifact / "bin", payload / "consumer-bin")
         shutil.copy2(args.windows_artifact / "bin/wine_consumer.exe", payload / "consumer-bin")
+        if args.hidapi_artifact is not None:
+            shutil.copy2(args.hidapi_artifact / "bin/hidapi_windows_consumer.exe", payload / "consumer-bin")
+            target = guest.output / "hidapi-build"; target.mkdir()
+            for name in ("provenance.txt", "binary-sha256.txt", "source-sha256.txt"):
+                shutil.copy2(args.hidapi_artifact / name, target / name)
         stage_consumer_research(payload)
+        if args.guest_image == "debian13":
+            for name in ("prepare_debian_kernel.sh", "run_debian_broker_guest.sh", "ge_namespace_probe.py"):
+                shutil.copy2(Path(__file__).parent / name, payload / "linux/research" / name)
         if args.ge_umu_cache is not None:
             from ge_umu_payload import stage as stage_ge
             provenance["geUmuPrivatePayload"] = stage_ge(args.ge_umu_cache, payload, guest.output)
@@ -117,9 +141,22 @@ def main():
         (guest.output / "payload-files.json").write_text(json.dumps(hashes, indent=2) + "\n")
         guest.boot(); guest.upload(payload)
         guest.run("payload-check", "cd /home/ubuntu/madsense && sha256sum --check --strict PAYLOAD-SHA256SUMS")
+        if args.guest_image == "debian13":
+            namespace = guest.run("namespace-preflight", "python3 /home/ubuntu/madsense/linux/research/ge_namespace_probe.py "
+                "--owned-guest-token " + shlex.quote(guest.token), timeout=30, required=False)
+            provenance["earlyNamespacePreflightExit"] = namespace.returncode
+            if namespace.returncode:
+                raise RuntimeError("Debian ordinary-user namespace preflight failed before broker/actor/GE; policy unchanged")
+            observed = json.loads((guest.output / "namespace-preflight.stdout").read_text())
+            if (observed.get("result") != "passed" or observed.get("ownedGuestToken") != guest.token
+                    or observed.get("securityPolicyModified") is not False):
+                raise RuntimeError("Missing same-guest namespace preflight evidence")
+            provenance["earlyNamespacePreflightVerified"] = True
         guest.run("probe-permissions", "chmod +x /home/ubuntu/madsense/probe/MadSense.Linux.Probe")
         try:
-            baseline = guest.run("baseline-run", "bash /home/ubuntu/madsense/linux/platform/tests/run_broker_experiment.sh "
+            baseline_script = ("linux/research/run_debian_broker_guest.sh" if args.guest_image == "debian13"
+                               else "linux/platform/tests/run_broker_experiment.sh")
+            baseline = guest.run("baseline-run", "bash /home/ubuntu/madsense/" + baseline_script + " "
                                  + shlex.quote(guest.token), timeout=900, required=False)
             provenance["baselineExit"] = baseline.returncode
             if baseline.returncode == 0:
@@ -129,7 +166,8 @@ def main():
                                      + (" --observe-pipewire-defaults" if args.observe_pipewire_defaults else "")
                                      + (" --adjust-owned-rear-unity" if args.adjust_owned_rear_unity else "")
                                      + (" --wine-udev-variant" if args.wine_udev_variant else "")
-                                     + (" --ge-umu" if args.ge_umu_cache is not None else ""),
+                                     + (" --ge-umu" if args.ge_umu_cache is not None else "")
+                                     + (" --hidapi-windows" if args.hidapi_artifact is not None else ""),
                                      timeout=900, required=False)
                 provenance["consumerExit"] = consumer.returncode
         finally:
@@ -141,6 +179,16 @@ def main():
         verify_result(json.loads(baseline_path.read_text()), guest.token)
         core_path = guest.output / "result/core-experiment/result.json"
         consumer_path = guest.output / "result/core-experiment/consumer-suite/result.json"
+        if args.hidapi_artifact is not None:
+            from run_hidapi_windows import final_capture_summary
+            stopped_path = guest.output / "result/core-experiment/core/stopped.json"
+            stopped = json.loads(stopped_path.read_text()) if stopped_path.exists() else {}
+            provenance["realHidapiWindows"] = {}
+            for name in ("consumer-suite", "wine-udev-variant", "ge-umu-suite"):
+                path = guest.output / "result/core-experiment" / name / "result.json"
+                if path.exists():
+                    record = json.loads(path.read_text())
+                    provenance["realHidapiWindows"][name] = final_capture_summary(record, stopped, guest.token)
         observation_path = guest.output / "result/core-experiment/audio-defaults/result.json"
         if observation_path.exists():
             observation = json.loads(observation_path.read_text())

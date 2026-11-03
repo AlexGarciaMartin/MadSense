@@ -251,6 +251,54 @@ control and limited repetitions prevent a reliable numerical estimate of
 instrumentation overhead. Neither this table nor its stage attribution measures
 physical Bluetooth latency or justifies a production queue/scheduling change.
 
+### Repeat with closure diagnostics
+
+[Run 41641527528](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41641527528)
+at `adccde1b59ffbc08bc85e3cf9cceb9b9cd1387bd` repeated the same eight sessions.
+The exact-source audit verified 98 payload files, four installed helper files,
+all instrumentation changes and the committed-source tar, then recomputed the
+CSV/trace results. The runtime artifact SHA-256 is
+`bc5a3bd2d64f8cd6be810db49ef66e90f9ccc809394efb00e895cc40fd48ea81`.
+
+| Case | Observed / written | Skipped deadlines | Upper interval p50 / p95 / p99 |
+|---|---|---|---|
+| 100 Hz control 1 | 1,000 / 1,000 | 0 | 0.312 / 1.002 / 5.707 ms |
+| 100 Hz trace 1 | 1,000 / 1,000 | 0 | 0.339 / 0.683 / 5.648 ms |
+| 100 Hz trace 2 | 1,000 / 1,000 | 0 | 0.301 / 0.575 / 5.504 ms |
+| 100 Hz control 2 | 1,000 / 1,000 | 0 | 0.337 / 0.827 / 5.685 ms |
+| 1,000 Hz trace 1 | 9,816 / 9,987 | 13 | 0.284 / 0.452 / 1.281 ms |
+| 1,000 Hz control 1 (ended early) | 3,077 / 3,176 | 10 | 0.297 / 0.540 / 2.018 ms |
+| 1,000 Hz control 2 (ended early) | 8,022 / 8,192 | 7 | 0.286 / 0.450 / 1.339 ms |
+| 1,000 Hz trace 2 | 9,867 / 9,995 | 5 | 0.239 / 0.439 / 1.276 ms |
+
+Both 1,000 Hz controls ended with `ENODEV`. Their retained first isolation-loss
+reason identifies the client's eight-report input queue overflow, with
+`InputOverflows=1` and `isolationVerified=false` in each. They entered Releasing
+before the runner requested Pause. Their producer/reader intervals lasted about
+3.294 and 8.308 seconds, leaving 6,814 and 1,801 nominal samples unattempted.
+This is evidence of the current client transport limit at this synthetic load,
+not evidence of why its consumer failed to keep up. It also does not establish
+the unrecorded cause of the earlier f6 closure.
+
+All four 100 Hz cases delivered every written report. Both 1,000 Hz traces
+completed the ten-second injection window without client overflow. Independent
+sequence-set checks place their 171 and 128 missing written reports exclusively
+between the raw slot and interrupt-payload observation; the parsed and raw-slot
+sets equal every written sequence, and interrupt/send-return/reader sets agree.
+No stage buffer overflow or clock-alignment failure occurred. The traces and
+controls still do not provide a reliable overhead estimate: two controls ended
+early, and instrumentation itself can perturb the workload.
+
+All eight cleanup checks and final QEMU/KVM ACL restoration passed. The 32
+post-case commands completed without timeout or truncation; all 64 output/error
+stream sizes and hashes were independently checked. Journal entries were joined
+to each actor's monotonic interval so older baseline recovery exceptions were
+not attributed to a timing case. No additional helper failure was logged inside
+the two failed control intervals. The overall result remains `transport-limit`,
+with successful matched-report percentiles kept separate from missing and
+unattempted samples. No production capacity, priority or scheduling change was
+made in response to this observation.
+
 ### Post-case diagnosis
 
 After stopping/reaping the actor and attempting helper cleanup, the runner calls
@@ -265,5 +313,6 @@ stdout/stderr bounds. Oversized output stops and reaps only that command's child
 the retained prefix, truncation, timeout, exit status and hashes remain visible.
 No journal is cleared, no service is restarted and no guest policy is changed.
 Capture failure is retained independently and never replaces the original timing
-classification or confirms cleanup. These captures were added after the native
-run above, so they cannot retroactively explain its early closure.
+classification or confirms cleanup. These captures were added after the f6
+native run and exercised in the adcc repeat; they cannot retroactively explain
+the f6 early closure.

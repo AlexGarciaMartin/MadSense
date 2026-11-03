@@ -202,3 +202,23 @@ This experiment has not resolved the differing count contracts through a native
 Windows comparison; it does not silently accept 47 or claim native parity.
 ContainerId remained unavailable and WASAPI remained unattempted. SDL's four
 independent input/output cases passed; GE/UMU remains a separately labeled test.
+
+For the separate Debian guest, the configured-prefix version allowlist also
+includes Wine 10.0. Its
+[winebus start path](https://github.com/wine-mirror/wine/blob/wine-10.0/dlls/winebus.sys/main.c#L931)
+still reads `Enable SDL` as a DWORD with default 1. Unlike Wine 9, it starts UDEV
+alongside SDL and prefers hidraw for Sony controllers; disabling SDL also removes
+the SDL-dependent suppression of UDEV input. The probe changes only this same
+fresh-prefix DWORD, checks it before/after its own wineserver restart, and leaves
+`DisableHidraw` untouched. It records `configurationRequested`, `configured` and
+any configuration error; an unknown release is refused before a registry write.
+Readback proves configuration, not the backend actually used by the observed pad.
+
+The actual PE now records `wine_get_build_id` from the loaded ntdll next to
+`wineVersion`. A missing export is JSON null. In the
+[pinned GE Wine implementation](https://github.com/ValveSoftware/wine/blob/c53678ab22a85f0fad3588dd34f0452a463bd015/dlls/ntdll/version.c),
+this string is runtime-provided build information. It remains separate from the
+executable digest, GE archive/version and source gitlink, and is not a source
+attestation. The strict JSONL parser is unchanged. The new
+[real Windows HIDAPI observer](HIDAPI-WINDOWS.md) records library functionality
+independently without altering this observer's 48-byte count requirement.

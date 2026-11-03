@@ -1,6 +1,17 @@
 # Private audio arrival and removal experiment
 
-Prepared experiment; native execution is pending. This adds no production audio
+The first native run at `2a17811`, workflow `41639824132`, completed the automatic
+case: both sink and source switched to the virtual controller on both arrivals
+and returned to the controls after removal. Physical fixture permissions, the
+app/helper and the private audio account were cleaned up. The explicit case
+stopped before attach because `wpctl 0.4` rejects `Audio/Source/Virtual` for
+set-default, although automatic policy accepts it. The control now uses exact
+`Audio/Source` with `node.virtual=true` and the same software factory; the repeat
+is pending. The original negative result remains retained. That run verified
+93 guest source files, four installed helper files and base gates 10/9/10 plus
+two installations/four removal cases; QEMU stopped and its KVM ACL was restored.
+
+This adds no production audio
 policy, UCM rule, default-device change, or generic Sony match. It uses the real
 LinuxBridgeController through the unchanged AppProbe, a fresh UHID fixture and a
 separate ordinary audio UID in the explicitly owned QEMU guest. Existing broker,
@@ -13,6 +24,11 @@ first. The explicit case selects both with wpctl; the automatic case never sets
 configured defaults. Those controlled priorities are part of the experiment,
 not a claim to reproduce every desktop. Each session observes attach, pause,
 resume and second pause while the same graph and controls remain alive.
+The source class follows wpctl's exact
+[accepted device classes](https://github.com/PipeWire/wireplumber/blob/0.4.17/src/tools/wpctl.c#L14);
+the `node.virtual` property and absence of any ALSA parent preserve its software
+scope. Changing this class is an experiment-fixture correction, not a product
+policy or a relaxation of the default-preservation check.
 
 The root coordinator joins the app's sole VHCI import to the broker journal's
 physical path, expected parent and parent inode/device. Virtual HID_UNIQ must be

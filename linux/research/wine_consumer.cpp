@@ -125,6 +125,17 @@ static std::string validate_scope(const std::wstring &token)
     return wine_version();
 }
 
+static std::string observed_wine_build_id()
+{
+    using BuildId = const char *(__cdecl *)();
+    FARPROC entry = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_build_id");
+    BuildId build_id = nullptr;
+    static_assert(sizeof(entry) == sizeof(build_id));
+    std::memcpy(&build_id, &entry, sizeof(build_id));
+    const char *value = build_id ? build_id() : nullptr;
+    return value ? value : ""; // Runtime observation, never a source/hash attestation.
+}
+
 struct Hid {
     std::wstring path;
     GUID container{};
@@ -472,7 +483,9 @@ int wmain(int argc, wchar_t **argv)
     try {
         require(argc >= 3, "usage: wine_consumer.exe MODE TOKEN [arguments]");
         std::string version = validate_scope(argv[2]);
+        const std::string build_id = observed_wine_build_id();
         std::cout << "{\"kind\":\"runtime\",\"wineVersion\":" << json(version)
+                  << ",\"wineBuildId\":" << (build_id.empty() ? "null" : json(build_id))
                   << ",\"protonValidated\":false,\"physicalDeviceAccess\":false,\"gamesValidated\":false,\"physicalLatencyValidated\":false}\n";
         std::wstring mode = argv[1];
         if (mode == L"sony") {

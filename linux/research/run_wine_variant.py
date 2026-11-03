@@ -1,4 +1,4 @@
-"""Explicit Wine 9 UDEV diagnostic in a fresh account/prefix after default Wine.
+"""Explicit Wine 9/10 UDEV diagnostic in a fresh account/prefix after default Wine.
 
 This is a configured distribution-Wine experiment, never default compatibility
 or GE/UMU/official Valve Proton evidence. All commands execute through the
@@ -22,8 +22,17 @@ def registry_sdl_disabled(output):
     require(len(rows) == 1 and int(rows[0], 16) == 0, "Private Wine registry did not retain Enable SDL DWORD0")
 
 
+def audited_wine_version(version):
+    match = re.fullmatch(r"wine-(9\.0|10\.0)(?:[ \t]+[^\r\n]+)?[ \t\r\n]*", version)
+    require(match is not None, "UDEV diagnostic is audited for Wine 9.0 and 10.0 only")
+    return match.group(1)
+
+
 def configure_udev(session, prefix, version):
-    require(re.fullmatch(r"wine-9\.0(?:\s+[^\r\n]+)?\s*", version), "UDEV diagnostic is audited for Wine 9.0 only")
+    session.result["wineSession"]["configurationRequested"] = True
+    session.result["wineSession"]["configured"] = False
+    session.save()
+    audited = audited_wine_version(version)
     prefix = Path(prefix)
     require(prefix == session.root / "home/wine-prefix" and session.env.get("WINEPREFIX") == str(prefix)
             and session.uid > 0 and session.gid > 0, "Only this ordinary account's fresh prefix is eligible")
@@ -44,7 +53,9 @@ def configure_udev(session, prefix, version):
     registry_sdl_disabled(output)
     session.result["wineSession"]["configuration"] = dict(key=WINEBUS_KEY, value="Enable SDL", type="REG_DWORD",
         data=0, registryReadbackVerified=True, restartedOwnedWineserver=True, disableHidrawUnmodified=True,
-        actualUdevBackendConfirmed=False)
+        actualUdevBackendConfirmed=False, auditedWineVersion=audited,
+        source=f"https://github.com/wine-mirror/wine/blob/wine-{audited}/dlls/winebus.sys/main.c")
+    session.result["wineSession"]["configured"] = True
     session.save()
 
 
@@ -58,13 +69,14 @@ def clean_result(path, ready):
     return result
 
 
-def run_variant(ready_path, executable, fixture_state_callback, evidence, physical_parent):
+def run_variant(ready_path, executable, fixture_state_callback, evidence, physical_parent, *, hidapi_executable=None):
     from run_wine_consumer import run_wine_suite
     with ConsumerSession(ready_path, evidence, physical_parent) as session:
         session.result.update(scope="configured-distribution-wine-udev", defaultWinebus=False,
                               replacesDefaultWineResult=False, wineRequested=True)
         try:
-            run_wine_suite(session, executable, fixture_state_callback, winebus_mode="udev-diagnostic")
+            run_wine_suite(session, executable, fixture_state_callback, winebus_mode="udev-diagnostic",
+                           hidapi_executable=hidapi_executable)
             session.result["result"] = "passed"
         finally:
             fixture_state_callback("neutral")
@@ -72,7 +84,7 @@ def run_variant(ready_path, executable, fixture_state_callback, evidence, physic
     return session.result
 
 
-def run_after_default(primary, ready_path, executable, fixture_state_callback, evidence, physical_parent):
+def run_after_default(primary, ready_path, executable, fixture_state_callback, evidence, physical_parent, *, hidapi_executable=None):
     """Retain default failure, but still collect the separate variant after cleanup."""
     require(executable is not None, "UDEV diagnostic requires the Windows consumer")
     evidence = Path(evidence)
@@ -94,7 +106,8 @@ def run_after_default(primary, ready_path, executable, fixture_state_callback, e
             "Default Wine must reach its recorded session before a configured variant")
     variant_error = None
     try:
-        run_variant(ready_path, executable, fixture_state_callback, variant, physical_parent)
+        optional = {"hidapi_executable": hidapi_executable} if hidapi_executable is not None else {}
+        run_variant(ready_path, executable, fixture_state_callback, variant, physical_parent, **optional)
     except Exception as failure:
         variant_error = failure
     observed = clean_result(variant / "result.json", ready)

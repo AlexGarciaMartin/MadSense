@@ -30,7 +30,7 @@ def prerequisites(primary_path, ready):
     return baseline
 
 
-def _run_ge_suite(ready_path, executable, fixture_state_callback, evidence, physical_parent, cache):
+def _run_ge_suite(ready_path, executable, fixture_state_callback, evidence, physical_parent, cache, *, hidapi_executable=None):
     evidence, cache = Path(evidence).resolve(), Path(cache).resolve(strict=True)
     require(not cache.is_relative_to(evidence) and not evidence.is_relative_to(cache),
             "GE cache and collected evidence must be separate")
@@ -62,16 +62,21 @@ def _run_ge_suite(ready_path, executable, fixture_state_callback, evidence, phys
                 parsed = parse_pe_output(output)
                 runtime = [value for value in parsed if value.get("kind") == "runtime"]
                 require(len(runtime) == 1 and isinstance(runtime[0].get("wineVersion"), str)
-                        and runtime[0]["wineVersion"] and runtime[0].get("protonValidated") is False,
+                        and runtime[0]["wineVersion"] and runtime[0].get("protonValidated") is False
+                        and isinstance(runtime[0].get("wineBuildId"), str) and runtime[0]["wineBuildId"],
                         "GE/UMU did not return the native observer's Wine runtime identity")
                 session.result["geUmuSession"].update(runtimeExecutionConfirmed=True,
-                    observedWineVersion=runtime[0]["wineVersion"], officialValveProton=False)
+                    observedWineVersion=runtime[0]["wineVersion"], observedWineBuildId=runtime[0]["wineBuildId"],
+                    runtimeBuildIdIsSourceAttestation=False, officialValveProton=False)
                 row["evidence"] = parsed; session.save()
                 require(not required or row["exitCode"] == 0, "GE/UMU Windows observer failed: " + label)
                 return row, output
 
-            run_windows_cases(session, invoke, fixture_state_callback,
-                              result_key="geUmuSession", label_prefix="ge-umu")
+            from run_hidapi_windows import after_api
+            after_api(lambda: run_windows_cases(session, invoke, fixture_state_callback,
+                result_key="geUmuSession", label_prefix="ge-umu"), session, hidapi_executable, fixture_state_callback,
+                invoke=lambda label, hidapi_program, arguments: run_consumer(session, prepared, hidapi_program,
+                    arguments, label=label, timeout=120), label_prefix="ge-hidapi-windows")
             session.result["geUmuSession"]["consumerAssertionsPassed"] = True
             session.result["result"] = "passed"
         finally:
@@ -80,7 +85,7 @@ def _run_ge_suite(ready_path, executable, fixture_state_callback, evidence, phys
     return session.result
 
 
-def run_after_experiments(primary, ready_path, executable, fixture_state_callback, evidence, physical_parent, cache):
+def run_after_experiments(primary, ready_path, executable, fixture_state_callback, evidence, physical_parent, cache, *, hidapi_executable=None):
     """Call primary default+UDEV, then GE in a new account only after exact cleanup.
 
 Earlier failures remain failures even when the optional GE experiment passes.
@@ -104,7 +109,8 @@ The caller must explicitly opt in and supply a verified private cache path.
     baseline = prerequisites(evidence / "result.json", ready)
     error = None
     try:
-        _run_ge_suite(ready_path, executable, fixture_state_callback, destination, physical_parent, cache)
+        optional = {"hidapi_executable": hidapi_executable} if hidapi_executable is not None else {}
+        _run_ge_suite(ready_path, executable, fixture_state_callback, destination, physical_parent, cache, **optional)
     except Exception as failure:
         error = failure
     result = clean_result(destination / "result.json", ready)
