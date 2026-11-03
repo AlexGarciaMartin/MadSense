@@ -1,4 +1,7 @@
-patches/*.patch -text
+# Preserve upstream bytes. A unified diff's blank context line is one space;
+# git diff --check must not mistake that patch syntax for source whitespace.
+# prepare_source.py still uses git apply --whitespace=error-all on actual edits.
+patches/*.patch -text -whitespace
 COPYING.LIB -text
 *.py text eol=lf
 *.json text eol=lf

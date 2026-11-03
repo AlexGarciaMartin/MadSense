@@ -94,8 +94,10 @@ while IFS= read -r -d '' binary; do
     codesign --verify --strict "$binary"
   fi
 done < <(find "$app/Contents/Resources/backend" -type f -print0)
-codesign --force --sign - "$app/Contents/MacOS/MadSense"
+# codesign recognizes the primary executable's containing bundle. Sign its
+# nested helper first; x86_64 swiftc does not emit an initial ad-hoc signature.
 codesign --force --sign - "$app/Contents/MacOS/MadSenseNativeProbe"
+codesign --force --sign - "$app/Contents/MacOS/MadSense"
 codesign --force --sign - "$app"
 codesign --verify --deep --strict "$app"
 lipo "$app/Contents/MacOS/MadSense" -verify_arch "$arch"

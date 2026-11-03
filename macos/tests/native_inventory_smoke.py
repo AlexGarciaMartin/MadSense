@@ -4,6 +4,7 @@ No controller, audio engine, HID output, or virtual device is exercised. The
 backend uses its actual --start-paused protocol, including on a hardware runner.
 """
 import json
+from datetime import datetime
 import os
 import pathlib
 import re
@@ -59,7 +60,9 @@ def main():
                 if stalled:
                     assert "native inventory smoke SIGSTOP result: 0" in log, name
                     assert "native inventory sending SIGTERM to owned child:" in log, name
-                    assert "native inventory sending SIGKILL to owned child:" in log, name
+                    # Darwin can deliver default-action SIGTERM to a stopped
+                    # Swift helper. Escalation is only needed if it survives
+                    # the TERM grace period, unlike the managed backend test.
                 else:
                     assert "sending SIGTERM" not in log and "sending SIGKILL" not in log, name
                 if quit_pending:
@@ -81,6 +84,14 @@ def main():
                     assert native["pipes_drained"] is True and native["output_truncated"] is False, name
                     assert native["hardware_validation_performed"] is False, name
                     assert native["outcome"] == ("timed_out" if stalled else "complete"), native
+                    elapsed = (datetime.fromisoformat(native["finished_at"]) -
+                               datetime.fromisoformat(native["started_at"])).total_seconds()
+                    assert 0 <= elapsed <= 16, f"{name}: helper exceeded its 15-second cleanup bound (timestamps round to seconds)"
+                    if stalled:
+                        assert elapsed >= 9, "Timeout fired before its ten-second deadline"
+                        escalated = "native inventory sending SIGKILL to owned child:" in log
+                        assert native["termination_reason"] == "uncaught_signal", native
+                        assert native["exit_code"] == (signal.SIGKILL if escalated else signal.SIGTERM), native
                     if not stalled:
                         inventory = native["inventory"]
                         assert inventory == json.loads(native["stdout"]), "Original structured evidence was not preserved"
