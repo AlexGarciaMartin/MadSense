@@ -34,15 +34,19 @@ dropped frames separately; passing does not establish uninterrupted realtime
 delivery or controller latency. Exit 75 means initial discovery found no loaded
 endpoint and may be retried; transfer or ownership failures return 1.
 
-After the first 2048 verified frames, the probe measures about one second of warm
-transfer using the backend's same five-millisecond polling policy. The
-`warm_measurement_not_latency_guarantee` line reports elapsed time, read calls,
-received frames/samples, verified and silent frames, the dropped-frame increase
-from the end of warmup, maximum `ms_audio_read` RPC duration, and generation
-changes. This separates initial/reconnect gaps from loss during continuing
-delivery. Corrupt or absent signal fails; VM scheduling delays or dropped frames
-are reported without an arbitrary timing threshold. These metrics are evidence
-about the tested host, not an end-to-end latency or realtime guarantee.
+After the first 2048 verified frames, the probe compares two consecutive warm
+transfer windows of about one second each: the former default-QoS/five-millisecond
+idle wait, then the backend's scoped audio-QoS/one-millisecond idle wait. Full
+packets are drained immediately in both windows. Each
+`warm_measurement_not_latency_guarantee` line identifies the policy and reports
+elapsed time, read calls (including empty/full counts), received frames/samples,
+verified and silent frames, the dropped-frame increase, total/maximum
+`ms_audio_read` RPC duration, actual total/maximum idle wait, maximum inter-read
+gap, and generation changes. This separates initial/reconnect gaps from loss
+during continuing delivery and distinguishes idle scheduling gaps from time
+inside CoreAudio. Corrupt or absent signal fails; VM scheduling delays or dropped
+frames are reported without an arbitrary timing threshold. These metrics are
+evidence about the tested host, not an end-to-end latency or realtime guarantee.
 
 For a distributable build, sign the library and driver with the application's
 Developer ID identity, notarize the package, and verify the install on a clean Mac.
@@ -69,8 +73,10 @@ directory and restart CoreAudio after closing audio apps. Preserve other plugins
 ## Consumer contract and privacy
 
 First require `ms_audio_abi_version()` to return 2; a missing export or any other
-version is incompatible. Call `ms_audio_open` once, then `ms_audio_read` on a normal
-worker about every 5 ms.
+version is incompatible. Call `ms_audio_open` once, then `ms_audio_read` on a
+dedicated worker with the scoped audio QoS override. Drain full packets immediately
+and use a blocking, cancellable one-millisecond idle wait after shorter packets.
+QoS is a scheduling hint and does not confer real-time scheduling privileges.
 Supply room for at least 480 frames × four float32 samples. Close with
 `ms_audio_close` after joining the reader worker. The functions are not safe to
 call concurrently on the same handle. The backend must separately forward the
