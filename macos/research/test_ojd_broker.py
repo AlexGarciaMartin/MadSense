@@ -86,6 +86,15 @@ class BrokerGateTests(unittest.TestCase):
         with self.assertRaises(Blocked):
             check_inventory_capture(data)
 
+    def test_partial_evidence_cannot_pass_either_parser_even_with_zero_counts(self):
+        data = inventory_fixture()
+        data.update(bluetoothControllerCount=0, bluetoothInventory=[], enumerationComplete=False,
+                    queryErrors=[{"query": "IOBluetoothHostControllerTransport", "operation": "matching"}])
+        data["bluetoothTransportQueries"]["IOBluetoothHostControllerTransport"] = None
+        for check in (check_inventory_capture, check_empty_inventory):
+            with self.subTest(check=check.__name__), self.assertRaises(Blocked):
+                check(data)
+
     def test_inventory_mode_cannot_download_or_execute_original_release(self):
         data = json.dumps(inventory_fixture()).encode()
         with tempfile.TemporaryDirectory() as directory:

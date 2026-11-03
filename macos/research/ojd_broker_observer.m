@@ -53,6 +53,11 @@ static NSArray *entries(const char *requestedClass, NSMutableArray *errors) {
         [errors addObject:@{@"query": @(requestedClass), @"operation": @"matching", @"status": @(status)}];
         return nil;
     }
+    // XNU returns success plus a null iterator when copyExistingServices has no matches.
+    // IOIteratorIsValid(NULL) reports false because there is no iterator to validate.
+    // See IOUserClient.cpp internal_io_service_get_matching_services/withIterator,
+    // and IOService.cpp copyExistingServices in apple-oss-distributions/xnu.
+    if (iterator == IO_OBJECT_NULL) return @[];
     NSMutableArray *result = [NSMutableArray array];
     io_registry_entry_t entry;
     while ((entry = IOIteratorNext(iterator))) {
@@ -141,7 +146,7 @@ static NSArray *inventoryMetadata(NSArray *items, NSString *kind, NSArray *inter
             NSMutableArray *children = [NSMutableArray array];
             for (NSDictionary *interface in interfaces)
                 if ([interface[@"ProbeUSBParentRegistryID"] isEqual:item[@"ProbeRegistryID"]]) [children addObject:interface];
-            row[@"interfaces"] = inventoryMetadata(children, @"interface", nil);
+            row[@"interfaces"] = interfaces ? inventoryMetadata(children, @"interface", nil) : (id)NSNull.null;
         } else if ([kind isEqual:@"interface"]) {
             for (NSString *key in @[@"bInterfaceNumber", @"bAlternateSetting", @"bInterfaceClass",
                                    @"bInterfaceSubClass", @"bInterfaceProtocol"])
@@ -210,8 +215,12 @@ int main(int argc, const char *argv[]) {
                 valid = valid && unsignedNumber(invalid, 255) == nil;
             valid = valid && CFGetTypeID((__bridge CFTypeRef)@NO) == CFBooleanGetTypeID()
                 && CFGetTypeID((__bridge CFTypeRef)@0) != CFBooleanGetTypeID();
-            emit(@{@"parserSelfTest": valid ? @"passed" : @"failed", @"hardwareValidated": @NO});
-            return valid ? 0 : 1;
+            NSMutableArray *queryErrors = [NSMutableArray array];
+            NSArray *absent = entries("MadSenseObserverAbsentClass_5314928EF0344DAA", queryErrors);
+            BOOL absentPassed = absent && absent.count == 0 && queryErrors.count == 0;
+            emit(@{@"parserSelfTest": valid ? @"passed" : @"failed",
+                @"absentRegistryClassTest": absentPassed ? @"passed" : @"failed", @"hardwareValidated": @NO});
+            return valid && absentPassed ? 0 : 1;
         }
         if (argc == 2 && strcmp(argv[1], "inventory") == 0) {
             NSMutableArray *queryErrors = [NSMutableArray array];
@@ -227,22 +236,16 @@ int main(int argc, const char *argv[]) {
                 NSArray *found = entries(className.UTF8String, queryErrors);
                 transports[className] = found ? inventoryMetadata(found, @"class", nil) : (id)NSNull.null;
             }
-            if (!hid || !usb || !bluetooth || !interfaces || queryErrors.count) {
-                emit(@{@"schemaVersion": @2, @"enumerationComplete": @NO, @"queryErrors": queryErrors,
-                       @"mode": @"read-only-registry"});
-                return 1;
-            }
-            NSSet *usbIDs = [NSSet setWithArray:[usb valueForKey:@"ProbeRegistryID"]];
-            for (NSDictionary *interface in interfaces) {
-                if (![usbIDs containsObject:interface[@"ProbeUSBParentRegistryID"]]) {
-                    emit(@{@"schemaVersion": @2, @"enumerationComplete": @NO,
-                        @"queryErrors": @[@{@"query": @"IOUSBHostInterface", @"operation": @"unobserved-USB-parent"}],
-                        @"mode": @"read-only-registry"});
-                    return 1;
+            if (usb && interfaces) {
+                NSSet *usbIDs = [NSSet setWithArray:[usb valueForKey:@"ProbeRegistryID"]];
+                for (NSDictionary *interface in interfaces) {
+                    if (![usbIDs containsObject:interface[@"ProbeUSBParentRegistryID"]]) {
+                        [queryErrors addObject:@{@"query": @"IOUSBHostInterface", @"operation": @"unobserved-USB-parent"}];
+                    }
                 }
             }
             unsigned unsafe = 0;
-            BOOL unsafeKnown = YES;
+            BOOL unsafeKnown = hid != nil;
             NSMutableArray *feeds = [NSMutableArray array];
             for (NSDictionary *p in hid) {
                 if (ownGeneric(p)) {
@@ -262,14 +265,18 @@ int main(int argc, const char *argv[]) {
                 if ((page == 1 && (usage == 4 || usage == 5 || usage == 8)) || page >= 0xff00
                     || [transport hasPrefix:@"Bluetooth"] || [transport isEqual:@"USB"]) ++unsafe;
             }
-            emit(@{@"schemaVersion": @2, @"enumerationComplete": @YES, @"queryErrors": queryErrors,
+            BOOL complete = hid && usb && bluetooth && interfaces && queryErrors.count == 0;
+            emit(@{@"schemaVersion": @2, @"enumerationComplete": @(complete), @"queryErrors": queryErrors,
                 @"mode": @"read-only-registry", @"unsafeHIDCount": unsafeKnown ? @(unsafe) : NSNull.null,
-                @"usbDeviceCount": @(usb.count), @"usbInterfaceCount": @(interfaces.count),
-                @"bluetoothControllerCount": @(bluetooth.count), @"feeds": feeds,
-                @"hidInventory": inventoryMetadata(hid, @"hid", nil), @"usbInventory": inventoryMetadata(usb, @"usb", interfaces),
-                @"bluetoothInventory": inventoryMetadata(bluetooth, @"bluetooth", nil),
+                @"usbDeviceCount": usb ? @(usb.count) : (id)NSNull.null,
+                @"usbInterfaceCount": interfaces ? @(interfaces.count) : (id)NSNull.null,
+                @"bluetoothControllerCount": bluetooth ? @(bluetooth.count) : (id)NSNull.null,
+                @"feeds": hid ? feeds : (id)NSNull.null,
+                @"hidInventory": hid ? inventoryMetadata(hid, @"hid", nil) : (id)NSNull.null,
+                @"usbInventory": usb ? inventoryMetadata(usb, @"usb", interfaces) : (id)NSNull.null,
+                @"bluetoothInventory": bluetooth ? inventoryMetadata(bluetooth, @"bluetooth", nil) : (id)NSNull.null,
                 @"bluetoothTransportQueries": transports, @"vmProvenance": vmProvenance()});
-            return 0;
+            return complete ? 0 : 1;
         }
         if (argc != 3 || strcmp(argv[1], "inspect") != 0) return 2;
         char *end = NULL;

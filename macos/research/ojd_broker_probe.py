@@ -51,6 +51,8 @@ def check_identity(entitlements: dict, profile: dict) -> None:
 
 
 def check_empty_inventory(inventory: dict) -> None:
+    if "schemaVersion" in inventory and (inventory.get("enumerationComplete") is not True or inventory.get("queryErrors") != []):
+        raise Blocked("partial registry evidence cannot establish an empty host")
     keys = ("unsafeHIDCount", "usbDeviceCount", "bluetoothControllerCount")
     if any(type(inventory.get(k)) is not int or inventory[k] != 0 for k in keys) or inventory.get("feeds") != []:
         raise Blocked("host is not empty: physical/controller/Bluetooth/preexisting broker devices present")
