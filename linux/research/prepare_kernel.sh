@@ -3,7 +3,11 @@ set -euo pipefail
 [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]
 sudo apt-get update -qq
 sudo apt-get install -y linux-tools-generic linux-tools-common usbutils alsa-utils
-if ! modinfo vhci_hcd >/dev/null 2>&1; then
+missing_module=false
+for module in vhci_hcd hid_playstation snd_usb_audio xpad; do
+    if ! modinfo "$module" >/dev/null 2>&1; then missing_module=true; fi
+done
+if [[ "$missing_module" == true ]]; then
     # Generic modules cannot satisfy a running Azure kernel. Fail if its exact
     # supported package is unavailable; never skip or boot an unrecorded kernel.
     sudo apt-get install -y "linux-modules-extra-$(uname -r)"
