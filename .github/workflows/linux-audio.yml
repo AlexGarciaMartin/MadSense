@@ -1,0 +1,63 @@
+name: Linux offline audio payload validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/linux]
+    paths:
+      - '.github/workflows/linux-audio.yml'
+      - 'linux/research/audio-probe/**'
+      - 'linux/research/audio_capture.py'
+      - 'linux/research/test_audio_capture.py'
+      - 'linux/research/verify_audio_probe.py'
+      - 'vendor/DualSenseClient/**'
+  pull_request:
+    paths:
+      - '.github/workflows/linux-audio.yml'
+      - 'linux/research/audio-probe/**'
+      - 'linux/research/audio_capture.py'
+      - 'linux/research/test_audio_capture.py'
+      - 'linux/research/verify_audio_probe.py'
+      - 'vendor/DualSenseClient/**'
+permissions:
+  contents: read
+concurrency:
+  group: linux-offline-audio-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install independent decoder and record exact source
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libopus0
+          mkdir -p dist/offline-audio
+          git rev-parse HEAD > dist/offline-audio/source.txt
+          uname -a > dist/offline-audio/kernel.txt
+          dotnet --info > dist/offline-audio/dotnet.txt
+          dpkg-query -W libopus0 > dist/offline-audio/decoder-package.txt
+          git ls-files -z linux/research/audio-probe linux/research/audio_capture.py linux/research/test_audio_capture.py linux/research/verify_audio_probe.py vendor/DualSenseClient | xargs -0 sha256sum > dist/offline-audio/source-sha256.txt
+          python3 -c 'import ctypes.util; assert ctypes.util.find_library("opus"), "Native decoder test must not be skipped"'
+      - name: Validate decoder, reference arithmetic and corruption rejection
+        run: |
+          set -o pipefail
+          python3 -m unittest discover -s linux/research -p test_audio_capture.py -v 2>&1 | tee dist/offline-audio/python-tests.txt
+          dotnet restore linux/research/audio-probe/MadSense.AudioPayloadProbe.csproj --locked-mode
+          dotnet run --project linux/research/audio-probe/MadSense.AudioPayloadProbe.csproj -c Release --no-restore -- dist/offline-audio/capture
+          python3 linux/research/verify_audio_probe.py --capture dist/offline-audio/capture --output dist/offline-audio/analysis --negative-checks | tee dist/offline-audio/validation-summary.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-offline-audio-${{ matrix.runner }}
+          path: dist/offline-audio/**
+          retention-days: 14
+          if-no-files-found: warn

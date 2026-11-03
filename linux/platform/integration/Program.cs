@@ -43,7 +43,7 @@ string output = Path.GetFullPath(options["--output"]);
 string mode = options.GetValueOrDefault("--persona", "dualsense");
 if (mode is not ("dualsense" or "edge" or "xbox")) throw new ArgumentException("Unknown persona.");
 int seconds = int.Parse(options.GetValueOrDefault("--seconds", "120"));
-if (seconds is < 5 or > 300) throw new ArgumentException("Duration must be 5..300 seconds.");
+if (seconds is < 5 or > 900) throw new ArgumentException("Duration must be 5..900 seconds.");
 Directory.CreateDirectory(output);
 if (Directory.EnumerateFileSystemEntries(output).Any()) throw new IOException("Fresh output directory required.");
 using Evidence evidence = new(output);

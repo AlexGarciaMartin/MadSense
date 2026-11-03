@@ -49,4 +49,11 @@ install -o root -g root -m 0644 "$source_dir/org.madsense.bridge.policy" /usr/sh
 install -o root -g root -m 0644 "$source_dir/madsense-modules.conf" /etc/modules-load.d/madsense.conf
 modprobe vhci_hcd
 systemctl daemon-reload
-systemctl enable --now madsense-broker.service
+systemctl enable madsense-broker.service
+# Explicit installation of this new version may follow recent crash recovery
+# or repeated upgrades. Reset only this idle unit's old start-limit counters;
+# automatic runtime restarts retain the configured rate limit.
+systemctl reset-failed madsense-broker.service
+systemctl start madsense-broker.service
+systemctl is-active --quiet madsense-broker.service ||
+    fail "The installed MadSense service did not become active; inspect its systemd journal."

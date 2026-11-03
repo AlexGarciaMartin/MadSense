@@ -16,6 +16,21 @@ from ci_environment import validate_environment
 SERVICE = "madsense-broker.service"
 
 
+def diagnostics(output, label):
+    # Preserve the service's actual reason even if the command returned success
+    # but the process did not stay active. Do not replace the original exception.
+    for suffix, command in (
+        ("properties", ["systemctl", "show", SERVICE]),
+        ("journal", ["journalctl", "--no-pager", "-o", "short-monotonic", "-n", "250", "-u", SERVICE]),
+    ):
+        try:
+            value = subprocess.run(command, capture_output=True, timeout=10)
+            (output / f"{label}-{suffix}.stdout").write_bytes(value.stdout)
+            (output / f"{label}-{suffix}.stderr").write_bytes(value.stderr)
+        except Exception as error:
+            (output / f"{label}-{suffix}.error").write_text(repr(error))
+
+
 def preflight():
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         client.settimeout(5)
@@ -52,6 +67,8 @@ def verify_removal(installer, output, token):
         completed = subprocess.run(["sh", str(path)], capture_output=True, timeout=45)
         (output / f"{label}.stdout").write_bytes(completed.stdout)
         (output / f"{label}.stderr").write_bytes(completed.stderr)
+        (output / f"{label}.json").write_text(json.dumps(dict(exitCode=completed.returncode)) + "\n")
+        diagnostics(output, label)
         return completed
     try:
         before = pid()
@@ -119,11 +136,15 @@ def main():
             if Path("/run/madsense/lease.json").exists() or Path("/run/udev/rules.d/72-madsense-lease.rules").exists():
                 raise RuntimeError("Refusing upgrade experiment with any pending physical recovery")
             before_pid, before = pid(), preflight()
+            diagnostics(output, f"before-install-{number}")
             completed = subprocess.run(["sh", str(installer)], capture_output=True, timeout=45)
             (output / f"install-{number}.stdout").write_bytes(completed.stdout)
             (output / f"install-{number}.stderr").write_bytes(completed.stderr)
+            attempt = dict(number=number, beforePid=before_pid, before=before, exitCode=completed.returncode)
+            result.setdefault("attempts", []).append(attempt)
+            diagnostics(output, f"after-install-{number}")
             if completed.returncode:
-                raise RuntimeError("Idle installer rejected the owned test environment")
+                raise RuntimeError(f"Idle installer exited {completed.returncode}; inspect install-{number} diagnostics")
             deadline = time.monotonic() + 10
             while True:
                 try:
@@ -131,7 +152,7 @@ def main():
                     break
                 except (OSError, RuntimeError):
                     if time.monotonic() >= deadline:
-                        raise
+                        raise RuntimeError(f"Installer exited {completed.returncode}, but service readiness failed after install-{number}") from None
                     time.sleep(.05)
             record = dict(beforePid=before_pid, afterPid=after_pid, before=before, after=after)
             result["installations"].append(record)
@@ -152,6 +173,7 @@ def main():
     except BaseException as error:
         result["reason"] = f"{type(error).__name__}: {error}"
     finally:
+        diagnostics(output, "final")
         (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     return 0 if result["result"] == "passed" else 1
 

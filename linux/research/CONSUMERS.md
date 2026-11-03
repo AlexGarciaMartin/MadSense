@@ -2,8 +2,12 @@
 
 These observers are prepared separately from the kernel baseline. The independent
 `consumers-build` job in `linux-consumers.yml` compiles them without executing them or
-accessing devices. Its first Linux compilation and all consumer runtime results
-are still pending. It does not change the baseline guest's proof steps.
+accessing devices. SDL2, pinned SDL3 and evdev FF compile successfully in
+[run 41610372580](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41610372580)
+at `6d54ee87b83832d1ff4ec95e845215a06d83dd60`; its native artifact ZIP SHA256 is
+`554ff2442c94147b2c18523f0ca6c354e24993fb431bebf57cc52eebc8d932ff`.
+Consumer execution is a separate job described in [CONSUMER-SESSION.md](CONSUMER-SESSION.md).
+Its first runtime result is pending. It does not change the kernel baseline's proof steps.
 
 `consumer_sdl.c` builds against Ubuntu's SDL2 (at least 2.24) and pinned official
 SDL3 3.2.28, commit `7f3ae3d57459e59943a4ecfefc8f6277ec6bf540`. The source archive

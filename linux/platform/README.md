@@ -15,6 +15,12 @@ starts the service. It does not grant a user or group general hidraw access.
 Run the application normally after installation. A missing broker, missing
 dependencies or rejected authorization leaves physical bridging unavailable.
 
+An explicit installation enables and starts the unit as separate checked steps,
+then requires it to be active. After confirming that the previous service has no
+lease or stored recovery descriptors and installing the new files, it resets
+only this unit's previous failure/start-limit counters. The runtime restart limit
+is unchanged; this is a single administrator-requested installation attempt.
+
 The socket accepts newline-delimited JSON objects of at most 16,384 bytes. Each
 request has an integer `id` and an `op`; responses preserve the id and contain
 either `ok:true,result:{...}` or `ok:false,error:{code,message}`. Supported

@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "Concentus": {
+        "type": "Transitive",
+        "resolved": "2.2.2",
+        "contentHash": "2B9YmHPKO+k7YpAAnqmiXwiMJnfjfj1C868RszOll2iZWLnGTAiC1q21L/d7CvTan7T+hyqU8dR0Dcy3cpjVfQ=="
+      },
+      "SoundFlow": {
+        "type": "Transitive",
+        "resolved": "1.4.1",
+        "contentHash": "KsCcIjdH6PzPwtpRZLtZtBWLPIU75cLSSRSI4E4e7Yf6X6bE4PnKYzBp9McsnbsObH6ITtf55NaMyrXv9A8+tw=="
+      },
+      "SoundFlow.Codecs.FFMpeg": {
+        "type": "Transitive",
+        "resolved": "1.4.0",
+        "contentHash": "lp+y6joRjqqlR/UFaH4TptforIF2b18O/LXOvuLj/oX6RZy6U8IG8c3Nc1S2aOCX017YtI7yo7kLAZysPlc2VQ==",
+        "dependencies": {
+          "SoundFlow": "1.4.0"
+        }
+      },
+      "Tmds.DBus": {
+        "type": "Transitive",
+        "resolved": "0.95.1",
+        "contentHash": "2mLo+choDFkVlpYN1dcAmFESclH/LoMGg4whvvV4RFM9xbBniRwqNb0/Fe3/z4RCzXSQi+Gb6SzM2c19WcoP3Q=="
+      },
+      "dualsenseclient.bluetooth": {
+        "type": "Project",
+        "dependencies": {
+          "DualSenseClient.Logging": "[1.0.0, )",
+          "Tmds.DBus": "[0.95.1, )"
+        }
+      },
+      "dualsenseclient.controllers": {
+        "type": "Project",
+        "dependencies": {
+          "Concentus": "[2.2.2, )",
+          "DualSenseClient.Bluetooth": "[1.0.0, )",
+          "DualSenseClient.Core": "[1.0.0, )",
+          "DualSenseClient.Emulation": "[1.0.0, )",
+          "DualSenseClient.Hid": "[1.0.0, )",
+          "DualSenseClient.Settings": "[1.0.0, )",
+          "SoundFlow": "[1.4.1, )",
+          "SoundFlow.Codecs.FFMpeg": "[1.4.0, )"
+        }
+      },
+      "dualsenseclient.core": {
+        "type": "Project",
+        "dependencies": {
+          "DualSenseClient.Logging": "[1.0.0, )"
+        }
+      },
+      "dualsenseclient.emulation": {
+        "type": "Project"
+      },
+      "dualsenseclient.hid": {
+        "type": "Project",
+        "dependencies": {
+          "DualSenseClient.Logging": "[1.0.0, )"
+        }
+      },
+      "dualsenseclient.logging": {
+        "type": "Project"
+      },
+      "dualsenseclient.settings": {
+        "type": "Project",
+        "dependencies": {
+          "DualSenseClient.Core": "[1.0.0, )",
+          "DualSenseClient.Logging": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

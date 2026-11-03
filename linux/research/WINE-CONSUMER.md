@@ -1,8 +1,11 @@
 # Windows API observer for Wine
 
 `wine_consumer.cpp` is a native Windows x64 console program, cross-compiled by
-MinGW. It has not yet compiled or executed successfully. The consumers workflow
-only builds it and preserves sources, GPL license, MinGW/GCC runtime notices,
+MinGW. Compilation passed in
+[run 41610372580](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41610372580)
+at `6d54ee87b83832d1ff4ec95e845215a06d83dd60`; the Windows build artifact ZIP SHA256 is
+`38164a24b17e4bf9d6d8089f6ed0f37c265ca717b2c0f2254ce493fdb927f99b`.
+Its first Wine runtime result is pending. The build job preserves sources, GPL license, MinGW/GCC runtime notices,
 toolchain/package provenance, PE imports and binary digest. Its static GCC
 runtime uses the exception reproduced with the distribution copyright notice;
 Windows system DLLs and Wine are not bundled.
@@ -28,7 +31,8 @@ bounded observer process; a headless Raw Input message window may need an owned
 Xvfb display. No global or existing user prefix may be modified. The first run
 uses the runtime's default `winebus` configuration; any later raw-HID override
 must be a separately labeled diagnostic prefix. Runtime orchestration and capture
-correlation remain to be connected to the owned core fixture.
+correlation are implemented in [CONSUMER-SESSION.md](CONSUMER-SESSION.md) and require
+the owned core fixture to reach its verified virtual-device state first.
 
 The following arguments are passed after `wine wine_consumer.exe`:
 

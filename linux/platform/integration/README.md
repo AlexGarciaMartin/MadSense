@@ -67,6 +67,15 @@ parent, local bus id, exact virtual hidraw/evdev paths and numeric VID/PID for t
 separate SDL/FF consumer experiments. Those consumers must use a separate ordinary
 account with access only to the virtual nodes.
 
+The optional `run_core_guest.py --consumer-binaries DIR [--wine-consumer EXE]`
+invocation runs the separate consumer suite after the functional audio assertions
+while the same fixture and attributed virtual device are alive. It extends only
+that actor invocation to 600 seconds, switches the fixture between south-button
+and neutral states on request, and requires consumer cleanup before stopping the
+core. `consumer-ready.json` also provides exact virtual features/MAC and the
+captured output paths. The ordinary platform workflow does not supply these flags.
+Its package therefore need not contain consumer modules or binaries.
+
 Software timestamps and proxy percentiles include instrumentation and TCG
 scheduling. Input is injected at 100 Hz; this is not a throughput benchmark.
 Binary capture is bounded to 16 MiB per stream and overflow invalidates completion.

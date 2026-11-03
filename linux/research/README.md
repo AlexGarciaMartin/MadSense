@@ -127,3 +127,23 @@ real-game compatibility, a physical microphone or physical latency.
 The independent next-stage SDL2/SDL3, Xbox force-feedback and Wine/Proton plan is
 documented in [CONSUMERS.md](CONSUMERS.md). Those consumer probes do not alter
 this baseline and have no native execution evidence yet.
+
+The full kernel workflow then passed on
+[41611760328](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41611760328),
+commit `57339108cd262cd2ac6f93e19297fa3e05426d4a`. All three guests repeated the
+kernel assertions with QMP-confirmed KVM, stopped their owned QEMU process and
+restored `/dev/kvm` to its exact original ACL, mode and device identity. The
+intermediate `6d54ee8` run had passed the guest assertions but failed host cleanup
+because removal of the named runner ACL left a redundant group mask. Its failure
+remains recorded. The scoped correction accepts only that precisely equivalent
+mask shape and then restores the exact original ACL; see [KVM.md](KVM.md).
+SSH readiness took 14.81–15.13 seconds in these three runs. This is VM startup
+evidence, not controller latency.
+
+Verified artifact ZIP digests for the complete KVM run:
+
+| Persona | SHA256 |
+|---|---|
+| DualSense | `54ce18828e796c14ed21360ec8bcf893860e8d2ecc688325f0660c53ae4a743d` |
+| Edge | `04b44f82029970853e471335c8ce870145ca34ac54fa5500d12e35ef058959b2` |
+| Xbox | `e1fd76d028fb9fccb31a112ffa366ea6d372414602cc2c45051ddf6c103aabf7` |

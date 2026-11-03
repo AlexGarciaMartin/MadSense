@@ -59,8 +59,12 @@ def main():
     parser.add_argument("--owned-guest-token", required=True)
     parser.add_argument("--probe-directory", type=Path, required=True)
     parser.add_argument("--host-probe", type=Path, required=True)
+    parser.add_argument("--consumer-binaries", type=Path)
+    parser.add_argument("--wine-consumer", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    require(args.wine_consumer is None or args.consumer_binaries is not None,
+            "Wine consumer requires the optional consumer binary directory")
     require(os.geteuid() == 0, "Run only as root inside the owned test guest")
     scope = validate_environment(args.owned_guest_token)
     require(scope["kind"] == "owned-qemu-guest", "Owned QEMU guest required")
@@ -186,7 +190,7 @@ def main():
         log = (output / "core-probe.log").open("wb")
         process = subprocess.Popen([str(actor_root / "probe/MadSense.Linux.CoreProbe"),
             "--owned-guest-token", args.owned_guest_token, "--device", str(fixture.hidraw),
-            "--output", str(actor_output), "--seconds", "120"], stdout=log, stderr=log,
+            "--output", str(actor_output), "--seconds", "600" if args.consumer_binaries else "120"], stdout=log, stderr=log,
             user=account.pw_uid, group=account.pw_gid, extra_groups=[], cwd=actor_root,
             env={**os.environ, "HOME": str(actor_output), "DOTNET_CLI_HOME": str(actor_output)})
         fixture.input_enabled = True
@@ -218,7 +222,9 @@ def main():
         require((raw / "device/driver").resolve().name == "playstation", "Virtual persona not handled by hid-playstation")
         save("consumer-ready.json", dict(ownedGuestToken=args.owned_guest_token, usbParent=str(usb.resolve()),
              localBusId=usb.name, hidrawPath=str(hidraw), evdevPath=str(Path("/dev/input", event.name)),
-             vendorId=ready["vendorId"], productId=ready["productId"], actorPid=process.pid))
+             vendorId=ready["vendorId"], productId=ready["productId"], actorPid=process.pid,
+             features=ready["features"], virtualMacHex=bytes.fromhex(ready["features"]["09"])[1:7][::-1].hex(),
+             uhidEventsPath=str(output / "uhid-events.jsonl"), coreOutputDirectory=str(actor_output)))
         require({5, 9, 0x20}.issubset(fixture.feature_requests), "Production constructor/calibration feature RPC missing")
         for observer in observers:
             try:
@@ -295,6 +301,20 @@ def main():
         wait_for(lambda: any(len(data) == 398 and data[0] == 0x36 and any(data[78:142]) for data in fixture.outputs))
         require(all(valid_output(data) for data in fixture.outputs), "Invalid physical synthetic output framing/CRC")
         passed("alsa_four_channel_ingress_and_nonzero_bluetooth_haptics")
+        if args.consumer_binaries is not None:
+            # Only the separate consumer experiment supplies this flag. The
+            # normal functional baseline does not import or execute consumers.
+            from consumer_session import run_suite
+            def consumer_state(state):
+                require(state in ("south", "neutral"), "Unknown consumer input state")
+                alive()
+                fixture.marker = False
+                fixture.south_only = state == "south"
+            result["consumers"] = run_suite(output / "consumer-ready.json", args.consumer_binaries,
+                args.wine_consumer, consumer_state, output / "consumer-suite", fixture.parent)
+            require(result["consumers"].get("result") == "passed"
+                    and result["consumers"].get("accountProcessesAndFilesRemoved") is True
+                    and not result["consumers"].get("cleanupErrors"), "Consumer suite or scoped cleanup failed")
         (actor_output / "stop").touch()
         require(process.wait(timeout=30) == 0, "Core actor failed during orderly disposal")
         wait_for(cleanup_done, 20)
