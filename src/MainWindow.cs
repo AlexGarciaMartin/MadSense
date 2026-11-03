@@ -15,7 +15,7 @@ sealed class MainWindow : Form
     static readonly Color Hot = Color.FromArgb(249, 84, 40);
     static readonly Color Muted = Color.FromArgb(99, 96, 85);
     static readonly string DisplayVersion = typeof(MainWindow).Assembly.GetName().Version is { } version
-        ? $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}" : "0.4";
+        ? version.Revision > 0 ? version.ToString(4) : $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}" : "0.4";
     const int WM_DEVICECHANGE = 0x0219, DBT_DEVNODES_CHANGED = 0x0007;
     const int LowBatteryPercent = 15;
     readonly Channel<Action<Bridge>> commands = Channel.CreateUnbounded<Action<Bridge>>(new() { SingleReader = true });
