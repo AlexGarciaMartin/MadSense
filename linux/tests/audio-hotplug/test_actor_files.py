@@ -38,6 +38,17 @@ class NativeActorFilesTests(unittest.TestCase):
         self.assertFalse((self.actor / "commands/000001.json.tmp").exists())
         self.assertEqual(set(json.loads(self.invoke("snapshot", {}).stdout)), {"commands/000001.json"})
 
+    def test_pcm_markers_are_bounded_names_and_keep_uid_traversal_guards(self):
+        result=self.invoke("command",dict(sequence=1,operation="pcm-mark",value="direct-start"))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads((self.actor/"commands/000001.json").read_text()),dict(operation="pcm-mark",value="direct-start"))
+        for value in ("../outside","", "x"*41):
+            self.assertNotEqual(self.invoke("command",dict(sequence=2,operation="pcm-mark",value=value)).returncode,0)
+        marker=self.actor/"pcm-mark-direct-start.json";marker.write_text('{"bytes":0}')
+        self.assertEqual(json.loads(self.invoke("read",dict(name=marker.name)).stdout),dict(bytes=0))
+        marker.unlink();marker.symlink_to(self.outside)
+        self.assertNotEqual(self.invoke("read",dict(name=marker.name)).returncode,0)
+
     def test_symlink_temporary_or_directory_cannot_write_outside(self):
         (self.actor / "commands/000001.json.tmp").symlink_to(self.outside)
         self.assertNotEqual(self.invoke("command", dict(sequence=1, operation="resume")).returncode, 0)

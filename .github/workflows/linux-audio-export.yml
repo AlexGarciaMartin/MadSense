@@ -6,6 +6,10 @@ on:
         description: 'Run private ignore/export experiment after production baseline/core/app gates'
         type: boolean
         default: false
+      measure_pcm:
+        description: 'After lifecycle gates, run a fresh source-copy quad PCM/gain experiment (requires run_native)'
+        type: boolean
+        default: false
   push:
     branches: [feature/linux]
     paths: ['linux/tests/audio-hotplug/**', '.github/workflows/linux-audio-export.yml']
@@ -29,6 +33,8 @@ jobs:
           set -o pipefail
           python3 -m unittest discover -s linux/tests/audio-hotplug/export -p 'test_*.py' -v 2>&1 | tee dist/export-tests/python.txt
           dotnet run --project linux/tests/audio-hotplug/export/descriptor-tests/Descriptor.Tests.csproj -c Release | tee dist/export-tests/descriptor.txt
+          dotnet run --project linux/tests/audio-hotplug/export/pcm-tests/Pcm.Tests.csproj -c Release | tee dist/export-tests/pcm-recorder.txt
+          python3 -m unittest discover -s linux/tests/audio-hotplug -p 'test_*.py' -v 2>&1 | tee dist/export-tests/hotplug.txt
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends gcc pkg-config libpipewire-0.3-dev
           cc -std=c11 -Wall -Wextra -Werror -O2 linux/tests/audio-hotplug/export/client.c $(pkg-config --cflags --libs libpipewire-0.3) -o dist/export-tests/audio-export-client
@@ -60,17 +66,29 @@ jobs:
           python3 linux/tests/audio-hotplug/export/stage_export.py --output "$EXPORT_SOURCE"
           dotnet publish "$EXPORT_SOURCE/linux/tests/app-integration/MadSense.Linux.AppProbe.csproj" -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -p:SourceRevisionId="$GITHUB_SHA" -o dist/marked-app-probe
           cp "$EXPORT_SOURCE/research-audio-overlay.json" dist/marked-app-probe/
+      - name: Publish separate PCM source copy
+        if: inputs.measure_pcm
+        env:
+          PCM_SOURCE: ${{ runner.temp }}/madsense-audio-pcm-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 linux/tests/audio-hotplug/export/stage_pcm.py --output "$PCM_SOURCE"
+          dotnet publish "$PCM_SOURCE/linux/tests/app-integration/MadSense.Linux.AppProbe.csproj" -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -p:SourceRevisionId="$GITHUB_SHA" -o dist/pcm-app-probe
+          cp "$PCM_SOURCE/research-pcm-overlay.json" dist/pcm-app-probe/
       - name: Install signed guest tooling
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client acl
       - name: Base gates then private ignore/export cases
-        run: >-
-          python3 linux/tests/audio-hotplug/export/qemu_export.py --run-private-ignore-export
-          --neutral-probe-directory dist/probe --core-probe-directory dist/core-probe
-          --app-probe-directory dist/app-probe --marked-probe-directory dist/marked-app-probe
-          --descriptor-reference dist/descriptor-reference.json
-          --output dist/audio-export-guest --work dist/audio-export-qemu-private
+        env:
+          MEASURE_PCM: ${{ inputs.measure_pcm && 'true' || 'false' }}
+        run: |
+          pcm_arguments=()
+          if [[ "$MEASURE_PCM" == true ]]; then pcm_arguments=(--pcm-probe-directory dist/pcm-app-probe); fi
+          python3 linux/tests/audio-hotplug/export/qemu_export.py --run-private-ignore-export \
+            --neutral-probe-directory dist/probe --core-probe-directory dist/core-probe \
+            --app-probe-directory dist/app-probe --marked-probe-directory dist/marked-app-probe \
+            --descriptor-reference dist/descriptor-reference.json "${pcm_arguments[@]}" \
+            --output dist/audio-export-guest --work dist/audio-export-qemu-private
       - uses: actions/upload-artifact@v4
         if: always()
         with:

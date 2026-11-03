@@ -17,7 +17,7 @@ def add_payload(payload):
     shutil.copytree(Path(__file__).resolve().parent, payload / "linux/tests/audio-hotplug",
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "bin", "obj"))
     target = payload / "linux/research"; target.mkdir(parents=True, exist_ok=True)
-    for name in ("audio_defaults.py", "pipewire_defaults.py", "consumer_session.py", "consumer_files.py", "run_consumers.py"):
+    for name in ("audio_defaults.py", "pipewire_defaults.py", "pipewire_gain.py", "consumer_session.py", "consumer_files.py", "run_consumers.py"):
         shutil.copy2(LINUX / "research" / name, target / name)
     target = payload / "linux/platform"; target.mkdir(parents=True, exist_ok=True)
     for name in ("broker.py", "broker_core.py"):

@@ -161,7 +161,7 @@ class Contracts(unittest.TestCase):
             self.assertTrue(any(name.endswith("export/client.c") for name in hashes))
             self.assertFalse(any("/bin/" in name or "/obj/" in name for name in hashes))
             directory=payload/"linux/tests/audio-hotplug/export"
-            code="import sys;sys.path.insert(0,sys.argv[1]);import run_export_guest,qemu_export,export_policy,export_desktop;assert callable(run_export_guest.verify_result)"
+            code="import sys;sys.path.insert(0,sys.argv[1]);import run_export_guest,qemu_export,export_policy,export_desktop,run_pcm_guest,stage_pcm,pcm_node;assert callable(run_export_guest.verify_result);assert callable(run_pcm_guest.audit)"
             result=subprocess.run([sys.executable,"-I","-c",code,str(directory)],cwd=root,capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stderr)
 

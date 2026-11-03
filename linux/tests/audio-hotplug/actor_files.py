@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 import subprocess
 
 
-PROGRAM = r'''import base64, json, os, stat, sys
+PROGRAM = r'''import base64, json, os, re, stat, sys
 if os.geteuid() == 0 or os.getegid() == 0:
     raise RuntimeError("App file operations require an ordinary UID/GID")
 root, operation = sys.argv[1:]
@@ -36,13 +36,18 @@ try:
             checked(child, True)
             sequence = request["sequence"]
             if type(sequence) is not int or not 1 <= sequence <= 100: raise RuntimeError("Invalid command sequence")
-            if request["operation"] not in ("resume", "pause", "exit"): raise RuntimeError("Invalid command")
+            if request["operation"] not in ("resume", "pause", "exit", "pcm-mark"): raise RuntimeError("Invalid command")
+            command = dict(operation=request["operation"])
+            if request["operation"] == "pcm-mark":
+                value = request.get("value")
+                if not isinstance(value,str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,39}',value): raise RuntimeError("Invalid PCM marker")
+                command["value"] = value
             target = f"{sequence:06}.json"; temporary = target + ".tmp"
             fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=child)
             try:
                 checked(fd)
                 with os.fdopen(fd, "wb", closefd=False) as stream:
-                    stream.write(json.dumps(dict(operation=request["operation"])).encode())
+                    stream.write(json.dumps(command).encode())
                     stream.flush(); os.fsync(fd)
             finally: os.close(fd)
             os.rename(temporary, target, src_dir_fd=child, dst_dir_fd=child)
@@ -50,7 +55,7 @@ try:
         finally: os.close(child)
     elif operation == "read":
         name = request["name"]
-        if name not in ("status.json", "stopped.json"): raise RuntimeError("Invalid app status name")
+        if name not in ("status.json", "stopped.json") and not re.fullmatch(r'pcm-mark-[a-z][a-z0-9-]{0,39}\.json',name): raise RuntimeError("Invalid app status name")
         try: result = json.loads(read_file(directory, name))
         except FileNotFoundError: result = None
     elif operation == "snapshot":

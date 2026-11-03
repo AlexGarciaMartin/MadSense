@@ -111,6 +111,18 @@ binary, nor repair mainline Wine 9's absent ContainerId implementation. Sources:
 
 ## Running and limits
 
+The corrected lifecycle run [41653922705](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653922705)
+at `40e2de13` passed all four sessions and the original prerequisites. Both exact
+scope cases preserved sink and source defaults across two USB epochs and three
+client-node lifetimes, with no automatic ALSA device/capture publication. Both
+foreign-parent/foreign-nonce controls retained two automatic sinks/sources and
+their original default replacement. Cleanup, QEMU shutdown and KVM ACL restore
+passed. Independent audit verified 108 guest sources, four installed files,
+source overlay and raw evidence. PCM and ContainerId remained unvalidated.
+
+The separately enabled next stage is described in [PCM.md](PCM.md); its native
+measurement is pending and does not change those completed lifecycle results.
+
 `linux-audio-export.yml` runs Python, real descriptor tests and a Linux C build
 on push. A manual `run_native=true` dispatch runs the unchanged broker 10/core
 9/app 10 cases and installer 2/removal 4 prerequisites, then the four export
