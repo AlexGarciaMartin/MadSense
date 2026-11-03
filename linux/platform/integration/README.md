@@ -130,8 +130,22 @@ no input-channel overflow, distinguishing helper backpressure from that separate
 failure. A process-isolated test reproduced the old client's shared ThreadPool
 dependency in all six synchronous operations; its ordinary-pool controls passed.
 The dedicated-reader/direct-wait correction passes all twelve local cases, with
-exact results and acknowledged release. Native core/app verification of that
-correction is pending; these liveness tests do not establish physical latency.
+exact results and acknowledged release. These liveness tests do not establish
+physical latency.
+
+Run 41624312045 at `da6bd52` first reached production Core Ready after the final
+helper acquisition drain recorded 19 discarded setup reports. The actor created
+the virtual DualSense, began audio forwarding and delivered all 87 reports it
+received, with zero client initialization discards or active overflows. Ordered
+release was acknowledged and no isolation-loss reason was recorded. All 62 guest
+source files and four installed helper files matched that commit. Both Linux
+architectures passed 89 C# tests and all twelve restricted-pool/control cases;
+the native ten-case helper baseline, two idle upgrades, four removal checks and
+KVM restoration also passed. The core runner then failed while recording sensor
+observer evidence because its local `passed` function did not accept keywords.
+The recorder now preserves those fields, with a portable regression executing
+that actual callsite. Remaining core cases, the application-controller stage and
+consumers were not reached; Ready alone is not a complete integration pass.
 
 Portable preparation:
 

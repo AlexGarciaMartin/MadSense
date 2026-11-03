@@ -5,7 +5,8 @@ namespace MadSense.Platform;
 public sealed record LinuxProxyTiming(long Count, int RetainedSamples, double P50Ms, double P95Ms, double P99Ms, double MaxMs);
 public sealed record LinuxProxyMetrics(long ReceivedReports, long ReadReports, long InitializationDiscardedReports, long InputOverflows, int QueuedReports,
     double OldestQueuedAgeMs, long LastReceivedTimestamp, long LastDeliveredTimestamp, long TimestampFrequency,
-    long LastBrokerReadMonotonicNs, LinuxProxyTiming ClientQueueAge, LinuxProxyTiming HidRpcRoundTrip);
+    long LastBrokerReadMonotonicNs, LinuxProxyTiming ClientQueueAge, LinuxProxyTiming HidRpcRoundTrip,
+    long? SetupReportsDrained);
 
 // Bounded recent software timings. They exclude radio, firmware and physical latency.
 internal sealed class ProxyTiming

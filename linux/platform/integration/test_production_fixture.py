@@ -1,3 +1,4 @@
+import ast
 import binascii
 import json
 from pathlib import Path
@@ -10,6 +11,27 @@ from qemu_core import REQUIRED_CORE_CASES, verify_core_result
 
 
 class FixtureTests(unittest.TestCase):
+    def test_native_pass_record_accepts_and_preserves_actual_observer_evidence(self):
+        # Execute the runner's real recorder and callsite without importing its
+        # Linux-only host operations. py_compile alone cannot catch this error.
+        path = Path(__file__).with_name("run_core_guest.py")
+        tree = ast.parse(path.read_text())
+        main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+        recorder = next(node for node in main.body if isinstance(node, ast.FunctionDef) and node.name == "passed")
+        calls = [node for node in ast.walk(main) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == "passed"]
+        call = next(node for node in calls if any(key.arg == "sensorObservers" for key in node.keywords))
+        saved = []
+        scope = dict(result={"cases": []}, observers=[1, 2], retained={1, 2, 3}, store_count=4,
+                     save=lambda name, value: saved.append((name, copy.deepcopy(value))))
+        exec(compile(ast.Module(body=[recorder], type_ignores=[]), str(path), "exec"), scope)
+        scope["passed"]("simple_case")
+        eval(compile(ast.Expression(call), str(path), "eval"), scope)
+        expected = dict(name="readonly_sensor_observers_allow_acquire_and_all_grabs_are_stored",
+                        passed=True, sensorObservers=2, storedGrabs=3, descriptorStoreCount=4)
+        self.assertEqual(saved[-1], ("result.json", {"cases": [dict(name="simple_case", passed=True), expected]}))
+        self.assertEqual(len(saved), 2)
+
     def test_kernel_pairing_mac_replaces_uniq_without_losing_exact_fixture_identity(self):
         label = "madsense-app-owned-uuid"
         prefix = f"HID_NAME={label}\nHID_PHYS=madsense-core-ci\n"

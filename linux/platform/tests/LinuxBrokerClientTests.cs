@@ -143,6 +143,52 @@ public sealed class LinuxBrokerClientTests
         Assert.That(metrics.LastDeliveredTimestamp, Is.GreaterThanOrEqualTo(metrics.LastReceivedTimestamp));
     }
 
+    [TestCase(null, null)]
+    [TestCase("0", 0L)]
+    [TestCase("17", 17L)]
+    [TestCase("9223372036854775807", long.MaxValue)]
+    public async Task SetupDrainCountIsAnImmutableAcquisitionSnapshotSeparateFromInputCounters(string? wireCount, long? expected)
+    {
+        await using var peer = await Peer.OpenAsync();
+        Task<LinuxPhysicalSession> acquiring = peer.Client.AcquirePhysicalAsync("/dev/hidraw4");
+        JsonElement request = await peer.RequestAsync();
+        var identity = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(Peer.Identity))!;
+        if (wireCount is not null) identity["setupReportsDrained"] = JsonSerializer.Deserialize<JsonElement>(wireCount);
+        await peer.ReplyAsync(request, identity);
+        LinuxPhysicalSession session = await acquiring;
+        Assert.That(session.Metrics.SetupReportsDrained, Is.EqualTo(expected));
+        Assert.That(session.Metrics.ReceivedReports, Is.Zero);
+        Assert.That(session.Metrics.ReadReports, Is.Zero);
+        Assert.That(session.Metrics.InitializationDiscardedReports, Is.Zero);
+        await peer.SendAsync(new { @event = "input", data = "MQE=" });
+        Assert.That(await session.Device.ReadAsync(new byte[64], 0, 64, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(3)), Is.EqualTo(2));
+        Assert.That(session.Metrics.SetupReportsDrained, Is.EqualTo(expected));
+        Assert.That(session.Metrics.ReceivedReports, Is.EqualTo(1));
+        Assert.That(session.Metrics.ReadReports, Is.EqualTo(1));
+        Assert.That(session.Metrics.InitializationDiscardedReports, Is.Zero);
+    }
+
+    [TestCase("-1")]
+    [TestCase("1.5")]
+    [TestCase("1.0")]
+    [TestCase("\"1\"")]
+    [TestCase("true")]
+    [TestCase("null")]
+    [TestCase("9223372036854775808")]
+    public async Task InvalidSetupDrainCountRejectsAcquisitionAndClosesItsLease(string wireCount)
+    {
+        await using var peer = await Peer.OpenAsync();
+        Task<LinuxPhysicalSession> acquiring = peer.Client.AcquirePhysicalAsync("/dev/hidraw4");
+        JsonElement request = await peer.RequestAsync();
+        var identity = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(Peer.Identity))!;
+        identity["setupReportsDrained"] = JsonSerializer.Deserialize<JsonElement>(wireCount);
+        await peer.ReplyAsync(request, identity);
+        var error = await Assert.ThrowsAsync<IOException>(async () => await acquiring.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.That(error!.Message, Does.Contain("invalid setup input drain count"));
+        Assert.That(await peer.ConnectionEndedAsync(), Is.True);
+        Assert.That(peer.Client.IsConnected, Is.False);
+    }
+
     [Test]
     public async Task LostIsolationFailsPendingReadsAndRaisesOneEventOffResponsePump()
     {

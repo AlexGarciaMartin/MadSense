@@ -12,6 +12,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
     readonly BrokerHidDevice device;
     readonly LinuxAttachStrategy attachStrategy;
     readonly object isolationGate = new();
+    readonly long? setupReportsDrained;
     string? isolationLostReason;
     int verified = 1, disposed, cleanupConfirmed;
     public IHidDevice Device => device;
@@ -24,9 +25,10 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
     public event Action? IsolationLost;
 
     internal LinuxPhysicalSession(LinuxBrokerClient broker, string path, ushort vendor, ushort product, string name,
-        CancellationToken acquisitionCancellation = default)
+        CancellationToken acquisitionCancellation = default, long? setupReportsDrained = null)
     {
         this.broker = broker;
+        this.setupReportsDrained = setupReportsDrained;
         device = new BrokerHidDevice(this, broker, path, vendor, product, name);
         attachStrategy = new LinuxAttachStrategy(this, broker, acquisitionCancellation);
     }
@@ -145,7 +147,8 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
                     (Stopwatch.GetTimestamp() - value.ReceivedTimestamp) * 1000.0 / Stopwatch.Frequency : 0;
                 return new(Interlocked.Read(ref received), Interlocked.Read(ref read), Interlocked.Read(ref initializationDiscarded), Interlocked.Read(ref overflows),
                     Volatile.Read(ref queued), oldest, Interlocked.Read(ref lastReceived), Interlocked.Read(ref lastDelivered),
-                    Stopwatch.Frequency, Interlocked.Read(ref lastBrokerReadNs), queueAge.Snapshot(), broker.HidRpcTiming.Snapshot());
+                    Stopwatch.Frequency, Interlocked.Read(ref lastBrokerReadNs), queueAge.Snapshot(), broker.HidRpcTiming.Snapshot(),
+                    session.setupReportsDrained);
             }
         }
         internal void EndInput(Exception? error)

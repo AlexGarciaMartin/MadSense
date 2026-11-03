@@ -230,9 +230,13 @@ discarded from that descriptor, not total setup input: hidraw can silently drop
 reports when its per-open queue is full before the drain starts. No total kernel
 loss count or lossless initialization is claimed; see the kernel's
 [per-open hidraw queue](https://github.com/torvalds/linux/blob/v6.8/drivers/hid/hidraw.c).
-Native evidence of this change
-is still pending; the portable checks cover backlog, deadlines, EOF and failure
+The `da6bd52` native run recorded 19 drained reports and the production core's
+first Ready, followed by confirmed cleanup with 87 received/read reports and
+no client overflow. Its later harness failure prevented the remaining feature
+gates from running. The portable checks cover backlog, deadlines, EOF and failure
 before ACTIVE, with a real nonblocking packet descriptor check on Linux.
+The client exposes this separate acquisition snapshot as nullable
+`SetupReportsDrained`; an older helper that omits it yields unknown, not zero.
 
 The IPC reader has its own blocking thread. Synchronous HID and legacy USB/IP
 attachment calls wait directly on the reply completed by that reader; synchronous

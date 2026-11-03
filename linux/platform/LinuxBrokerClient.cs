@@ -95,10 +95,17 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
                 TimeSpan.FromMinutes(2)).ConfigureAwait(false);
             if (!result.GetProperty("isolationVerified").GetBoolean())
                 throw new IOException("The device broker did not verify physical isolation.");
+            long? setupReportsDrained = null;
+            if (result.TryGetProperty("setupReportsDrained", out JsonElement drained))
+            {
+                if (drained.ValueKind != JsonValueKind.Number || !drained.TryGetInt64(out long count) || count < 0)
+                    throw new IOException("The device broker reported an invalid setup input drain count.");
+                setupReportsDrained = count;
+            }
             var created = new LinuxPhysicalSession(this,
                 result.GetProperty("path").GetString() ?? throw new IOException("Missing device identity."),
                 result.GetProperty("vendorId").GetUInt16(), result.GetProperty("productId").GetUInt16(),
-                result.GetProperty("productName").GetString() ?? "DualSense", ct);
+                result.GetProperty("productName").GetString() ?? "DualSense", ct, setupReportsDrained);
             lock (inputGate)
             {
                 Volatile.Write(ref session, created);

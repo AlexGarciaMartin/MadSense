@@ -121,8 +121,8 @@ def main():
                 and all(row["localBusId"] == "0-0" for row in ports().values())
                 and snapshot() == baseline)
 
-    def passed(name):
-        result["cases"].append(dict(name=name, passed=True))
+    def passed(name, **evidence):
+        result["cases"].append(dict(name=name, passed=True, **evidence))
         save("result.json", result)
 
     try:
