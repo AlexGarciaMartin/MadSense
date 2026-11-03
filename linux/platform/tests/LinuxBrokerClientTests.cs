@@ -289,10 +289,10 @@ public sealed class LinuxBrokerClientTests
         // A single write puts input immediately after negotiation, without waiting
         // for the acquisition continuation to publish its session.
         await peer.SendRawAsync(JsonSerializer.Serialize(new { id = request.GetProperty("id").GetInt64(), ok = true, result = Peer.Identity }) + "\n" +
-            string.Concat(Enumerable.Range(1, 2).Select(sequence => JsonSerializer.Serialize(new
+            string.Join("\n", Enumerable.Range(1, 2).Select(sequence => JsonSerializer.Serialize(new
             { @event = "input", data = Convert.ToBase64String(new byte[] { 0x31, (byte)sequence }),
               leaseId = Peer.LeaseId, sequence, creditBlockedCount = 0, creditBlockedNs = 0,
-              creditMaxBlockedNs = 0, brokerReadMonotonicNs = sequence == 2 ? 123456789L : 0L }) + "\n")));
+              creditMaxBlockedNs = 0, brokerReadMonotonicNs = sequence == 2 ? 123456789L : 0L }))));
         LinuxPhysicalSession session = await task;
         byte[] buffer = new byte[64];
         Assert.That(session.Device.Read(buffer, 0, 64, 1000), Is.EqualTo(2));
