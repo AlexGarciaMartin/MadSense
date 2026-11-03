@@ -1,0 +1,32 @@
+name: macOS signed OJD broker research
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/macos]
+    paths:
+      - '.github/workflows/macos-ojd-broker.yml'
+      - 'macos/research/ojd_broker*'
+      - 'macos/research/test_ojd_broker.py'
+permissions:
+  contents: read
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, macos-26-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test fail-closed gates
+        run: python3 -m unittest discover -s macos/research -p test_ojd_broker.py
+      - name: Original signed release, neutral test device only
+        run: python3 macos/research/ojd_broker_probe.py --run-on-empty-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ojd-broker-${{ matrix.runner }}
+          path: dist/ojd-broker/*
+          retention-days: 14
+          if-no-files-found: error
