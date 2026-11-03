@@ -17,6 +17,11 @@ on:
         type: boolean
         required: false
         default: false
+      trace_helper:
+        description: 'Also observe a temporary copied helper and its own core cycle (requires trace_input)'
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [feature/linux]
     paths:
@@ -75,9 +80,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Require one explicit instrumentation variant
-        if: inputs.trace_stages && inputs.trace_input
+        if: (inputs.trace_stages && inputs.trace_input) || (inputs.trace_helper && !inputs.trace_input)
         run: |
-          echo 'trace_stages and trace_input are mutually exclusive' >&2
+          echo 'Choose one actor trace; trace_helper additionally requires trace_input' >&2
           exit 2
       - uses: actions/setup-dotnet@v4
         with:
@@ -96,6 +101,15 @@ jobs:
           python3 linux/tests/latency/stage_trace.py --output "$TRACE_SOURCE" --kind "$TRACE_KIND"
           dotnet publish "$TRACE_SOURCE/linux/tests/app-integration/MadSense.Linux.AppProbe.csproj" -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -p:SourceRevisionId="$GITHUB_SHA" -o dist/app-probe-trace
           cp "$TRACE_SOURCE/research-trace-overlay.json" dist/app-probe-trace/
+      - name: Stage a separate exact helper source copy
+        if: inputs.trace_helper
+        env:
+          HELPER_SOURCE: ${{ runner.temp }}/madsense-helper-source-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 linux/tests/latency/stage_helper_trace.py --output "$HELPER_SOURCE"
+          mkdir -p dist/helper-probe
+          cp "$HELPER_SOURCE/linux/platform/broker.py" "$HELPER_SOURCE/linux/platform/broker_core.py" "$HELPER_SOURCE/linux/platform/research_helper_trace.py" dist/helper-probe/
+          cp "$HELPER_SOURCE/research-helper-overlay.json" dist/helper-probe/
       - name: Install tools for the pinned signed guest
         run: |
           sudo apt-get update -qq
@@ -108,10 +122,14 @@ jobs:
       - name: Functional gates and independent timing in the same owned VM
         env:
           TRACE_STAGES: ${{ (inputs.trace_stages || inputs.trace_input) && 'true' || 'false' }}
+          TRACE_HELPER: ${{ inputs.trace_helper && 'true' || 'false' }}
         run: |
           trace_arguments=()
           if [[ "$TRACE_STAGES" == true ]]; then
             trace_arguments=(--trace-probe-directory dist/app-probe-trace)
+          fi
+          if [[ "$TRACE_HELPER" == true ]]; then
+            trace_arguments+=(--helper-probe-directory dist/helper-probe)
           fi
           python3 linux/tests/latency/qemu_latency.py \
             --neutral-probe-directory dist/neutral-probe --core-probe-directory dist/core-probe \

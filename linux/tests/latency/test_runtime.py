@@ -16,6 +16,17 @@ from qemu_latency import add_latency_payload, prepare_combined_payload, run_late
 
 
 class GateTests(unittest.TestCase):
+    def test_helper_variant_requires_input_actor_and_selects_only_the_owned_wrapper(self):
+        state = dict(baselineExit=0, coreExit=0, appExit=0, helperObservationRequested=True)
+        guest = SimpleNamespace(provenance=state, run=Mock(return_value=SimpleNamespace(returncode=0)), token="guest")
+        with self.assertRaises(RuntimeError):
+            run_latency_stage(guest)
+        guest.run.assert_not_called()
+        state.update(traceExperimentRequested=True, traceSourceOverlay={"traceKind": "input"})
+        self.assertEqual(run_latency_stage(guest), 0)
+        self.assertTrue(guest.run.call_args.args[1].endswith("guest --helper"))
+        self.assertEqual(guest.run.call_args.kwargs["timeout"], 900)
+
     def test_partial_or_failed_functional_stage_cannot_start_measurement(self):
         for states in ({}, dict(baselineExit=0, coreExit=1), dict(baselineExit=0, coreExit=0),
                        dict(baselineExit=0, coreExit=0, appExit=1)):
@@ -48,6 +59,8 @@ class GateTests(unittest.TestCase):
                         "linux/tests/audio-hotplug/actor_files.py",
                         "linux/tests/latency/capture_diagnostics.py",
                         "linux/tests/latency/input_trace_analysis.py", "linux/tests/latency/trace_variant.py",
+                        "linux/tests/latency/helper_trace.py", "linux/tests/latency/helper_override.py",
+                        "linux/tests/latency/helper_trace_analysis.py", "linux/tests/latency/run_helper_latency_guest.py",
                         "linux/platform/integration/actor_staging.py", "linux/research/qemu_kernel.py",
                         "linux/research/kvm_acceleration.py", "app-probe/MadSense.Linux.AppProbe"]
             self.assertTrue(set(expected).issubset(hashes))
@@ -60,6 +73,7 @@ class GateTests(unittest.TestCase):
                     "sys.path.insert(0,str(root/'linux/tests/latency')); import gates,qemu_latency,input_trace_analysis,trace_variant; "
                     "assert pathlib.Path(input_trace_analysis.__file__).is_relative_to(root); "
                     "assert pathlib.Path(trace_variant.__file__).is_relative_to(root); "
+                    "import run_helper_latency_guest; assert pathlib.Path(run_helper_latency_guest.__file__).is_relative_to(root); "
                     "import qemu_core,actor_staging; "
                     "assert pathlib.Path(qemu_core.__file__).is_relative_to(root); "
                     "assert pathlib.Path(actor_staging.__file__).is_relative_to(root); "

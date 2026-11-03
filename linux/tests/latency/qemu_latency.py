@@ -41,12 +41,17 @@ def run_latency_stage(guest):
     """No boot or baseline here: attach this stage to an already gated live VM."""
     require(all(guest.provenance.get(stage + "Exit") == 0 for stage in ("baseline", "core", "app")),
             "All functional stages must finish before optional timing")
+    if guest.provenance.get("helperObservationRequested"):
+        require(guest.provenance.get("traceExperimentRequested") is True
+                and guest.provenance.get("traceSourceOverlay", {}).get("traceKind") == "input",
+                "Helper observation requires the matching input-only comparison")
     guest.provenance["latencyStarted"] = True
     try:
         answer = guest.run("latency-run", "bash /home/ubuntu/madsense/linux/tests/latency/run_latency_experiment.sh "
                            + shlex.quote(guest.token)
-                           + (" --trace" if guest.provenance.get("traceExperimentRequested") else ""),
-                           timeout=480, required=False)
+                           + (" --helper" if guest.provenance.get("helperObservationRequested") else
+                              " --trace" if guest.provenance.get("traceExperimentRequested") else ""),
+                           timeout=900 if guest.provenance.get("helperObservationRequested") else 480, required=False)
     except subprocess.TimeoutExpired:
         guest.provenance["latencyExit"] = 124
         raise
@@ -125,6 +130,7 @@ def main():
     parser.add_argument("--core-probe-directory", type=Path, required=True)
     parser.add_argument("--app-probe-directory", type=Path, required=True)
     parser.add_argument("--trace-probe-directory", type=Path)
+    parser.add_argument("--helper-probe-directory", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     args = parser.parse_args()
@@ -146,6 +152,14 @@ def main():
             require(source != args.app_probe_directory.resolve(), "Trace cannot replace the production control")
             shutil.copytree(source, payload / "app-probe-trace")
             provenance.update(traceExperimentRequested=True, traceSourceOverlay=overlay)
+        if args.helper_probe_directory is not None:
+            require(args.trace_probe_directory is not None and provenance["traceSourceOverlay"].get("traceKind") == "input",
+                    "Helper observation requires the input-only actor")
+            from stage_helper_trace import verify_overlay
+            source = args.helper_probe_directory.resolve()
+            helper_overlay = verify_overlay(source, provenance["sourceCommit"])
+            shutil.copytree(source, payload / "helper-probe")
+            provenance.update(helperObservationRequested=True, helperSourceOverlay=helper_overlay)
         hashes = add_latency_payload(payload)
         (guest.output / "payload-files.json").write_text(json.dumps(hashes, indent=2) + "\n")
         guest.boot(); guest.upload(payload)
@@ -168,6 +182,13 @@ def main():
                     "Guest did not run the requested trace source overlay")
         else:
             require("attributionExperiment" not in measurement, "Unexpected source instrumentation")
+        if args.helper_probe_directory is not None:
+            from run_helper_latency_guest import verify_observation
+            observation = verify_observation(guest.output / "result/helper-observation",
+                guest.output / "result/latency-experiment", guest.token, gate_records, provenance["helperSourceOverlay"])
+            provenance["helperObservation"] = dict(result=observation["result"], originalHelperRestored=True,
+                observedCoreResultSha256=observation["observedCoreResultSha256"],
+                resultSha256=hashlib.sha256((guest.output / "result/helper-observation/result.json").read_bytes()).hexdigest())
         provenance.update(result="passed", benchmarkResult=measurement["result"],
             latencyResultSha256=hashlib.sha256((guest.output / "result/latency-experiment/result.json").read_bytes()).hexdigest())
     except BaseException as error:

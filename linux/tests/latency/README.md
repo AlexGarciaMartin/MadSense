@@ -317,7 +317,7 @@ classification or confirms cleanup. These captures were added after the f6
 native run and exercised in the adcc repeat; they cannot retroactively explain
 the f6 early closure.
 
-### Client-input tail experiment (prepared; native execution pending)
+### Client-input tail experiment
 
 `trace_input=true` on the timing workflow selects four fresh 1,000 Hz sessions
 in control/input/input/control order. It is mutually exclusive with
@@ -374,6 +374,62 @@ estimate.
 
 Local Windows validation: 45 Python tests passed, with the native C test skipped;
 the standalone recorder and complete copied AppProbe compile without warnings.
-Three native recorder checks (concurrent publication, repeated tail wrapping,
-and a deliberately busy slot) are wired on Linux x64 and arm64 before any VM
-run. Their native execution and the new four-case measurement remain pending.
+All 46 Python tests and the three native recorder checks (concurrent publication,
+repeated tail wrapping, and a deliberately busy slot) passed on Linux x64 and
+arm64 in the run below, before the VM measurement.
+
+### First client-input tail observation
+
+[Run 41646555561](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41646555561)
+at `3767557ffb61022e8073b7d45e36b08b0554d58a` completed all four ten-second
+sessions. The independent audit checked 104 payload sources, four installed
+helper files, all three overlay changes and the exact source archive, then
+recomputed the original CSV and client-tail results. Runtime artifact SHA-256:
+`0d44c562f4d017998d6886b9656e0781c6ff0e591345c5c160a19e2018b62e3a`.
+
+| 1,000 Hz case | Observed / written | Skipped deadlines | Upper interval p50 / p95 / p99 |
+|---|---|---|---|
+| Control 1 | 9,902 / 9,994 | 6 | 0.182 / 0.301 / 1.062 ms |
+| Client tail 1 | 9,907 / 9,996 | 4 | 0.178 / 0.293 / 0.998 ms |
+| Client tail 2 | 9,895 / 9,978 | 22 | 0.182 / 0.286 / 1.105 ms |
+| Control 2 | 9,891 / 9,989 | 11 | 0.183 / 0.292 / 1.028 ms |
+
+All cases had zero input overflows, no `ENODEV`, and no unattempted samples.
+Each actor had one recorded lease acquisition and one transition into Ready;
+its setup-drain count remained unchanged. A reconnection therefore did not hide
+the previous session's metrics in this run. The prior adcc overflow did not
+recur, including in either untouched control. This does not show that it was
+fixed. Missing written reports keep the result classified as `transport-limit`.
+
+Each instrumented case retained 4,096 events covering about the final 1.37
+seconds, with 25,892 and 25,838 earlier events explicitly overwritten. There
+were no collisions, publication holes, malformed tags or clock-check failures.
+The maximum retained queue-count snapshot was three. Nine missing virtual-reader
+sequences in each tail had been removed from the client channel; those specific
+losses occurred after removal. The overwritten prefix cannot support equivalent
+attribution. Dequeue itself still does not prove parsing or USB transmission.
+
+The largest retained dequeue intervals were 4.401 and 5.081 ms. Their corresponding
+helper-read intervals were already 4.319 and 5.056 ms, despite UHID injection
+intervals near one millisecond. The consumer had entered its next `Read` about
+2–3 microseconds after the preceding dequeue, and the eventual reports took only
+29 and 20 microseconds from client receipt to dequeue. These examples locate the
+large gap before the helper-read observation, rather than in the client queue.
+Three such gaps per tail were separated by approximately 503–504 ms. The
+helper's synchronous `lease.verify()` followed by a 500 ms deadline is a candidate
+for further measurement; the capture contains no verification start/end times,
+so it does not establish that cause. Other retained gaps include delays after
+helper read and before the consumer's next `Read`, without proving what caused
+them.
+
+Both GC endpoint snapshots increased by two generation-0 collections and one
+generation-1 collection, with no generation-2 collection. These counts cover
+setup through disposal and provide no pause timestamps. They neither attribute
+the gaps to GC nor explain why this run avoided overflow. No reliable total
+observer-overhead estimate follows from these four shared-host sessions.
+
+All four cleanup checks passed, with KVM confirmed by QMP, owned QEMU reaped and
+the original KVM ACL restored. Sixteen post-case diagnostic commands and all 32
+output/error stream sizes and hashes were checked without timeout or truncation.
+The functional gates remained separate and passed. No production timing, queue,
+priority or loss-handling change was made from this observation.
