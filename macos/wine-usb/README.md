@@ -7,7 +7,7 @@ find the controller's haptic audio endpoint through the audio PropertyStore
 can use that association. No macOS virtual HID entitlement is involved in
 this source change.
 
-The kit does not build or install Wine, alter CrossOver, create a global
+The source preparation command does not build or install Wine, alter CrossOver, create a global
 virtual controller, translate Bluetooth reports, or provide a binary. Patch
 application and parser tests do not establish working haptics in a game.
 There has been no physical controller/game validation of this kit.
@@ -66,7 +66,23 @@ build products, and applies the same three patches only in the new tree.
 It never patches the input checkout or an installed runner. A failure can
 leave the newly created output for inspection; choose another new path when
 retrying. Building this tree requires Wine's normal macOS build dependencies
-and is not performed by the kit or its Ubuntu workflow.
+and is not performed by source preparation or the Ubuntu workflow.
+
+## Remote module compilation
+
+The separate `macos-wine-usb-build.yml` workflow exports the full pinned public
+Wine checkout and compiles the three affected modules on macOS 15 ARM and
+Intel. It uses Apple Clang for native code and the official llvm-mingw
+`20261006` universal toolchain, whose archive SHA256 is fixed in
+`compile_modules.sh`. ARM builds include aarch64/ARM64EC; Intel builds x86_64.
+The disposable runners install only build dependencies through Homebrew.
+
+This is a module compilation check, not a complete Wine distribution. It
+does not install or execute Wine, change CrossOver, create a prefix or access
+a controller. Artifacts contain source/patch provenance, toolchain versions,
+configure/build logs and hashes of compiled modules. They do not distribute
+standalone replacement binaries. A successful build still needs runtime
+and physical USB/game validation before it can support a compatibility claim.
 
 ## Compatibility limits
 

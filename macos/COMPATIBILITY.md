@@ -55,7 +55,7 @@ La cuenta de pago no es un requisito general para leer un mando USB ni desarroll
 | USB físico / GameController / HIDAPI | Acceso al hardware existente; permisos normales según operación | Ruta preferida para conservar compatibilidad nativa |
 | Adaptación interna de Wine | Cambia lo que ve el juego Windows dentro de Wine | Investigar como ruta independiente del HID global |
 | IOHIDUserDevice / CoreHID | Publica un nuevo dispositivo HID en macOS | Autorización restringida; no crea audio USB compuesto |
-| Broker firmado de terceros | El cliente puede ser libre de cuenta Apple; depende de la API del broker | Karabiner ofrece teclado/ratón, no un gamepad arbitrario |
+| Broker firmado de terceros | El cliente puede ser libre de cuenta Apple; depende de la API del broker | OJD ofrece perfiles Generic/Xbox fijos; Karabiner, teclado/ratón |
 | libvirtualhid de LizardByte | Broker con gamepad y condiciones propias | Licencia y activación comercial; no es equivalente libre sin coste |
 | USB/IP mediante IOUSBHostControllerInterface | Emulación USB con otra autorización gestionada | El cliente usbip-macos declara transferencias isócronas pendientes; no resuelve nuestro audio |
 | Adaptador físico abierto | Puede presentar un USB compuesto real al ordenador | Otra vía de investigación; requiere hardware y pruebas Mac |
@@ -64,6 +64,14 @@ Fuentes: [Karabiner DriverKit](https://github.com/pqrs-org/Karabiner-DriverKit-V
 
 La autorización del desarrollador no implica una cuota para cada usuario. WaveBird es un ejemplo de aplicación libre distribuida firmada para puentear mandos Nintendo: su [entitlement](https://github.com/murphyjt/wavebird/blob/b04a072f1b17df58965efb14a066873a0b48da2a/WaveBird/WaveBird.entitlements) y [workflow de distribución](https://github.com/murphyjt/wavebird/blob/b04a072f1b17df58965efb14a066873a0b48da2a/.github/workflows/release.yml) incluyen autorización HID y perfil de aprovisionamiento. Su API interna admite descriptores, pero no constituye un broker público general para que MadSense envíe informes. Compilar una modificación no conserva la firma autorizada del original.
 
+### Broker libre firmado: evidencia y límite funcional
+
+[OpenJoystickDriver 0.6.0-alpha.1](https://github.com/xsyetopz/OpenJoystickDriver/releases/tag/0.6.0-alpha.1), licencia MIT, sí publica una interfaz para clientes externos y una CLI firmada. La [prueba 41566753300](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41566753300) descargó su distribución oficial con SHA256 fijado y comprobó en macOS 26 ARM e Intel la firma estricta, el aprovisionamiento HID y la aceptación explícita de Gatekeeper como `Notarized Developer ID`. Es evidencia de que un componente libre ya firmado puede evitar una cuenta Apple propia para su cliente.
+
+Su [API y perfiles en la revisión examinada](https://github.com/xsyetopz/OpenJoystickDriver/tree/3552be925d7dacef3fd895ac0c6cbf39e9d3cd70/Sources/OpenJoystickDriverKit) admiten botones, cruceta, seis ejes y rumble convencional en tres perfiles Generic/Xbox fijos. No ofrecen descriptor arbitrario, proxy de informes DualSense, panel táctil, sensores, gatillos adaptativos ni audio PCM. La CLI impone al menos 8 ms entre frames. Cambiar el VID/PID no convierte esos informes en los de un DualSense. Por ello es candidato a un modo de compatibilidad genérico, no sustituto equivalente del puente actual.
+
+La prueba no llegó a ejecutar OJD: ambos runners enumeraban controladores Bluetooth y dispositivos USB/HID, y el preflight de aislamiento lo rechazó. El código de OJD arranca su exploración Bluetooth sin un ajuste para desactivarla. Conservamos el rechazo en los resultados; firma aceptada no significa mando virtual publicado ni compatibilidad con juegos. No se ha modificado la aplicación firmada ni la configuración de seguridad del host. El procedimiento reproducible y su alcance están en [research/ojd_broker_README.md](research/ojd_broker_README.md).
+
 ### Comprobación remota de permisos y acceso nativo
 
 La [ejecución HID 41561331892](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41561331892), revisión `e948643`, compiló dos programas independientes, IOHID y CoreHID, en macOS 15/26 y ARM/Intel. Cada uno probó un descriptor mínimo de joystick de 39 bytes y el descriptor actual DualSense de 321 bytes, con usuario normal y root. Hubo 32 negativas de creación sin autorización y 32 terminaciones por firma restringida declarada ad-hoc; ningún dispositivo publicado y ningún timeout. El resultado verde del workflow significa que el experimento se ejecutó, no que el puente funcionara. El error de `IOServiceOpen` aislado no identifica por sí solo la causa; se conserva junto al resultado de las APIs y los registros de AMFI.
@@ -71,6 +79,8 @@ La [ejecución HID 41561331892](https://github.com/AlexGarciaMartin/MadSense/act
 **Condición del entorno:** `csrutil status` indicó SIP desactivado previamente en los cuatro runners del proveedor. El experimento no modificó SIP, AMFI ni otras preferencias de seguridad. Las denegaciones ocurrieron en ese entorno; no presentamos las máquinas virtuales como Macs de usuario con configuración de fábrica.
 
 El [inventario USB 41560981214](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41560981214), revisión `9af5ef9`, compiló y ejecutó el programa sin autorizaciones restringidas en las mismas cuatro combinaciones. Superó sus autopruebas y enumeró sin errores. No había DualSense conectado: `physical_dualsense_found=false` y `observed_hardware_behavior=false` en los cuatro resultados.
+
+La aplicación normal consulta ahora su propia autorización mediante `SecTaskCopyValueForEntitlement` **antes** de abrir el mando físico en exclusiva. Un permiso ausente o indeterminado impide la captura. El [CI 41566753074](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41566753074) verificó esa consulta sobre los paquetes reales de ambas arquitecturas: permiso ausente, sin enumeración ni apertura HID. Un permiso presente tampoco garantiza éxito: siguen siendo obligatorias la creación real y la comprobación de publicación del dispositivo propio.
 
 ## Latencia: qué medir antes de optimizar
 
@@ -81,6 +91,18 @@ La ruta Bluetooth de MadSense incluye captura PCM, cola HAL, IPC autenticada, pl
 Se mantiene un único escritor de efectos por mando. SDL abre HID de forma compartida en Mac; varios escritores pueden sobrescribir modos de salida o desactivar háptica de audio mediante rumble. Una app acompañante no debe emitir efectos de manera periódica mientras un juego ya controla el mando. [HIDAPI de SDL](https://github.com/libsdl-org/SDL/blob/ceaf27ef3a921a13a8627aaa077cd34bbb38408d/src/hidapi/SDL_hidapi.c), [controlador PS5 de SDL](https://github.com/libsdl-org/SDL/blob/ceaf27ef3a921a13a8627aaa077cd34bbb38408d/src/joystick/hidapi/SDL_hidapi_ps5.c).
 
 Un IOProc de entrada virtual o un tap de audio no es una sustitución invisible de la ruta actual: puede añadir permisos de micrófono o grabación de audio del sistema y no crea por sí mismo la asociación con el gamepad. No se amplían colas ni se elimina autenticación para ocultar fallos de planificación. Las medidas deben conservar pérdidas y colas, además de promedios y percentiles.
+
+### Fallo de reloj encontrado y recuperación pendiente
+
+Las pruebas prolongadas detectaron muestras repetidas. La instrumentación colocada antes de nuestra cola confirmó que algunos bloques ya llegaban repetidos desde CoreAudio, especialmente cuando el contador de ciclo volvía a 1 durante una resincronización. No hubo escritores solapados ni marcadores PCM dañados en esos eventos. La instrumentación vive en copias de investigación y no añade registros, asignaciones o bloqueos al callback de producción.
+
+Se encontró además un incumplimiento concreto del SDK: el periodo de `GetZeroTimeStamp` debe ser de al menos 10923 frames, mientras nuestro plugin anunciaba 256. Se corrigió a **16384**, valor usado también por implementaciones de referencia. Este periodo describe la relación del reloj entre tiempo de muestra y tiempo del host; no es el tamaño de nuestra cola ni obliga a añadir 341 ms de audio almacenado. La cola sigue siendo de 2048 frames, con lectura de hasta 480 y descarte de retraso por encima de 1024.
+
+El [experimento comparativo 41565481335](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41565481335) mantuvo cola, lector e instrumentación y varió únicamente ese periodo. CoreAudio seleccionó callbacks de 96 frames con 256 y de 512 con 16384. El periodo correcto redujo los eventos observados, pero **no eliminó las repeticiones ni las pérdidas**; las variantes se ejecutaron en máquinas virtuales distintas y no justifican un porcentaje causal de mejora. Los logs conservan fallos y también las repeticiones observadas al detener el stream, separadas del intervalo de lectura.
+
+En los tres ensayos de esa ejecución con periodo correcto y lector QoS interactiva/1 ms, el p95 desde callback hasta lector fue 12,67–13,06 ms en ARM y 9,54–9,76 ms en Intel. Es una medida parcial de la ruta nativa HAL/IPC bajo esas condiciones, no de .NET, codificación, Bluetooth, actuación del mando o latencia total en un juego. Hay pérdidas y resincronizaciones registradas: estos percentiles no acreditan audio continuo.
+
+La recuperación se investiga descartando el bloque completo cuando el contador documentado de CoreAudio vuelve a 1, e invalidando muestras pendientes mediante su generación. No se intenta adivinar qué parte de un PCM arbitrario es antigua. Deben medirse por separado la integridad de origen, la integridad de lo entregado al lector y los frames descartados. El vaciado del forwarder actual vuelve a cebar Bluetooth con ocho paquetes —aproximadamente 85 ms—; ese coste físico no lo mide el banco nativo y no debe ocultarse al valorar la solución.
 
 ## Reutilización y licencias
 
