@@ -15,9 +15,12 @@ on:
       - 'linux/research/ff_probe.c'
       - 'linux/research/run_consumers.py'
       - 'linux/research/run_wine_consumer.py'
+      - 'linux/research/run_wine_variant.py'
+      - 'linux/research/test_wine_variant.py'
       - 'linux/research/test_consumer_session.py'
       - 'linux/research/test_consumer_files.py'
       - 'linux/research/test_consumer_phases.py'
+      - 'linux/research/test_consumer_stop.py'
       - 'linux/research/qemu_consumers.py'
       - 'linux/research/run_consumer_guest.sh'
       - 'linux/research/CONSUMER-SESSION.md'
@@ -49,6 +52,8 @@ jobs:
           python3 -m unittest discover -s linux/research -p test_consumer_session.py -v
           python3 -m unittest discover -s linux/research -p test_consumer_files.py -v
           python3 -m unittest discover -s linux/research -p test_consumer_phases.py -v
+          python3 -m unittest discover -s linux/research -p test_consumer_stop.py -v
+          python3 -m unittest discover -s linux/research -p test_wine_variant.py -v
           python3 -m unittest discover -s linux/research -p test_audio_defaults.py -v
           python3 -m unittest discover -s linux/research -p test_pipewire_defaults.py -v
           python3 -m unittest discover -s linux/research -p test_ge_umu.py -v
@@ -147,6 +152,7 @@ jobs:
           --windows-artifact dist/windows-build/wine-consumer
           --observe-audio-defaults
           --observe-pipewire-defaults
+          --wine-udev-variant
           --output dist/consumer-runtime --work dist/consumer-qemu-private
       - uses: actions/upload-artifact@v4
         if: always()

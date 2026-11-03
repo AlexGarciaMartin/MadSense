@@ -11,6 +11,33 @@ from qemu_core import REQUIRED_CORE_CASES, verify_core_result
 
 
 class FixtureTests(unittest.TestCase):
+    def test_raw_output_gate_requires_enabled_and_complete_loss_free_evidence(self):
+        path = Path(__file__).with_name("run_core_guest.py")
+        tree = ast.parse(path.read_text())
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == "require"
+                 and len(node.args) == 2 and isinstance(node.args[1], ast.Constant)
+                 and node.args[1].value in (
+                     "Consumer run did not enable exact raw USB output observation",
+                     "Raw USB output evidence overflowed, was not drained, or failed")]
+        self.assertEqual(len(calls), 2)
+        def require(condition, message):
+            if not condition:
+                raise AssertionError(message)
+        checks = [compile(ast.Expression(call), str(path), "eval") for call in calls]
+        good = dict(rejectedSnapshots=0, unwrittenSnapshots=0, error=None)
+        def verify(ready, stopped):
+            for check in checks:
+                eval(check, dict(require=require, ready=ready, stopped=stopped))
+        verify(dict(rawOutputObservationEnabled=True), dict(rawOutputObservation=good))
+        for ready in ({}, dict(rawOutputObservationEnabled=False)):
+            with self.subTest(ready=ready), self.assertRaises(AssertionError):
+                verify(ready, dict(rawOutputObservation=good))
+        for bad in (None, {}, {**good, "rejectedSnapshots": 1}, {**good, "unwrittenSnapshots": 1},
+                    {**good, "error": "write failed"}):
+            with self.subTest(observation=bad), self.assertRaises(AssertionError):
+                verify(dict(rawOutputObservationEnabled=True), dict(rawOutputObservation=bad))
+
     def test_host_calibration_gate_rejects_self_consistent_virtual_defaults(self):
         # Run the independent fixture comparison from the real guest runner.
         # Merely comparing host and refreshed virtual snapshots could miss a

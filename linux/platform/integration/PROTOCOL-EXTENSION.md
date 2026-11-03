@@ -1,7 +1,11 @@
 # Optional synthetic protocol extension
 
-This extension is prepared and passes portable fixture/observer checks. Native
-execution is pending. It does not establish physical trigger force, audible
+Run [41628578777](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41628578777)
+at `0325da7` passed the one core and six app extension assertions after the
+original nine core and ten app cases. Separate result hashes are recorded in
+the native provenance; the downloaded archive SHA-256 is
+`d28f52bae14af9d59f7751ccadc4b0c42bf127c10f91a840c4ec3360acca5c58`.
+This does not establish physical trigger force, audible
 headset/speaker output, radio behavior, timing, or game compatibility.
 
 Run the usual `qemu_core.py` command with `--extended-protocol` to opt in. The
@@ -9,7 +13,7 @@ original broker baseline, idle upgrade/removal, nine core cases and ten app case
 must pass first. The same owned VM then runs fresh core and app actors with fresh
 fixtures/leases. Their output is retained separately in `result/protocol-core`
 and `result/protocol-app`; original evidence is never overwritten. A failed new
-case prevents an overall extended pass. No workflow currently enables this flag.
+case prevents an overall extended pass. The platform workflow enables this flag.
 
 The new assertions are:
 

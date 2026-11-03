@@ -31,7 +31,7 @@ if (options.Count == 1 && options.TryGetValue("--verify-fixtures", out var fixtu
     Console.WriteLine("Production parser, raw conversion and feature fixture checks passed.");
     return;
 }
-if (options.Keys.Any(key => key is not ("--owned-guest-token" or "--device" or "--output" or "--seconds" or "--persona")))
+if (options.Keys.Any(key => key is not ("--owned-guest-token" or "--device" or "--output" or "--seconds" or "--persona" or "--observe-usb-output")))
     throw new ArgumentException("Unknown option.");
 string token = Guid.Parse(options["--owned-guest-token"]).ToString();
 if (!OperatingSystem.IsLinux() || Native.GetUid() == 0 ||
@@ -46,7 +46,8 @@ int seconds = int.Parse(options.GetValueOrDefault("--seconds", "120"));
 if (seconds is < 5 or > 900) throw new ArgumentException("Duration must be 5..900 seconds.");
 Directory.CreateDirectory(output);
 if (Directory.EnumerateFileSystemEntries(output).Any()) throw new IOException("Fresh output directory required.");
-using Evidence evidence = new(output);
+bool observeUsbOutput = bool.Parse(options.GetValueOrDefault("--observe-usb-output", "false"));
+using Evidence evidence = new(output, observeUsbOutput);
 using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(seconds + 30));
 using HidDeviceEnumerator enumerator = new();
 var info = enumerator.Enumerate(0x054c).Single(device => device.Path == path);
@@ -112,7 +113,7 @@ try
         busIds = server.BusIds, virtualDevicePath = emulation.GetStatus(pad).VirtualDevicePath,
         vendorId = factory.Last!.Descriptors.IdVendor, productId = factory.Last.Descriptors.IdProduct,
         features = factory.Features, physicalMac, virtualMac,
-        timestampFrequency = Stopwatch.Frequency
+        timestampFrequency = Stopwatch.Frequency, rawOutputObservationEnabled = observeUsbOutput
     });
     while (start.Elapsed.TotalSeconds < seconds && !File.Exists(Path.Combine(output, "stop")))
     {
@@ -143,10 +144,11 @@ finally
         {
             var metrics = session.Metrics;
             await session.DisposeAsync();
-            evidence.CompleteInputObservation();
+            evidence.CompleteObservations();
             evidence.Atomic("stopped.json", new { completed = stopped && !evidence.Overflow && session.CleanupConfirmed,
                 cleanupConfirmed = session.CleanupConfirmed, evidenceOverflow = evidence.Overflow,
                 isolationLostReason = session.IsolationLostReason, inputObservation = evidence.InputObservation,
+                rawOutputObservation = evidence.RawOutputObservation,
                 metrics, inputs = evidence.InputCount,
                 physicalDevices = false, radioInitialized = false, applicationUiExercised = false });
         }
@@ -166,15 +168,23 @@ sealed class Evidence : IDisposable
     readonly Dictionary<string, FileStream> binary = [];
     readonly object inputGate = new();
     readonly DeferredEvidence<(InputReport Report, long Timestamp)> inputObservation;
+    readonly DeferredEvidence<(ReadOnlyMemory<byte> Report, long Timestamp)>? rawOutputObservation;
     long inputCount;
     int overflow;
     readonly HashSet<(int, int, int, bool)> inputStates = [];
     static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     public long InputCount => Interlocked.Read(ref inputCount);
-    public bool Overflow => Volatile.Read(ref overflow) != 0 || inputObservation.Rejected != 0 || inputObservation.Error is not null;
+    public bool Overflow => Volatile.Read(ref overflow) != 0 || inputObservation.Rejected != 0 || inputObservation.Error is not null ||
+        (rawOutputObservation is not null && (rawOutputObservation.Rejected != 0 || rawOutputObservation.Error is not null));
+    public bool RawOutputObservationEnabled => rawOutputObservation is not null;
+    public object? RawOutputObservation => rawOutputObservation is null ? null : new
+    {
+        rejectedSnapshots = rawOutputObservation.Rejected, unwrittenSnapshots = rawOutputObservation.Unwritten,
+        error = rawOutputObservation.Error?.Message
+    };
     public object InputObservation => new { rejectedSnapshots = inputObservation.Rejected,
         unwrittenSnapshots = inputObservation.Unwritten, error = inputObservation.Error?.Message };
-    public Evidence(string directory)
+    public Evidence(string directory, bool observeRawOutput = false)
     {
         this.directory = directory; stream = new(Path.Combine(directory, "events.jsonl"));
         inputObservation = new(32, item =>
@@ -183,6 +193,11 @@ sealed class Evidence : IDisposable
             Event("parsed-input", new { report.Input, report.Motion, report.Touchpad, report.Battery,
                 usbRaw64 = Convert.ToHexString(report.UsbRaw64 ?? []) }, item.Timestamp);
         });
+        if (observeRawOutput)
+            rawOutputObservation = new(64, item => Event("virtual-output-raw", new
+            {
+                hex = Convert.ToHexString(item.Report.Span), length = item.Report.Length
+            }, item.Timestamp));
     }
     public void Atomic(string name, object value)
     {
@@ -217,10 +232,18 @@ sealed class Evidence : IDisposable
             inputObservation.TryWrite((report with { UsbRaw64 = report.UsbRaw64?.ToArray() }, timestamp));
         }
     }
-    public void CompleteInputObservation() => inputObservation.Complete();
+    // The persona owns this immutable snapshot. Retain it without another copy;
+    // serialization and file I/O run only on the bounded observer's writer.
+    public void RawOutput(ReadOnlyMemory<byte> report) => rawOutputObservation?.TryWrite((report, Stopwatch.GetTimestamp()));
+    public void CompleteObservations()
+    {
+        inputObservation.Complete();
+        rawOutputObservation?.Complete();
+    }
     public void Dispose()
     {
         inputObservation.Dispose();
+        rawOutputObservation?.Dispose();
         lock (gate) { stream.Dispose(); foreach (var file in binary.Values) file.Dispose(); }
     }
 }
@@ -253,6 +276,7 @@ sealed class ObservedFactory(Evidence evidence) : IVirtualControllerFactory
         if (Last?.Descriptors.HidReportDescriptor is { } descriptor) evidence.Bytes("hid-descriptor.bin", descriptor.Span);
         if (Last is Persona pad)
         {
+            if (evidence.RawOutputObservationEnabled) pad.RawOutputReportReceived += evidence.RawOutput;
             pad.OutputReportReceived += report => evidence.Event("virtual-output", report);
             pad.AudioOutReceived += data => evidence.Bytes("audio-ingress.pcm", data.Span);
             pad.RealtimeHapticsReceived += data => evidence.Bytes("haptics-ingress.pcm", data.Span);
@@ -263,6 +287,43 @@ sealed class ObservedFactory(Evidence evidence) : IVirtualControllerFactory
 
 static class FixtureChecks
 {
+    static void VerifyRawOutputObservation()
+    {
+        var directory = Directory.CreateTempSubdirectory("madsense-raw-observer-");
+        try
+        {
+            using var evidence = new Evidence(directory.FullName, observeRawOutput: true);
+            var persona = new Persona(new DualSenseClient.Emulation.Devices.DualSense.DualSenseIdentity());
+            persona.RawOutputReportReceived += evidence.RawOutput;
+            byte[] report = new byte[48];
+            report[0] = 2; report[41] = 0xA7;
+            string expected = Convert.ToHexString(report);
+            long before = Stopwatch.GetTimestamp();
+            persona.OnOutputReport(report);
+            long after = Stopwatch.GetTimestamp();
+            Array.Fill(report, (byte)0xFF);
+            evidence.CompleteObservations();
+            using var capture = new StreamReader(new FileStream(Path.Combine(directory.FullName, "events.jsonl"),
+                FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+            string[] rows = capture.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            if (rows.Length != 1 || evidence.Overflow || !evidence.RawOutputObservationEnabled)
+                throw new InvalidDataException("Raw output snapshot was lost or duplicated.");
+            using var row = JsonDocument.Parse(rows[0]);
+            var value = row.RootElement;
+            long timestamp = value.GetProperty("timestamp").GetInt64();
+            if (value.GetProperty("kind").GetString() != "virtual-output-raw" || timestamp < before || timestamp > after ||
+                value.GetProperty("value").GetProperty("hex").GetString() != expected ||
+                value.GetProperty("value").GetProperty("length").GetInt32() != 48)
+                throw new InvalidDataException("Raw output bytes or callback timestamp changed in deferred capture.");
+            using var counters = JsonDocument.Parse(JsonSerializer.Serialize(evidence.RawOutputObservation));
+            if (counters.RootElement.GetProperty("rejectedSnapshots").GetInt64() != 0 ||
+                counters.RootElement.GetProperty("unwrittenSnapshots").GetInt64() != 0 ||
+                counters.RootElement.GetProperty("error").ValueKind != JsonValueKind.Null)
+                throw new InvalidDataException("Raw observer did not flush cleanly.");
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
     static void VerifyDeferredObservation()
     {
         using var entered = new ManualResetEventSlim();
@@ -302,6 +363,7 @@ static class FixtureChecks
     public static void Verify(string path)
     {
         VerifyDeferredObservation();
+        VerifyRawOutputObservation();
         using var json = JsonDocument.Parse(File.ReadAllText(path));
         var root = json.RootElement;
         foreach (var item in root.GetProperty("input").EnumerateObject())

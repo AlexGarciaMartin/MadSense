@@ -75,14 +75,26 @@ before continuing; missing or failed cleanup evidence aborts the consumer suite.
 No audio daemons overlap between those sessions. The workflow enables this
 observation explicitly; callers can omit the flag for the isolated consumer test.
 
-One known semantic question must remain visible in the first run: both
+Both
 [SDL2 2.30.0](https://github.com/libsdl-org/SDL/blob/release-2.30.0/src/joystick/hidapi/SDL_hidapi_ps5.c)
 and pinned SDL3 clear rumble selector bits when stopping, intending to return to
 audio haptics. That is different from a selected zero-amplitude rumble report.
-The strict stop assertion may therefore fail while the marker arrives. Preserve
-the API, virtual output and Bluetooth packets to distinguish that transition
-from an unrelated RGB packet; do not infer a physical motor failure or weaken
-the assertion from zero motor bytes alone. SDL2 also treats firmware version
+The [first real capture](CONSUMER-RUN-7d9f906.md) failed the original selected-zero
+criterion and retained that result. The new `consumer_stop.py` criterion requires
+successful APIs/identity, the exact audited SDL version, one earlier nonzero
+marker on both sides, a complete isolated stop phase before LED/close/expiry,
+one decoded USB report with every known field inactive, and one CRC-valid
+Bluetooth 0x31 report whose entire 47-byte state payload is zero. Missing,
+unknown, active or ambiguous fields fail. RGB must arrive separately afterward.
+It records `stopReportForwarded`, not motor cessation; physical actuation and
+audio-haptics resumption remain unverified. For old captures without raw USB,
+the result explicitly retains that limitation. When the core advertises its new
+raw observer, exactly one complete 48-byte `02` plus 47 zero bytes report must
+also occur in the stop phase. Missing, extra or nonzero reserved bytes fail;
+the final core gate additionally requires zero raw-queue losses/errors after
+flushing. RGB-only zero motors, initial reset and later cleanup
+cannot satisfy this criterion. Other consumer stop checks are unchanged.
+SDL2 also treats firmware version
 zero as older firmware, while pinned SDL3 assumes an updated version in that case.
 
 Wine runs as the same ordinary account with an ephemeral prefix and private,

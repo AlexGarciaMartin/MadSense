@@ -7,7 +7,8 @@ connection/cleanup overrides, alternate socket or replacement virtual factory.
 The ordinary actor observes the sole attributed Bluetooth UHID fixture through
 the real HID enumerator. Only the executable entry point is different.
 
-It builds locally; a complete native app pass is still pending. It does
+Run [41628578777](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41628578777)
+at `0325da7` passed all ten native application-controller cases. It does
 not exercise Avalonia, tray, preferences UI or singleton behavior, and cannot
 validate radio, hardware timing, acoustic output or actuator response.
 
@@ -35,8 +36,10 @@ Ten required cases cover:
 
 The native speaker observation proves delivered control bytes, not decoded audio
 waveform or audible volume. It complements the core harness's exact PCM ingress
-assertion. Standard DualSense is covered; Edge variant selection, authorization
-denial/dialog interaction, delayed-feature cancellation and helper-crash UI
+assertion. Standard DualSense is covered. The separate
+[protocol extension](../../platform/integration/PROTOCOL-EXTENSION.md) also passed
+Edge variant selection, Fn/paddle input, trigger and headset-routing cases.
+Authorization denial/dialog interaction, delayed-feature cancellation and helper-crash UI
 transitions remain additional scenarios. Existing unit and broker tests are not
 relabelled as coverage of those whole application flows.
 
@@ -46,7 +49,7 @@ The actor accepts sequential JSON files in its private `commands` directory:
 and exit. `lastQueuedCommand` acknowledges dispatch only. The root observer must
 also wait for State and kernel evidence. `events.jsonl` records transitions and
 commands; `status.json` and `stopped.json` preserve actual diagnostics/metrics.
-Sampling, capture and TCG scheduling preclude physical latency claims.
+Sampling, capture and VM scheduling preclude physical latency claims.
 
 Prepare and validate without accessing devices:
 
@@ -59,8 +62,8 @@ The platform workflow runs this actor after the broker baseline, two idle upgrad
 and all nine production-core cases in the same owned VM. It preserves the
 application result separately in `result/app-experiment/`; ten unique successful
 cases, exact synthetic scope and confirmed cleanup are required. A failed prior
-stage prevents this actor from starting. Native execution of this combined path
-is pending; compilation is preparation, not proof that the runtime passed.
+stage prevents this actor from starting. The combined native path first passed
+in the run above; compilation alone is not evidence of a runtime pass.
 
 For isolated diagnosis on a disposable GitHub-hosted Linux runner, after publishing
 the existing neutral probe too, the separate launcher can build a hashed payload,
@@ -97,5 +100,6 @@ remain. A portable Linux regression invokes the actual snapshot policy; the
 native actor remains the end-to-end check for present-but-silent enumeration and
 Ready staying false until input begins. Its preflight now records the ordinary
 user's descriptor access, open access and returned identity/usage metadata, with
-temporary trace logging only during that initial enumeration. Native validation
-of this correction is pending.
+temporary trace logging only during that initial enumeration. Run 41628578777
+confirmed the silent fixture enumerates with UsagePage 1/Usage 5, attaches, and
+does not become Ready until input begins; the same behavior also passed with Edge.

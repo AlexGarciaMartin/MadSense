@@ -7,7 +7,8 @@ accessing devices. SDL2, pinned SDL3 and evdev FF compile successfully in
 at `6d54ee87b83832d1ff4ec95e845215a06d83dd60`; its native artifact ZIP SHA256 is
 `554ff2442c94147b2c18523f0ca6c354e24993fb431bebf57cc52eebc8d932ff`.
 Consumer execution is a separate job described in [CONSUMER-SESSION.md](CONSUMER-SESSION.md).
-Its first runtime result is pending. It does not change the kernel baseline's proof steps.
+The [first runtime capture](CONSUMER-RUN-7d9f906.md) is retained with its failures
+and exact partial results. It does not change the kernel baseline's proof steps.
 
 `consumer_sdl.c` builds against Ubuntu's SDL2 (at least 2.24) and pinned official
 SDL3 3.2.28, commit `7f3ae3d57459e59943a4ecfefc8f6277ec6bf540`. The source archive
@@ -107,10 +108,11 @@ Each boundary is written immediately to stderr and retained in the final JSON.
 report `0x02` events and complete Bluetooth fixture output packets (including
 CRC validation). It reports selected nonzero/zero rumble separately from zero
 motor fields with selectors clear, and excludes later LED/close packets from
-the explicit-stop interval. It does not change the existing stop assertion or
-turn selector-clear/absent output into verified motor cessation. Complete USB
-wire bytes are not available from the current core observer; decoded fields
-are labelled accordingly. No exact one-to-one causal mapping or latency follows
+the explicit-stop interval. This read-only correlator does not itself change
+acceptance or turn selector-clear/absent output into verified motor cessation. Complete USB
+wire bytes were unavailable in the first capture; decoded fields
+are labelled accordingly. The new optional raw observer strengthens subsequent
+stop verification when its capability flag is present. No exact one-to-one causal mapping or latency follows
 from two packets appearing in the same interval.
 
 Run after collecting the full artifact, with paths to that single guest:
@@ -130,16 +132,22 @@ the minimum stop-only interval, and the core's nanosecond frequency. The Linux
 [.NET 10 timestamp implementation](https://github.com/dotnet/runtime/blob/v10.0.0/src/native/minipal/time.c)
 uses `CLOCK_MONOTONIC`, as do the C boundaries and the fixture's Python clock.
 Another clock/frequency or older artifact without phases is explicitly
-unavailable. Eight portable tests cover phase contamination by LED/close,
+unavailable. Nine portable tests cover phase contamination by LED/close,
 selector-clear versus selected stop, motor quantization, corrupt CRC, incomplete
-decoded selectors, expiry/timing claims and clock mismatches. Native compilation
-and execution of this new phase instrumentation are still pending CI.
+decoded selectors, expiry/timing claims, mixed Wine/SDL records and clock mismatches.
+The instrumentation compiled and executed in run 41626531215. Based on that
+capture and the pinned drivers, the separate `consumer_stop.py` now verifies
+the exact explicit selector-clear report forwarding contract documented in
+[CONSUMER-SESSION.md](CONSUMER-SESSION.md). Eight additional regressions reject
+active/unknown decoded fields, partial zero payloads, missing prior markers,
+wrong phases, wrong identity/version/clock, invalid CRC, missing later RGB and
+missing/nonzero/incorrectly sized raw USB when that capture is enabled.
 
 `result: passed` means the observer's identity, neutral state, capabilities and
 API operations passed. Its JSON deliberately retains
 `outputDeliveryVerified: false`. The owning production-bridge harness must
-compare each observer's time window against actual UHID output capture, verify
-rumble cessation, and check the RGB marker. The baseline exporter can instead
+compare each observer's phases against actual UHID output capture, verify the
+appropriate stop report forwarding, and check the RGB marker. The baseline exporter can instead
 use its `events.jsonl` with an explicit clock-frequency conversion or file
 cursor window. No successful game, physical output, or latency follows.
 

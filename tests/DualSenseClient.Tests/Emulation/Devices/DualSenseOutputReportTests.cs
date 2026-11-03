@@ -586,6 +586,67 @@ public sealed class DualSenseOutputReportTests
     }
 
     [Test]
+    public void OnOutputReport_RawObserverPreservesReservedBytesPaddingAndBufferOwnership()
+    {
+        DualSenseDevice device = CreateDevice();
+        ReadOnlyMemory<byte> received = default;
+        device.RawOutputReportReceived += report => received = report;
+        byte[] payload = new byte[64];
+        CreateOutputPayload().CopyTo(payload, 0);
+        payload[41] = 0xA7; // Reserved byte absent from the decoded structure.
+        payload[63] = 0x5E; // Actual transfer padding must not be reconstructed.
+        byte[] expected = payload.ToArray();
+
+        device.OnOutputReport(payload);
+        Array.Fill(payload, (byte)0xFF);
+
+        Assert.That(received.ToArray(), Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void OnOutputReport_RawObserverFaultDoesNotPreventRawOrDecodedDelivery()
+    {
+        DualSenseDevice device = CreateDevice();
+        List<string> delivered = [];
+        device.RawOutputReportReceived += _ => throw new InvalidOperationException("observer failure");
+        device.RawOutputReportReceived += _ => delivered.Add("raw");
+        device.OutputReportReceived += _ => delivered.Add("decoded");
+
+        Assert.That(() => device.OnOutputReport(CreateOutputPayload()), Throws.Nothing);
+        Assert.That(delivered, Is.EqualTo(new[] { "raw", "decoded" }));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void OnOutputReport_RawObserverRejectsUnknownOrTruncatedReports(bool unknown)
+    {
+        DualSenseDevice device = CreateDevice();
+        int received = 0;
+        device.RawOutputReportReceived += _ => received++;
+        byte[] payload = CreateOutputPayload();
+        if (unknown) payload[0] = 3;
+        else payload = payload[..(DualSenseOutputReport.MinimumSize - 1)];
+
+        device.OnOutputReport(payload);
+        Assert.That(received, Is.Zero);
+    }
+
+    [Test]
+    public void OnOutputReport_RemovedRawObserverDoesNotChangeDecodedDelivery()
+    {
+        DualSenseDevice device = CreateDevice();
+        int raw = 0, decoded = 0;
+        Action<ReadOnlyMemory<byte>> observer = _ => raw++;
+        device.RawOutputReportReceived += observer;
+        device.OutputReportReceived += _ => decoded++;
+        device.OnOutputReport(CreateOutputPayload());
+        device.RawOutputReportReceived -= observer;
+        device.OnOutputReport(CreateOutputPayload());
+        Assert.That(raw, Is.EqualTo(1));
+        Assert.That(decoded, Is.EqualTo(2));
+    }
+
+    [Test]
     public void OnOutputReport_FullPayload_RaisesTheEventWithTheParsedFields()
     {
         DualSenseDevice device = CreateDevice();

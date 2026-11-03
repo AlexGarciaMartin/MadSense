@@ -63,6 +63,7 @@ def main():
     parser.add_argument("--host-probe", type=Path, required=True)
     parser.add_argument("--consumer-binaries", type=Path)
     parser.add_argument("--wine-consumer", type=Path)
+    parser.add_argument("--wine-udev-variant", action="store_true")
     parser.add_argument("--observe-audio-defaults", action="store_true")
     parser.add_argument("--observe-pipewire-defaults", action="store_true")
     parser.add_argument("--extended-protocol", action="store_true")
@@ -70,6 +71,8 @@ def main():
     args = parser.parse_args()
     require(args.wine_consumer is None or args.consumer_binaries is not None,
             "Wine consumer requires the optional consumer binary directory")
+    require(not args.wine_udev_variant or args.wine_consumer is not None,
+            "Wine udev observation requires the optional Wine consumer")
     require(not args.observe_audio_defaults or args.consumer_binaries is not None,
             "Audio defaults observation requires the optional consumer suite")
     require(not args.observe_pipewire_defaults or args.consumer_binaries is not None,
@@ -204,7 +207,8 @@ def main():
         log = (output / "core-probe.log").open("wb")
         process = subprocess.Popen([str(actor_root / "probe/MadSense.Linux.CoreProbe"),
             "--owned-guest-token", args.owned_guest_token, "--device", str(fixture.hidraw),
-            "--output", str(actor_output), "--seconds", "600" if args.consumer_binaries else "120"], stdout=log, stderr=log,
+            "--output", str(actor_output), "--seconds", "600" if args.consumer_binaries else "120",
+            "--observe-usb-output", "true" if args.consumer_binaries else "false"], stdout=log, stderr=log,
             user=account.pw_uid, group=account.pw_gid, extra_groups=[], cwd=actor_root,
             env={**os.environ, "HOME": str(actor_output), "DOTNET_CLI_HOME": str(actor_output)})
         fixture.input_enabled = True
@@ -238,7 +242,8 @@ def main():
              localBusId=usb.name, hidrawPath=str(hidraw), evdevPath=str(Path("/dev/input", event.name)),
              vendorId=ready["vendorId"], productId=ready["productId"], actorPid=process.pid,
              features=ready["features"], virtualMacHex=bytes.fromhex(ready["features"]["09"])[1:7][::-1].hex(),
-             uhidEventsPath=str(output / "uhid-events.jsonl"), coreOutputDirectory=str(actor_output)))
+             uhidEventsPath=str(output / "uhid-events.jsonl"), coreOutputDirectory=str(actor_output),
+             rawOutputObservationEnabled=ready["rawOutputObservationEnabled"]))
         require({5, 9, 0x20}.issubset(fixture.feature_requests), "Production constructor/calibration feature RPC missing")
         for observer in observers:
             try:
@@ -335,7 +340,8 @@ def main():
             result["consumers"] = run_suite(output / "consumer-ready.json", args.consumer_binaries,
                 args.wine_consumer, consumer_state, output / "consumer-suite", fixture.parent,
                 observe_audio_defaults=args.observe_audio_defaults,
-                observe_pipewire_defaults=args.observe_pipewire_defaults)
+                observe_pipewire_defaults=args.observe_pipewire_defaults,
+                wine_udev_variant=args.wine_udev_variant)
             require(result["consumers"].get("result") == "passed"
                     and result["consumers"].get("accountProcessesAndFilesRemoved") is True
                     and not result["consumers"].get("cleanupErrors"), "Consumer suite or scoped cleanup failed")
@@ -347,6 +353,11 @@ def main():
             fcntl.ioctl(observer, EVIOCGRAB, 0)
         stopped = read_json(actor_output / "stopped.json")
         require(stopped and stopped["completed"] and stopped["inputs"] > 0, "Core did not confirm clean completion")
+        if args.consumer_binaries is not None:
+            require(ready.get("rawOutputObservationEnabled") is True,
+                    "Consumer run did not enable exact raw USB output observation")
+            require(stopped.get("rawOutputObservation") == dict(rejectedSnapshots=0, unwrittenSnapshots=0, error=None),
+                    "Raw USB output evidence overflowed, was not drained, or failed")
         require(stopped["metrics"]["inputOverflows"] == 0, "Production proxy input overflowed")
         neutral = json.loads((ROOT / "platform/tests/neutral-reports.json").read_text())
         def reset_delivered():

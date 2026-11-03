@@ -398,7 +398,14 @@ def wait_delivery(session, record, rgb, left=0x12, right=0x56):
     last = None
     while time.monotonic() < deadline:
         try:
-            delivery = output_window(read_rows(path), record["startedMonotonicNs"], time.monotonic_ns(), left, right, rgb)
+            observed = record.get("evidence", {})
+            if session.ready["vendorId"] == 0x054c and observed.get("sdlMajor") in (2, 3):
+                from consumer_stop import explicit_stop_delivery
+                core = Path(session.ready["coreOutputDirectory"])
+                delivery = explicit_stop_delivery(record, session.ready,
+                    json.loads(bounded_bytes(core / "ready.json")), read_rows(core / "events.jsonl"), read_rows(path))
+            else:
+                delivery = output_window(read_rows(path), record["startedMonotonicNs"], time.monotonic_ns(), left, right, rgb)
             record["delivery"] = delivery
             session.save()
             return
@@ -448,7 +455,18 @@ def run_audio_defaults_observer(ready_path, evidence, physical_parent):
 
 
 def run_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
-              observe_audio_defaults=False, observe_pipewire_defaults=False):
+              observe_audio_defaults=False, observe_pipewire_defaults=False, wine_udev_variant=False):
+    def primary():
+        return _run_primary_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
+                                  observe_audio_defaults, observe_pipewire_defaults)
+    if wine_udev_variant:
+        from run_wine_variant import run_after_default
+        return run_after_default(primary, ready_path, wine_exe, fixture_state_callback, evidence, physical_parent)
+    return primary()
+
+
+def _run_primary_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
+                       observe_audio_defaults=False, observe_pipewire_defaults=False):
     """Fixture callback accepts 'south' or 'neutral'; it must not replace the device."""
     observation = pipewire_observation = None
     if observe_pipewire_defaults:

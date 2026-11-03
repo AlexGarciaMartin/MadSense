@@ -1,16 +1,19 @@
 # Production core integration over synthetic UHID
 
-This is a separate second stage after the installed broker baseline. In run
-41604139844 at `1dd841f`, the baseline and two idle upgrades passed, but this stage
-stopped during fixture setup before starting C#. Production core behavior over
-UHID is therefore still unverified. Build and fixture checks on Windows do not
-validate the Linux device, permission, USB/IP or audio paths.
+This is a separate second stage after the installed broker baseline. Run
+[41628578777](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41628578777)
+at `0325da760148b9988315c6b2172c3a55bf9a1b01` passed all nine core cases, all
+ten application-controller cases and the subsequent seven protocol assertions.
+The downloaded native artifact SHA-256 is
+`d28f52bae14af9d59f7751ccadc4b0c42bf127c10f91a840c4ec3360acca5c58`;
+69 guest source files and four installed helper files match the exact commit.
+These are native Linux kernel paths over synthetic UHID, not physical hardware.
 
 The idle installer stage now also exercises explicit helper removal: it must
 refuse a modified installed file before stopping the service, preserve an unknown
 file during normal removal, tolerate repeated removal, and reinstall with an
-explicit idle preflight. These four assertions have no native pass yet. The
-launcher requires them separately from the two already-tested idle upgrades.
+explicit idle preflight. All four assertions and both idle upgrades passed in
+that run. The launcher requires their results separately.
 
 The ordinary-user C# executable uses the real `HidDeviceEnumerator`,
 `LinuxBrokerClient`, `DualSenseDevice`, `ControllerTracker`, `EmulationService`,
@@ -41,7 +44,7 @@ the runner verifies the QEMU UUID/ownership marker and rejects existing Sony
 Bluetooth devices, broker leases and USB/IP imports. It never selects a physical
 device or detaches a numeric VHCI port itself.
 
-Planned assertions in the executable runner:
+Required assertions in the executable runner:
 
 - A pre-existing writable evdev descriptor with FF/LED/SND capabilities rejects
   acquisition and restores the fixture. A separate read-only FF descriptor must
@@ -76,7 +79,28 @@ core. `consumer-ready.json` also provides exact virtual features/MAC and the
 captured output paths. The ordinary platform workflow does not supply these flags.
 Its package therefore need not contain consumer modules or binaries.
 
-Software timestamps and proxy percentiles include instrumentation and TCG
+Consumer runs additionally enable the persona's optional `RawOutputReportReceived`
+observer. It retains the actual accepted USB output transfer, including report ID,
+reserved bytes and padding; it does not rebuild a packet from decoded fields.
+With no subscriber the persona performs no raw copy or raw callback dispatch.
+The actor retains each owned snapshot plus its callback timestamp in a separate
+64-item bounded queue. JSON serialization and file I/O happen on its writer thread.
+`virtual-output-raw` events carry `value.hex` and `value.length`; timestamps use
+`ready.timestampFrequency`. This is callback timing, not physical output latency.
+`ready.rawOutputObservationEnabled` declares whether capture was requested.
+After disposal and flushing, `stopped.rawOutputObservation` must explicitly report
+zero rejected and unwritten snapshots and a null error. Missing or failed raw
+capture invalidates a new consumer run. The ordinary functional baseline leaves
+this observer disabled. Portable tests cover original-buffer reuse, reserved and
+padding bytes, subscriber faults, invalid reports, deferred capture/timestamps,
+backpressure and missing or incomplete evidence.
+This raw observer passed local unit/fixture checks; its first native consumer
+capture is pending and is not part of the `0325da7` result above.
+
+The optional `--wine-udev-variant` requires `--wine-consumer`; the consumer module
+owns that separate diagnostic variant and preserves the default Wine result.
+
+Software timestamps and proxy percentiles include instrumentation and VM
 scheduling. Input is injected at 100 Hz; this is not a throughput benchmark.
 Binary capture is bounded to 16 MiB per stream and overflow invalidates completion.
 Initialization report replacement counts remain in the final proxy metrics.
@@ -155,8 +179,10 @@ had recorded the persona's default calibration during creation, before productio
 after Running. The host comparison additionally requires exact fixture bytes for
 05, independently of that snapshot, so fallback defaults cannot produce a pass.
 The portable actor check exercises distinct default/seeded calibration on the
-real persona and verifies that pairing and firmware remain unchanged. Remaining
-native core/app cases are still pending.
+real persona and verifies that pairing and firmware remain unchanged. The next
+run at `7d9f906` passed all nine core cases, while its app stage exposed the
+silent-device enumeration regression described in the app harness documentation.
+Run `0325da7` then passed the full sequence described above.
 
 Portable preparation:
 
@@ -177,7 +203,7 @@ sudo python3 linux/platform/integration/run_core_guest.py --owned-guest-token UU
 ```
 
 The platform workflow publishes this actor and the application-controller actor,
-then invokes `qemu_core.py`. No native pass is implied here. The launcher reuses
+then invokes `qemu_core.py`. The launcher reuses
 the pinned-image `OwnedQemu` lifecycle in one guest: broker baseline, two idle
 upgrades, this core experiment, then the application-controller experiment. A
 failed command prevents the next actor from starting. The application stage also

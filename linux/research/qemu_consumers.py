@@ -53,7 +53,8 @@ def stage_consumer_research(payload):
     for name in ("host_probe.c", "run_consumers.py", "consumer_session.py", "run_wine_consumer.py",
                  "test_consumer_session.py", "qemu_consumers.py", "run_consumer_guest.sh",
                  "audio_defaults.py", "test_audio_defaults.py", "pipewire_defaults.py", "test_pipewire_defaults.py",
-                 "consumer_phases.py", "test_consumer_phases.py", "consumer_files.py", "test_consumer_files.py"):
+                 "consumer_phases.py", "test_consumer_phases.py", "consumer_files.py", "test_consumer_files.py",
+                 "consumer_stop.py", "test_consumer_stop.py", "run_wine_variant.py", "test_wine_variant.py"):
         shutil.copy2(research / name, target / name)
 
 
@@ -70,6 +71,7 @@ def main():
     parser.add_argument("--windows-artifact", type=Path, required=True)
     parser.add_argument("--observe-audio-defaults", action="store_true")
     parser.add_argument("--observe-pipewire-defaults", action="store_true")
+    parser.add_argument("--wine-udev-variant", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     args = parser.parse_args()
@@ -80,7 +82,8 @@ def main():
         provenance.update(experiment="linux-production-core-consumers", sourceCommit=commit,
                           persona="dualsense", protonValidated=False,
                           audioDefaultsObservationRequested=args.observe_audio_defaults,
-                          pipewireDefaultsObservationRequested=args.observe_pipewire_defaults)
+                          pipewireDefaultsObservationRequested=args.observe_pipewire_defaults,
+                          configuredWineUdevVariantRequested=args.wine_udev_variant)
         native = verify_build(args.native_artifact, ("consumer_sdl2", "consumer_sdl3", "ff_probe"), commit)
         windows = verify_build(args.windows_artifact, ("wine_consumer.exe",), commit)
         provenance["consumerBuildDigests"] = native | windows
@@ -112,7 +115,8 @@ def main():
                 consumer = guest.run("consumer-run", "bash /home/ubuntu/madsense/linux/research/run_consumer_guest.sh "
                                      + shlex.quote(guest.token)
                                      + (" --observe-audio-defaults" if args.observe_audio_defaults else "")
-                                     + (" --observe-pipewire-defaults" if args.observe_pipewire_defaults else ""),
+                                     + (" --observe-pipewire-defaults" if args.observe_pipewire_defaults else "")
+                                     + (" --wine-udev-variant" if args.wine_udev_variant else ""),
                                      timeout=900, required=False)
                 provenance["consumerExit"] = consumer.returncode
         finally:
@@ -131,6 +135,13 @@ def main():
             provenance["audioDefaultsCleanupVerified"] = (observation.get("accountProcessesAndFilesRemoved") is True
                                                           and not observation.get("cleanupErrors"))
         pipewire_path = guest.output / "result/core-experiment/pipewire-defaults/result.json"
+        variant_path = guest.output / "result/core-experiment/wine-udev-variant/result.json"
+        if variant_path.exists():
+            variant = json.loads(variant_path.read_text())
+            provenance["configuredWineUdevVariant"] = dict(result=variant.get("result"),
+                scope=variant.get("scope"), defaultWinebus=variant.get("defaultWinebus"),
+                resultSha256=hashlib.sha256(variant_path.read_bytes()).hexdigest(),
+                cleanupVerified=variant.get("accountProcessesAndFilesRemoved") is True and not variant.get("cleanupErrors"))
         if pipewire_path.exists():
             pipewire_observation = json.loads(pipewire_path.read_text())
             provenance["pipewireDefaultsObservationResult"] = pipewire_observation.get("result")
@@ -141,6 +152,14 @@ def main():
         verify_core_result(json.loads(core_path.read_text()), guest.token)
         result = json.loads(consumer_path.read_text())
         verify_consumer_result(result)
+        if args.wine_udev_variant:
+            from run_wine_variant import clean_result
+            checked_variant = clean_result(variant_path, result["ready"])
+            summary = result.get("wineUdevVariant", {})
+            if (checked_variant.get("result") != "passed" or checked_variant.get("scope") != "configured-distribution-wine-udev"
+                    or checked_variant.get("defaultWinebus") is not False or summary.get("cleanupVerified") is not True
+                    or summary.get("resultSha256") != hashlib.sha256(variant_path.read_bytes()).hexdigest()):
+                raise RuntimeError("Requested configured Wine diagnostic lacks matching success and cleanup evidence")
         if args.observe_audio_defaults:
             observation = result.get("audioDefaultsObservation")
             if not observation or observation.get("cleanupVerified") is not True:

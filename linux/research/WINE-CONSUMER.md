@@ -5,7 +5,8 @@ MinGW. Compilation passed in
 [run 41610372580](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41610372580)
 at `6d54ee87b83832d1ff4ec95e845215a06d83dd60`; the Windows build artifact ZIP SHA256 is
 `38164a24b17e4bf9d6d8089f6ed0f37c265ca717b2c0f2254ce493fdb927f99b`.
-Its first Wine runtime result is pending. The build job preserves sources, GPL license, MinGW/GCC runtime notices,
+Its [first Wine runtime result](CONSUMER-RUN-7d9f906.md) failed before feature/MAC
+verification; the original failure remains recorded. The build job preserves sources, GPL license, MinGW/GCC runtime notices,
 toolchain/package provenance, PE imports and binary digest. Its static GCC
 runtime uses the exception reproduced with the distribution copyright notice;
 Windows system DLLs and Wine are not bundled.
@@ -33,6 +34,32 @@ uses the runtime's default `winebus` configuration; any later raw-HID override
 must be a separately labeled diagnostic prefix. Runtime orchestration and capture
 correlation are implemented in [CONSUMER-SESSION.md](CONSUMER-SESSION.md) and require
 the owned core fixture to reach its verified virtual-device state first.
+
+The opt-in `--wine-udev-variant` diagnostic runs only after the default session
+has closed with exact device identity and verified process/account/ACL cleanup.
+It creates another ordinary account and fresh prefix, then writes only that
+prefix's `HKLM\System\CurrentControlSet\Services\winebus` value `Enable SDL`
+as DWORD zero through Wine's `reg` command. It checks the exact value before
+and after restarting that account's prefix-specific wineserver. No host registry,
+existing prefix, production configuration or `DisableHidraw` value is changed.
+This route is limited to the audited Wine 9.0 version family.
+
+Wine 9.0's
+[`IRP_MN_START_DEVICE` implementation](https://github.com/wine-mirror/wine/blob/wine-9.0/dlls/winebus.sys/main.c)
+tries the SDL backend by default and starts UDEV when SDL is disabled or fails
+initialization. This is why merely relying on the default `DisableHidraw=0`
+cannot establish that UDEV was used. A successful registry write also does not
+prove the active backend; PE capabilities and actual feature/input/output
+evidence must still be checked. The diagnostic keeps those same MAC, feature,
+ContainerId, RGB and deterministic PCM assertions.
+
+`wine-udev-variant/result.json` is labeled `configured-distribution-wine-udev`
+with `defaultWinebus=false`. Its separate digest/cleanup summary is recorded in
+the primary result. A successful configured result cannot turn the original
+default result into a pass; a failed default is rethrown after collecting the
+diagnostic, provided cleanup allowed the second account. The workflow now
+requests this variant. Native execution of this new variant is pending; GE/UMU
+and official Valve Proton remain separate experiments.
 
 The following arguments are passed after `wine wine_consumer.exe`:
 

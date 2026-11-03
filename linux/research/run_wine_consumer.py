@@ -158,7 +158,8 @@ def check_pcm(session, record, offsets):
     raise last or RuntimeError("Wine PCM did not reach core capture")
 
 
-def run_wine_suite(session, executable, fixture_state_callback):
+def run_wine_suite(session, executable, fixture_state_callback, *, winebus_mode="default"):
+    require(winebus_mode in ("default", "udev-diagnostic"), "Unknown Wine bus experiment mode")
     for command in ("wine", "wineserver", "Xvfb"):
         require(shutil.which(command), f"Missing test guest prerequisite: {command}")
     program = session.stage(executable)
@@ -166,14 +167,19 @@ def run_wine_suite(session, executable, fixture_state_callback):
     prefix = session.root / "home/wine-prefix"
     session.env.update(WINEPREFIX=str(prefix), WINEARCH="win64", WINEDEBUG="-all", WINEDLLOVERRIDES="mscoree,mshtml=")
     start_display(session)
-    session.command("wine-version", ["wine", "--version"])
+    _, version = session.command("wine-version", ["wine", "--version"])
     session.command("wine-packages", ["dpkg-query", "-W", "wine", "wine64", "libwine", "xvfb", "pulseaudio"], required=False)
     session.command("wineboot", ["wine", "wineboot", "--init"], timeout=120)
     session.command("wineboot-wait", ["wineserver", "--wait"], timeout=60)
-    session.result["wineSession"] = dict(kind="distribution-wine", freshPrefix=True, defaultWinebus=True,
+    session.result["wineSession"] = dict(kind="distribution-wine" if winebus_mode == "default" else "configured-distribution-wine-udev",
+                                        freshPrefix=True, defaultWinebus=winebus_mode == "default",
                                         disabledOptionalManagedAndHtmlInstallers=True,
                                         observerSha256=hashlib.sha256(program.read_bytes()).hexdigest(),
                                         protonValidated=False, cases=[])
+    session.save()
+    if winebus_mode == "udev-diagnostic":
+        from run_wine_variant import configure_udev
+        configure_udev(session, prefix, version.decode("utf-8", errors="strict"))
     token = session.ready["ownedGuestToken"]
     sony = session.ready["vendorId"] == 0x054c
     containers, failures = set(), []

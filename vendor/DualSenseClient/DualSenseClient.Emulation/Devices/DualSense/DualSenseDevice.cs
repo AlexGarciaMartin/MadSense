@@ -212,6 +212,14 @@ public sealed class DualSenseDevice : VirtualHidDevice
     public event Action<DualSenseOutputReport>? OutputReportReceived;
 
     /// <summary>
+    /// Optional observation of an accepted, id-prefixed output report before decoded delivery.
+    /// The owned snapshot preserves all received bytes, including reserved bytes and padding,
+    /// and may be retained after the callback. No snapshot or raw dispatch occurs without a
+    /// subscriber. Handlers run on the delivering thread and should return promptly.
+    /// </summary>
+    public event Action<ReadOnlyMemory<byte>>? RawOutputReportReceived;
+
+    /// <summary>
     /// Raised for every isochronous OUT packet of the speaker endpoint (0x01) with the packet bytes
     /// verbatim (up to the endpoint's 392-byte maximum packet size): four interleaved 16-bit
     /// little-endian channels at 48 kHz (8 bytes per sample frame, 384 bytes in a nominal
@@ -494,6 +502,23 @@ public sealed class DualSenseDevice : VirtualHidDevice
         if (!DualSenseOutputReport.TryParse(data, out DualSenseOutputReport report))
         {
             return;
+        }
+
+        Action<ReadOnlyMemory<byte>>? rawHandlers = RawOutputReportReceived;
+        if (rawHandlers is not null)
+        {
+            ReadOnlyMemory<byte> snapshot = data.ToArray();
+            foreach (Delegate handler in rawHandlers.GetInvocationList())
+            {
+                try
+                {
+                    ((Action<ReadOnlyMemory<byte>>)handler)(snapshot);
+                }
+                catch (Exception exception)
+                {
+                    _logger?.Log(EmulationLogLevel.Error, $"A RawOutputReportReceived handler failed: {exception}");
+                }
+            }
         }
 
         Action<DualSenseOutputReport>? handlers = OutputReportReceived;
