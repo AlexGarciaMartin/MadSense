@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using DualSenseClient.Controllers.DualSense.Audio;
 using DualSenseClient.Controllers.Emulation;
+using DualSenseClient.Core.Utilities;
 
 namespace MadSense.Mac;
 
@@ -90,6 +91,7 @@ internal sealed class MacAudioCapture : IDisposable
         ulong previousDropped = 0;
         try
         {
+            using IDisposable? scheduling = MultimediaThread.Enter("Pro Audio");
             while (!stop.IsCancellationRequested)
             {
                 // The Bluetooth writer is a separate worker. Its failure must
@@ -124,7 +126,10 @@ internal sealed class MacAudioCapture : IDisposable
                     forwarder.UpdateGameHaptics(haptics.AsSpan(0, frameCount * 4).ToArray());
                     forwarder.FeedPcm(stereo.AsSpan(0, frameCount * 2));
                 }
-                if (frames < 480) stop.Token.WaitHandle.WaitOne(5);
+                // A five-millisecond idle wait can be coalesced beyond the
+                // endpoint's bounded backlog. Stay cancellable and blocking,
+                // but poll at one millisecond when a full packet is unavailable.
+                if (frames < 480) stop.Token.WaitHandle.WaitOne(1);
             }
         }
         catch (Exception e) { Volatile.Write(ref fault, e.Message); }

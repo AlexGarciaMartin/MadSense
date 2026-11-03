@@ -9,6 +9,8 @@
 #include <cstring>
 #include <iostream>
 #include <poll.h>
+#include <pthread.h>
+#include <pthread/qos.h>
 #include <spawn.h>
 #include <stdexcept>
 #include <sys/wait.h>
@@ -44,6 +46,23 @@ struct Consumer {
         int result = ms_audio_open(&handle, error, sizeof(error));
         if (result) throw std::runtime_error(error);
     }
+};
+struct AudioScheduling {
+    pthread_override_t handle = nullptr;
+    AudioScheduling() {
+        // Match the managed capture/forwarder scoped QoS hint. This does not
+        // request a privileged real-time policy or change the requested QoS.
+        handle = pthread_override_qos_class_start_np(pthread_self(), QOS_CLASS_USER_INTERACTIVE, 0);
+        require(handle != nullptr, "Could not apply audio reader QoS override");
+    }
+    ~AudioScheduling() {
+        if (handle) {
+            int result = pthread_override_qos_class_end_np(handle);
+            if (result) std::cerr << "Audio reader QoS cleanup failed: " << result << '\n';
+        }
+    }
+    AudioScheduling(const AudioScheduling&) = delete;
+    AudioScheduling& operator=(const AudioScheduling&) = delete;
 };
 struct Signal {
     std::atomic<int> phase{0};
@@ -90,7 +109,7 @@ struct Stream {
 };
 
 uint64_t receive(Consumer& consumer, Signal& signal, int phase, uint64_t previousGeneration = 0,
-                 uint64_t* droppedAtEnd = nullptr) {
+                 uint64_t* droppedAtEnd = nullptr, std::chrono::milliseconds idleWait = 1ms) {
     uint64_t validated = 0, silent = 0, lastDropped = 0, generation = 0;
     auto deadline = std::chrono::steady_clock::now() + 3s;
     while (std::chrono::steady_clock::now() < deadline) {
@@ -123,30 +142,41 @@ uint64_t receive(Consumer& consumer, Signal& signal, int phase, uint64_t previou
             if (droppedAtEnd) *droppedAtEnd = lastDropped;
             return generation;
         }
-        if (frames < madsense::kReadFrames) std::this_thread::sleep_for(5ms);
+        if (frames < madsense::kReadFrames) std::this_thread::sleep_for(idleWait);
     }
     throw std::runtime_error("Timed out validating complete four-channel PCM frames");
 }
 
-void measureWarmTransfer(Consumer& consumer, Signal& signal, uint64_t baselineDropped, uint64_t previousGeneration) {
+struct TransferPosition { uint64_t dropped; uint64_t generation; };
+TransferPosition measureWarmTransfer(Consumer& consumer, Signal& signal, uint64_t baselineDropped,
+                                     uint64_t previousGeneration, const char* policy,
+                                     std::chrono::milliseconds idleWait) {
     uint64_t received = 0, validated = 0, silent = 0, lastDropped = baselineDropped;
-    uint64_t calls = 0, generationChanges = 0;
-    std::chrono::nanoseconds longestRead{0};
+    uint64_t calls = 0, generationChanges = 0, emptyReads = 0, fullReads = 0, idleWaits = 0;
+    std::chrono::nanoseconds longestRead{0}, totalRead{0}, longestIdle{0}, totalIdle{0}, longestReadGap{0};
     auto started = std::chrono::steady_clock::now();
+    auto previousReadEnded = started;
     auto deadline = started + 1s;
     while (std::chrono::steady_clock::now() < deadline) {
         float samples[madsense::kReadFrames * madsense::kChannels];
         uint32_t frames = 0, active = 0;
         uint64_t generation = 0;
         auto readStarted = std::chrono::steady_clock::now();
+        longestReadGap = std::max(longestReadGap,
+            std::chrono::duration_cast<std::chrono::nanoseconds>(readStarted - previousReadEnded));
         int result = ms_audio_read(consumer.handle, samples, madsense::kReadFrames,
             &frames, &lastDropped, &active, &generation);
         auto readEnded = std::chrono::steady_clock::now();
-        longestRead = std::max(longestRead, std::chrono::duration_cast<std::chrono::nanoseconds>(readEnded - readStarted));
+        auto readDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(readEnded - readStarted);
+        longestRead = std::max(longestRead, readDuration);
+        totalRead += readDuration;
+        previousReadEnded = readEnded;
         ++calls;
         check(result, "Warm transfer read");
         require(!signal.wrongLayout.load(std::memory_order_relaxed), "Wrong HAL layout during warm transfer");
         require(generation > 0 && frames <= madsense::kReadFrames, "Invalid warm transfer metadata");
+        if (frames == 0) ++emptyReads;
+        if (frames == madsense::kReadFrames) ++fullReads;
         if (generation != previousGeneration) { ++generationChanges; previousGeneration = generation; }
         received += frames;
         for (uint32_t frame = 0; frame < frames; ++frame) {
@@ -162,24 +192,41 @@ void measureWarmTransfer(Consumer& consumer, Signal& signal, uint64_t baselineDr
             }
             ++validated;
         }
-        // Match the backend's pacing: drain full packets immediately, otherwise
-        // wait five milliseconds. Scheduler stalls are measured, not hidden by
-        // raising priorities or a synthetic latency pass/fail threshold.
-        if (frames < madsense::kReadFrames) std::this_thread::sleep_for(5ms);
+        // Compare the former default-QoS/five-millisecond policy with the
+        // backend's scoped audio-QoS/one-millisecond blocking idle wait. Measure
+        // actual sleep and RPC time separately; neither is a deadline guarantee.
+        if (frames < madsense::kReadFrames) {
+            auto idleStarted = std::chrono::steady_clock::now();
+            std::this_thread::sleep_for(idleWait);
+            auto idleDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - idleStarted);
+            totalIdle += idleDuration;
+            longestIdle = std::max(longestIdle, idleDuration);
+            ++idleWaits;
+        }
     }
     double elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     require(lastDropped >= baselineDropped, "Dropped frame counter moved backwards");
     std::cout << "warm_measurement_not_latency_guarantee"
+              << " policy=" << policy << " requested_idle_ms=" << idleWait.count()
               << " elapsed_ms=" << elapsed << " read_calls=" << calls
+              << " empty_reads=" << emptyReads << " full_reads=" << fullReads
               << " received_frames=" << received << " received_samples=" << received * madsense::kChannels
               << " verified_frames=" << validated << " silent_frames=" << silent
               << " dropped_delta=" << lastDropped - baselineDropped
               << " max_read_rpc_ms=" << std::chrono::duration<double, std::milli>(longestRead).count()
+              << " total_read_rpc_ms=" << std::chrono::duration<double, std::milli>(totalRead).count()
+              << " idle_waits=" << idleWaits
+              << " total_idle_ms=" << std::chrono::duration<double, std::milli>(totalIdle).count()
+              << " max_idle_ms=" << std::chrono::duration<double, std::milli>(longestIdle).count()
+              << " max_inter_read_gap_ms=" << std::chrono::duration<double, std::milli>(longestReadGap).count()
               << " generation_changes=" << generationChanges << '\n';
     require(validated > 0, "No four-channel signal received during warm transfer measurement");
+    return {lastDropped, previousGeneration};
 }
 
 int holdOwner() {
+    AudioScheduling scheduling;
     Consumer consumer;
     consumer.open();
     std::cout << "OWNER_READY\n" << std::flush;
@@ -192,7 +239,7 @@ int holdOwner() {
         uint64_t dropped = 0, generation = 0;
         check(ms_audio_read(consumer.handle, samples, madsense::kReadFrames,
             &frames, &dropped, &active, &generation), "Child owner read");
-        std::this_thread::sleep_for(5ms);
+        std::this_thread::sleep_for(1ms);
     }
     return 2;
 }
@@ -263,8 +310,10 @@ int main(int argc, char** argv) {
         stream.create(device, signal);
         stream.start();
         uint64_t baselineDropped = 0;
-        uint64_t firstGeneration = receive(consumer, signal, 0, 0, &baselineDropped);
-        measureWarmTransfer(consumer, signal, baselineDropped, firstGeneration);
+        uint64_t firstGeneration = receive(consumer, signal, 0, 0, &baselineDropped, 5ms);
+        auto baseline = measureWarmTransfer(consumer, signal, baselineDropped, firstGeneration, "default_qos_5ms", 5ms);
+        AudioScheduling scheduling;
+        measureWarmTransfer(consumer, signal, baseline.dropped, baseline.generation, "audio_qos_1ms", 1ms);
 
         stream.stop();
         signal.phase.store(1, std::memory_order_relaxed);
