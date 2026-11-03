@@ -11,7 +11,7 @@ servidor local de MadSense. Permite conservar un dispositivo USB compuesto con
 HID y audio UAC de cuatro canales. Reutilizamos los informes, las calibraciones,
 la traducción Xbox y el motor Bluetooth/Opus/hápticos de la versión Windows.
 
-La aplicación será un proceso de usuario normal. La carga del módulo, el puerto
+La aplicación se ejecuta como usuario normal. La carga del módulo, el puerto
 virtual y el aislamiento temporal del mando físico requieren un componente de
 permisos limitado. Un grab de evdev por sí solo no bloquea hidraw y no basta
 para anunciar que se evita la entrada duplicada o los escritores en competencia.
@@ -64,6 +64,13 @@ dotnet run --project linux/app/MadSense.Linux.csproj -- --start-paused
 `--preview` no abre controladores ni guarda preferencias. `--ui-smoke DIRECTORIO
 --language es` genera una captura y evidencia de una ventana real y la cierra.
 El workflow `Linux app` ejecuta estas vistas en X11 sobre Linux x64 y ARM64.
+Después empaqueta los mismos binarios autocontenidos, las fuentes de la revisión,
+las licencias y un manifiesto SHA-256. Extrae cada archivo y vuelve a ejecutar
+la interfaz y el ciclo de escritorio desde él. Comprueba también la revisión
+incrustada en el ejecutable: no acepta un binario anterior bajo un manifiesto nuevo.
+Los archivos `MadSense-linux-*-development-*.tar.gz` son builds de desarrollo,
+no una certificación de compatibilidad con juegos. Incluyen `RUNNING.txt` y
+un instalador separado del servicio; ejecutar la interfaz no instala el helper.
 `Linux kernel USB-IP neutral integration` prueba el kernel en máquinas desechables;
 su script rechaza ejecutarse como prueba automática sobre un PC de usuario.
 

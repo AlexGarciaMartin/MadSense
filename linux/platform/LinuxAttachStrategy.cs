@@ -9,9 +9,19 @@ public sealed class LinuxAttachStrategy : IUsbIpAttachStrategy
     readonly LinuxPhysicalSession session;
     readonly LinuxBrokerClient broker;
     readonly object gate = new();
+    readonly object cancellationGate = new();
+    readonly CancellationToken acquisitionCancellation;
+    CancellationTokenSource? pendingAttachment;
     readonly HashSet<string> owned = new(StringComparer.Ordinal);
-    internal LinuxAttachStrategy(LinuxPhysicalSession session, LinuxBrokerClient broker)
-    { this.session = session; this.broker = broker; }
+    internal LinuxAttachStrategy(LinuxPhysicalSession session, LinuxBrokerClient broker, CancellationToken acquisitionCancellation = default)
+    { this.session = session; this.broker = broker; this.acquisitionCancellation = acquisitionCancellation; }
+
+    internal void CancelPendingAttach()
+    {
+        // TryAttach owns gate while awaiting its reply. This separate lock lets
+        // shutdown cancel that request without waiting for the import timeout.
+        lock (cancellationGate) pendingAttachment?.Cancel();
+    }
 
     public bool TryAttach(string host, int port, string busId, out string? error)
     {
@@ -21,14 +31,17 @@ public sealed class LinuxAttachStrategy : IUsbIpAttachStrategy
             if (host != "127.0.0.1" || port is < 1024 or > 65535 || !ValidBusId(busId))
             { error = "Only a local MadSense USB/IP export with a valid port and bus id can be attached."; return false; }
             if (owned.Contains(busId)) { error = "This USB/IP export is already attached by the session."; return false; }
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(acquisitionCancellation);
+            lock (cancellationGate) pendingAttachment = cancellation;
             try
             {
                 broker.RequestAsync("attach", new() { ["host"] = host, ["port"] = port, ["busId"] = busId },
-                    deadline: TimeSpan.FromSeconds(20)).GetAwaiter().GetResult();
+                    ct: cancellation.Token, deadline: TimeSpan.FromSeconds(20)).GetAwaiter().GetResult();
                 if (!session.IsolationVerified) { error = "Physical isolation ended during USB/IP attachment."; return false; }
                 owned.Add(busId); error = null; return true;
             }
             catch (Exception failure) { error = failure.Message; return false; }
+            finally { lock (cancellationGate) pendingAttachment = null; }
         }
     }
 

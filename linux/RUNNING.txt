@@ -1,0 +1,72 @@
+MadSense Linux — development build
+
+This archive contains the native self-contained app, its sources, the optional
+system helper installer and dependency notices. No Apple account or paid SDK is
+needed. This is still development software: physical DualSense/Edge, games and
+end-to-end controller latency have not been validated by this build process.
+
+Run the interface as your ordinary desktop user:
+    ./run.sh --start-paused
+
+The native build and extraction checks target Ubuntu 24.04 on the architecture
+named in the archive. These linux-x64/linux-arm64 packages use glibc; they are not
+musl/Alpine builds. The app needs a graphical session (X11 or XWayland), libX11, libICE, libSM,
+fontconfig, FreeType, DejaVu fonts and the distro's libhidapi-hidraw library. The
+runtime is bundled; a separate .NET installation is not needed. Operating-system
+libraries remain dependencies. On Ubuntu 24.04 the .NET prerequisites include
+ca-certificates, libc6, libgcc-s1, libgssapi-krb5-2, libicu74, libssl3t64,
+libstdc++6, tzdata and zlib1g. Microsoft documents these requirements at:
+https://learn.microsoft.com/dotnet/core/install/linux-ubuntu-install
+The archive's build.json identifies the architecture, source and runtime used.
+Its file hashes cover the payload except build.json itself; the adjacent archive
+.sha256 file also covers build.json. Check the downloaded archive with sha256sum
+-c against its supplied .sha256 file before extracting it.
+
+For the Bluetooth bridge, an administrator must separately install the fixed
+helper files. It requires Python 3.10+, systemd 254+, polkit, udev, acl tools,
+and the distro's vhci_hcd kernel module. DualSense audio also needs snd_usb_audio;
+native controller support needs hid_playstation; Xbox mode needs xpad.
+Read platform/README.md, then run from this extracted directory:
+    sudo sh platform/install.sh
+
+Run MadSense without sudo. Resume requests authorization to isolate the selected
+Bluetooth controller. Close other software that already has its hidraw interface
+open. The helper refuses conflicting readers instead of terminating applications.
+Denial waits for another explicit Resume. Missing kernel modules or helper support
+are errors, never a successful connection. Keep the physical USB controller on its
+normal native route; MadSense's bridge is for Bluetooth.
+
+The default mode is the same native DualSense mode as Windows. Xbox mode exposes
+ordinary controls and rumble, without DualSense-only haptics, triggers or speaker.
+Steam Input remains a per-game user setting. A successful synthetic kernel test
+does not establish compatibility with every game or with physical Bluetooth.
+
+Pause releases the bridge. Quit in the tray menu or use:
+    ./run.sh --stop
+Without a tray host, the window stays visible; closing it quits. Preferences use
+XDG_CONFIG_HOME/madsense and logs use XDG_STATE_HOME/madsense (standard XDG
+fallbacks apply). Language changes are immediate. Autostart is optional in the
+tray menu or Registros/Logs dialog and points to the current extracted executable;
+if you move this directory, switch autostart off and on again.
+
+Do not manually remove the helper's runtime journal/rule or unload vhci_hcd while
+it owns a session. If recovery is pending, use the documented service restart and
+inspect its journal. Installation never disables SIP-like protections, unloads
+another controller's driver or grants general access to every hidraw device.
+
+The updater accepts only stable Linux releases from the official MadSense
+repository and the correct architecture; it never offers a Windows installer or
+executes a downloaded archive. Until a Linux release exists, it says so.
+
+Source: source.tar.gz is the complete committed source revision. Rebuild on Linux
+with the SDK version recorded in build.json:
+    dotnet restore linux/app/MadSense.Linux.csproj --locked-mode
+    dotnet publish linux/app/MadSense.Linux.csproj -c Release -r linux-x64 --self-contained true -o publish
+Use linux-arm64 on ARM64. Dependency versions and hashes are locked in the source;
+resolved-packages.lock.json also preserves runtime-specific resolution from this
+build. Build commands and kernel/broker experiments are under linux/ and .github/.
+licenses/ retains third-party notices, including the graphics/font runtime.
+licenses/packages.json records the full resolved dependency graph, including
+build-time and other-platform packages; it does not claim all of those packages
+are used by the Linux executable. The .NET runtime notices are included separately
+within that same package inventory.

@@ -96,7 +96,7 @@ def main():
     process = None
     try:
         command("uname", ["uname", "-a"])
-        command("usbip-version", [args.usbip, "--version"])
+        command("usbip-version", [args.usbip, "version"])
         for module in ("vhci_hcd", "hid_playstation", "snd_usb_audio", "xpad"):
             command(f"module-{module}", ["modinfo", module])
         before = ports()

@@ -117,7 +117,8 @@ sealed class MainWindow : Window
         var state = bridge.State;
         if (state.RequiresResume && !ReferenceEquals(state, lastResumeRequest))
         { paused = true; lastResumeRequest = state; }
-        hero.Paused = paused; hero.Ready = state.Ready; hero.Xbox = mode == "Xbox"; hero.Refresh(); header.InvalidateVisual();
+        hero.Paused = paused && state.Paused; hero.Releasing = state.Releasing;
+        hero.Ready = state.Ready; hero.Xbox = mode == "Xbox"; hero.Refresh(); header.InvalidateVisual();
         modeSection.Text = L.Text("Ui.ModeSection"); speakerSection.Text = L.Text("Ui.SpeakerSection");
         native.Content = L.Text("Ui.NativeMode"); xbox.Content = L.Text("Ui.XboxMode");
         high.Content = L.Text("Ui.SpeakerHigh").ToUpper(L.Culture); low.Content = L.Text("Ui.SpeakerLow").ToUpper(L.Culture); off.Content = L.Text("Ui.SpeakerOff").ToUpper(L.Culture);
@@ -125,7 +126,7 @@ sealed class MainWindow : Window
         native.Selected = mode != "Xbox"; xbox.Selected = mode == "Xbox"; high.Selected = speaker == "Alto"; low.Selected = speaker == "Bajo"; off.Selected = speaker == "Off";
         foreach (var button in new[] { native, xbox, high, low, off, logs, pause }) { AutomationProperties.SetName(button, button.Content?.ToString() ?? ""); button.InvalidateVisual(); }
         hint.Text = L.Text(mode == "Xbox" ? "Ui.XboxHint" : "Ui.NativeHint");
-        link.Text = state.RequiresResume ? state.Message : paused ? L.Text("Ui.PausedMessage") : state.Message;
+        link.Text = state.Message;
         if (state.Ready && state.Battery >= 0) link.Text += "\n" + L.Text("Bridge.Battery", state.Battery) + (state.Headset ? L.Text("Bridge.HeadsetSuffix") : "");
         telemetry.Text = mode == "Xbox" ? L.Text("Ui.Rumble") + "  " + L.Text(state.Rumble ? "Ui.Active" : "Ui.Idle") :
             string.Join("\n", Lamp("Ui.Haptics", state.Haptics), Lamp("Ui.Triggers", state.Triggers), Lamp("Ui.Audio", state.Audio));
@@ -147,9 +148,9 @@ sealed class MainWindow : Window
     void RefreshTray(LinuxBridgeState state)
     {
         if (tray == null) return;
-        var signature = $"{L.CurrentLanguage}:{paused}:{mode}:{speaker}:{state.Ready}:{state.Battery}:{Autostart.Enabled}:{checkingUpdates}:{availableUpdate?.Version}";
+        var signature = $"{L.CurrentLanguage}:{paused}:{state.Paused}:{state.Releasing}:{mode}:{speaker}:{state.Ready}:{state.Battery}:{Autostart.Enabled}:{checkingUpdates}:{availableUpdate?.Version}";
         if (signature == traySignature) return; traySignature = signature;
-        tray.ToolTipText = L.Text(paused ? "Ui.TrayPaused" : state.Ready ? "Ui.TrayReady" : "Ui.TrayWaiting") + (state.Battery >= 0 ? L.Text("Ui.TrayBattery", state.Battery) : "");
+        tray.ToolTipText = L.Text(state.Releasing ? "Ui.Releasing" : state.Paused ? "Ui.TrayPaused" : state.Ready ? "Ui.TrayReady" : "Ui.TrayWaiting") + (state.Battery >= 0 ? L.Text("Ui.TrayBattery", state.Battery) : "");
         var menu = new NativeMenu();
         menu.Items.Add(Item(L.Text("Ui.Open"), RestoreWindow));
         menu.Items.Add(Item(L.Text(paused ? "Ui.Resume" : "Ui.Pause"), TogglePause));

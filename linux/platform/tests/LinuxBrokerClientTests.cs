@@ -41,10 +41,11 @@ public sealed class LinuxBrokerClientTests
         { id = request.GetProperty("id").GetInt64(), ok = true, result });
         public Task SendAsync(object message) => output.WriteLineAsync(JsonSerializer.Serialize(message));
         public Task SendRawAsync(string message) => output.WriteLineAsync(message);
+        public async Task<bool> ConnectionEndedAsync() => await input.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(3)) == null;
         public void Disconnect() => server.Dispose();
-        public async Task<LinuxPhysicalSession> AcquireAsync()
+        public async Task<LinuxPhysicalSession> AcquireAsync(CancellationToken cancellation = default)
         {
-            Task<LinuxPhysicalSession> acquiring = Client.AcquirePhysicalAsync("/dev/hidraw4");
+            Task<LinuxPhysicalSession> acquiring = Client.AcquirePhysicalAsync("/dev/hidraw4", cancellation);
             JsonElement request = await RequestAsync();
             Assert.That(request.GetProperty("op").GetString(), Is.EqualTo("acquire"));
             await ReplyAsync(request, Identity);
@@ -202,6 +203,8 @@ public sealed class LinuxBrokerClientTests
     {
         await using var peer = await Peer.OpenAsync();
         LinuxPhysicalSession session = await peer.AcquireAsync();
+        session.CancelPendingAttach();
+        Assert.That(session.IsolationVerified, Is.True);
         Assert.That(session.AttachStrategy.TryAttach("192.0.2.1", 3241, "1-1", out _), Is.False);
         Assert.That(session.AttachStrategy.TryAttach("127.0.0.1", 22, "1-1", out _), Is.False);
         Assert.That(session.AttachStrategy.TryDetach("1-1", out _), Is.False);
@@ -210,6 +213,8 @@ public sealed class LinuxBrokerClientTests
         Assert.That(request.GetProperty("op").GetString(), Is.EqualTo("attach"));
         await peer.ReplyAsync(request, new { });
         Assert.That(await attach, Is.True);
+        session.CancelPendingAttach();
+        Assert.That(peer.Client.IsConnected, Is.True, "A completed import must use normal detach/release ordering.");
         Assert.That(session.AttachStrategy.TryAttach("127.0.0.1", 3241, "1-1", out _), Is.False);
         Task<bool> detach = Task.Run(() => session.AttachStrategy.TryDetach("1-1", out _));
         request = await peer.RequestAsync();
@@ -230,6 +235,39 @@ public sealed class LinuxBrokerClientTests
         await Assert.ThrowsAsync(Is.InstanceOf<OperationCanceledException>(), async () => await request);
         Assert.That(session.IsolationVerified, Is.False);
         Assert.That(peer.Client.IsConnected, Is.False);
+    }
+
+    [Test]
+    public async Task PendingAttachCancellationDoesNotWaitForItsOwnershipLock()
+    {
+        await using var peer = await Peer.OpenAsync();
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        Task<bool> attach = Task.Run(() => session.AttachStrategy.TryAttach("127.0.0.1", 3241, "1-1", out _));
+        Assert.That((await peer.RequestAsync()).GetProperty("op").GetString(), Is.EqualTo("attach"));
+        // No reply arrives. The cancel path must not wait on TryAttach's gate.
+        await Task.Run(session.CancelPendingAttach).WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.That(await attach.WaitAsync(TimeSpan.FromSeconds(2)), Is.False);
+        Assert.That(await peer.ConnectionEndedAsync(), Is.True, "EOF hands owned import cleanup to the broker.");
+        Assert.That(session.IsolationVerified, Is.False);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task AcquisitionCancellationAlsoAbortsTheLaterVirtualImport(bool cancelBeforeAttach)
+    {
+        await using var peer = await Peer.OpenAsync();
+        using var cancellation = new CancellationTokenSource();
+        LinuxPhysicalSession session = await peer.AcquireAsync(cancellation.Token);
+        if (cancelBeforeAttach) cancellation.Cancel();
+        Task<bool> attach = Task.Run(() => session.AttachStrategy.TryAttach("127.0.0.1", 3241, "1-1", out _));
+        if (!cancelBeforeAttach)
+        {
+            Assert.That((await peer.RequestAsync()).GetProperty("op").GetString(), Is.EqualTo("attach"));
+            cancellation.Cancel();
+        }
+        Assert.That(await attach.WaitAsync(TimeSpan.FromSeconds(2)), Is.False);
+        Assert.That(await peer.ConnectionEndedAsync(), Is.True);
+        Assert.That(session.IsolationVerified, Is.False);
     }
 
     [Test]

@@ -52,6 +52,10 @@ jobs:
           done
           python3 linux/tests/verify_gui.py dist/linux/evidence
           timeout 90s dbus-run-session -- xvfb-run -a python3 linux/tests/gui_lifecycle.py dist/linux/app/MadSense.Linux dist/linux/evidence
+      - name: Package tested binaries with source and dependency notices
+        run: |
+          python3 linux/package.py --app dist/linux/app --rid '${{ matrix.rid }}' --output dist/linux/packages
+          python3 linux/tests/verify_package.py --archive dist/linux/packages/MadSense-*.tar.gz --tested-app dist/linux/app --evidence dist/linux/evidence/package
       - name: Record environment
         if: always()
         run: |
@@ -68,3 +72,11 @@ jobs:
             dist/linux/evidence
             test-results
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-development-${{ matrix.rid }}
+          path: |
+            dist/linux/packages/*.tar.gz
+            dist/linux/packages/*.sha256
+          if-no-files-found: error
+          retention-days: 30

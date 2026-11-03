@@ -19,6 +19,6 @@ for module in vhci_hcd hid_playstation snd_usb_audio xpad; do
 done
 usbip_binary="$(find -L /usr/lib/linux-tools -type f -name usbip -executable | sort -V | tail -1)"
 [[ -n "$usbip_binary" && -x "$usbip_binary" ]]
-"$usbip_binary" --version
+"$usbip_binary" version
 if [[ -n "${GITHUB_ENV:-}" ]]; then printf 'USBIP_BINARY=%s\n' "$usbip_binary" >> "$GITHUB_ENV"; fi
 if [[ -n "${USBIP_BINARY_FILE:-}" ]]; then printf '%s\n' "$usbip_binary" > "$USBIP_BINARY_FILE"; fi

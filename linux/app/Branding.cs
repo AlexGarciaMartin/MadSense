@@ -108,11 +108,12 @@ sealed class BrandHeader : Control
 sealed class BrandHero : Control
 {
     public bool Paused { get; set; } = true;
+    public bool Releasing { get; set; }
     public bool Ready { get; set; }
     public bool Xbox { get; set; }
-    public string Headline => L.Text(Paused ? "Ui.HeroPaused" : Ready ? "Ui.HeroReady" : "Ui.HeroPressPs");
-    public string Subheadline => L.Text(Paused ? "Ui.HeroReleased" : Ready ? "Ui.HeroPlay" : "Ui.HeroOnController");
-    public string Badge => L.Text(Paused ? "Ui.BadgePaused" : Ready ? "Ui.BadgeReady" : "Ui.BadgeWaiting");
+    public string Headline => L.Text(Releasing ? "Ui.Releasing" : Paused ? "Ui.HeroPaused" : Ready ? "Ui.HeroReady" : "Ui.HeroPressPs");
+    public string Subheadline => Releasing ? "" : L.Text(Paused ? "Ui.HeroReleased" : Ready ? "Ui.HeroPlay" : "Ui.HeroOnController");
+    public string Badge => L.Text(Releasing ? "Ui.Releasing" : Paused ? "Ui.BadgePaused" : Ready ? "Ui.BadgeReady" : "Ui.BadgeWaiting");
     public void Refresh()
     {
         AutomationProperties.SetName(this, string.Join(". ", Headline, Subheadline, Badge));

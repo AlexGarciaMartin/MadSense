@@ -87,7 +87,7 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
             var created = new LinuxPhysicalSession(this,
                 result.GetProperty("path").GetString() ?? throw new IOException("Missing device identity."),
                 result.GetProperty("vendorId").GetUInt16(), result.GetProperty("productId").GetUInt16(),
-                result.GetProperty("productName").GetString() ?? "DualSense");
+                result.GetProperty("productName").GetString() ?? "DualSense", ct);
             lock (inputGate)
             {
                 Volatile.Write(ref session, created);

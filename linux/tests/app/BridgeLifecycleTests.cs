@@ -80,4 +80,77 @@ public sealed class BridgeLifecycleTests
         await bridge.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
         Assert.That(bridge.State.Ready, Is.False);
     }
+
+    [Test]
+    public async Task PauseReportsReleasingUntilTheCancelledAttemptHasFinished()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var bridge = new LinuxBridgeController(false, "Auto", "Alto", async token =>
+        {
+            entered.SetResult();
+            try { await Task.Delay(Timeout.Infinite, token); }
+            catch (OperationCanceledException)
+            { cancelled.SetResult(); await finish.Task; throw; }
+        });
+        bridge.SetPaused(false);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        bridge.SetPaused(true);
+        try
+        {
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.That(bridge.State.Releasing, Is.True);
+            Assert.That(bridge.State.Paused, Is.False, "Do not claim the controller has been released while cleanup is pending.");
+            Assert.That(bridge.State.Ready, Is.False);
+            Assert.That(bridge.State.Message, Is.EqualTo(L.Text("Ui.Releasing")));
+        }
+        finally { finish.TrySetResult(); }
+        await Until(() => bridge.State.Paused && !bridge.State.Releasing);
+    }
+
+    [Test]
+    public async Task ModeChangeThenPauseDuringCancellationDoesNotStartAnotherAuthorization()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int attempts = 0;
+        await using var bridge = new LinuxBridgeController(false, "Auto", "Alto", async token =>
+        {
+            Interlocked.Increment(ref attempts); entered.TrySetResult();
+            try { await Task.Delay(Timeout.Infinite, token); }
+            catch (OperationCanceledException)
+            { cancelled.TrySetResult(); await finish.Task; throw; }
+        });
+        bridge.SetPaused(false);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        bridge.SetMode("Xbox");
+        try
+        {
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            bridge.SetPaused(true);
+            Assert.That(bridge.State.Releasing, Is.True);
+        }
+        finally { finish.TrySetResult(); }
+        await Until(() => bridge.State.Paused && !bridge.State.Releasing);
+        await Task.Delay(600);
+        Assert.That(attempts, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task RepeatedDisposalSharesCleanupAndLateCommandsAreIgnored()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bridge = new LinuxBridgeController(false, "Auto", "Alto", async token =>
+        { entered.TrySetResult(); await Task.Delay(Timeout.Infinite, token); });
+        bridge.SetPaused(false);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var first = bridge.DisposeAsync().AsTask();
+        var second = bridge.DisposeAsync().AsTask();
+        Assert.That(second, Is.SameAs(first));
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(2));
+        await bridge.DisposeAsync();
+        Assert.DoesNotThrow(() => { bridge.SetPaused(true); bridge.SetMode("Xbox"); bridge.SetSpeaker("Off"); });
+    }
 }

@@ -10,19 +10,24 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
 {
     readonly LinuxBrokerClient broker;
     readonly BrokerHidDevice device;
+    readonly LinuxAttachStrategy attachStrategy;
     int verified = 1, disposed;
     public IHidDevice Device => device;
-    public IUsbIpAttachStrategy AttachStrategy { get; }
+    public IUsbIpAttachStrategy AttachStrategy => attachStrategy;
     public bool IsolationVerified => Volatile.Read(ref verified) != 0 && broker.IsConnected;
     public LinuxProxyMetrics Metrics => device.Metrics;
     public event Action? IsolationLost;
 
-    internal LinuxPhysicalSession(LinuxBrokerClient broker, string path, ushort vendor, ushort product, string name)
+    internal LinuxPhysicalSession(LinuxBrokerClient broker, string path, ushort vendor, ushort product, string name,
+        CancellationToken acquisitionCancellation = default)
     {
         this.broker = broker;
         device = new BrokerHidDevice(this, broker, path, vendor, product, name);
-        AttachStrategy = new LinuxAttachStrategy(this, broker);
+        attachStrategy = new LinuxAttachStrategy(this, broker, acquisitionCancellation);
     }
+
+    /// <summary>Cancels only an in-flight import; the broker then owns ordered lease cleanup.</summary>
+    public void CancelPendingAttach() => attachStrategy.CancelPendingAttach();
 
     internal void AcceptInput(byte[] report, long timestamp, long brokerReadNs)
     { if (IsolationVerified) device.AcceptInput(report, timestamp, brokerReadNs); }
@@ -44,6 +49,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        CancelPendingAttach();
         MarkClosed();
         device.Dispose();
         try

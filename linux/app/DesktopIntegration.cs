@@ -7,34 +7,116 @@ namespace MadSense;
 interface ISessionBus : IDBusObject
 {
     Task<bool> NameHasOwnerAsync(string name);
-    Task<IDisposable> WatchNameOwnerChangedAsync(Action<(string Name, string OldOwner, string NewOwner)> changed);
+    Task<IDisposable> WatchNameOwnerChangedAsync(Action<(string Name, string OldOwner, string NewOwner)> changed,
+        Action<Exception>? onError = null);
+}
+
+[DBusInterface("org.kde.StatusNotifierWatcher")]
+interface IStatusNotifierWatcher : IDBusObject
+{
+    Task<T> GetAsync<T>(string property);
+    Task<IDisposable> WatchStatusNotifierHostRegisteredAsync(Action changed);
+    Task<IDisposable> WatchStatusNotifierHostUnregisteredAsync(Action changed);
 }
 
 sealed class TrayAvailability : IDisposable
 {
     const string Watcher = "org.kde.StatusNotifierWatcher";
+    readonly SemaphoreSlim refresh = new(1, 1);
+    readonly Lock resources = new();
+    readonly List<IDisposable> hostWatches = [];
     Connection? connection;
     IDisposable? watch;
-    int revision, disposed;
-    public bool Available { get; private set; }
+    ISessionBus? bus;
+    Func<IStatusNotifierWatcher>? createWatcher;
+    int available, disposed, revision;
+    public bool Available => Volatile.Read(ref available) != 0;
     public event Action<bool>? Changed;
     public async Task Start()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux() || Volatile.Read(ref disposed) != 0) return;
         try
         {
             connection = new Connection(Address.Session!); await connection.ConnectAsync().WaitAsync(TimeSpan.FromSeconds(3));
-            var bus = connection.CreateProxy<ISessionBus>("org.freedesktop.DBus", "/org/freedesktop/DBus");
-            watch = await bus.WatchNameOwnerChangedAsync(change =>
-            { if (change.Name == Watcher) { Interlocked.Increment(ref revision); Set(change.NewOwner.Length != 0); } }).WaitAsync(TimeSpan.FromSeconds(3));
-            var observed = Volatile.Read(ref revision);
-            var available = await bus.NameHasOwnerAsync(Watcher).WaitAsync(TimeSpan.FromSeconds(3));
-            if (observed == Volatile.Read(ref revision)) Set(available);
+            await Start(connection.CreateProxy<ISessionBus>("org.freedesktop.DBus", "/org/freedesktop/DBus"),
+                () => connection.CreateProxy<IStatusNotifierWatcher>(Watcher, "/StatusNotifierWatcher"));
         }
         catch (Exception error) { LinuxLog.Append("Tray detection: " + error.Message); connection?.Dispose(); Set(false); }
     }
-    void Set(bool available) { if (Volatile.Read(ref disposed) != 0) return; Available = available; Changed?.Invoke(available); }
-    public void Dispose() { Interlocked.Exchange(ref disposed, 1); watch?.Dispose(); connection?.Dispose(); }
+    internal async Task Start(ISessionBus sessionBus, Func<IStatusNotifierWatcher> factory)
+    {
+        bus = sessionBus; createWatcher = factory;
+        var subscription = await WaitSubscription(bus.WatchNameOwnerChangedAsync(change =>
+        {
+            if (change.Name != Watcher) return;
+            Interlocked.Increment(ref revision); Set(false); _ = RefreshHost(reset: true);
+        }, _ => { Interlocked.Increment(ref revision); Set(false); }));
+        Keep(subscription, host: false);
+        await RefreshHost(reset: true);
+    }
+    async Task RefreshHost(bool reset)
+    {
+        await refresh.WaitAsync();
+        try
+        {
+            if (Volatile.Read(ref disposed) != 0) return;
+            if (reset) ClearHostWatches();
+            if (!await bus!.NameHasOwnerAsync(Watcher).WaitAsync(TimeSpan.FromSeconds(3)))
+            { ClearHostWatches(); Set(false); return; }
+            var watcher = createWatcher!();
+            if (hostWatches.Count == 0)
+            {
+                Keep(await WaitSubscription(watcher.WatchStatusNotifierHostRegisteredAsync(() =>
+                    { Interlocked.Increment(ref revision); _ = RefreshHost(false); })), host: true);
+                Keep(await WaitSubscription(watcher.WatchStatusNotifierHostUnregisteredAsync(() =>
+                    { Interlocked.Increment(ref revision); Set(false); _ = RefreshHost(false); })), host: true);
+            }
+            // A watcher can run without any panel hosting its icons. Only the
+            // registered host property permits hiding the application's window.
+            var observed = Volatile.Read(ref revision);
+            var registered = await watcher.GetAsync<bool>("IsStatusNotifierHostRegistered").WaitAsync(TimeSpan.FromSeconds(3));
+            if (observed == Volatile.Read(ref revision)) Set(registered);
+        }
+        catch (Exception error) { LinuxLog.Append("Tray host detection: " + error.Message); ClearHostWatches(); Set(false); }
+        finally { refresh.Release(); }
+    }
+    static async Task<IDisposable> WaitSubscription(Task<IDisposable> task)
+    {
+        try { return await task.WaitAsync(TimeSpan.FromSeconds(3)); }
+        catch
+        {
+            _ = task.ContinueWith(completed => { if (completed.IsCompletedSuccessfully) completed.Result.Dispose(); },
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            throw;
+        }
+    }
+    void Keep(IDisposable subscription, bool host)
+    {
+        lock (resources)
+        {
+            if (Volatile.Read(ref disposed) != 0) subscription.Dispose();
+            else if (host) hostWatches.Add(subscription);
+            else watch = subscription;
+        }
+    }
+    void ClearHostWatches()
+    {
+        IDisposable[] subscriptions;
+        lock (resources) { subscriptions = hostWatches.ToArray(); hostWatches.Clear(); }
+        foreach (var subscription in subscriptions) subscription.Dispose();
+    }
+    void Set(bool value)
+    {
+        if (Volatile.Read(ref disposed) != 0) return;
+        if (Interlocked.Exchange(ref available, value ? 1 : 0) != (value ? 1 : 0)) Changed?.Invoke(value);
+    }
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        Interlocked.Exchange(ref available, 0);
+        lock (resources) { watch?.Dispose(); watch = null; }
+        ClearHostWatches(); connection?.Dispose();
+    }
 }
 
 static class Autostart

@@ -19,6 +19,19 @@ static class Program
     public static int Main(string[] args)
     {
         Arguments = args;
+        if (args.Contains("--build-info"))
+        {
+            var assembly = typeof(Program).Assembly;
+            var version = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(assembly);
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                assemblyInformationalVersion = version?.InformationalVersion,
+                architecture = RuntimeInformation.ProcessArchitecture.ToString(),
+                framework = RuntimeInformation.FrameworkDescription,
+                platform = RuntimeInformation.OSDescription
+            }));
+            return 0;
+        }
         var preview = args.Contains("--preview") || Option("--ui-smoke") != null;
         if (!preview && OperatingSystem.IsLinux())
         {
