@@ -17,7 +17,7 @@ for module in vhci_hcd hid_playstation snd_usb_audio xpad; do
     sudo modprobe "$module"
     modinfo -F vermagic "$module"
 done
-usbip_binary="$(find /usr/lib/linux-tools -type f -name usbip -executable | sort -V | tail -1)"
+usbip_binary="$(find -L /usr/lib/linux-tools -type f -name usbip -executable | sort -V | tail -1)"
 [[ -n "$usbip_binary" && -x "$usbip_binary" ]]
 "$usbip_binary" --version
 if [[ -n "${GITHUB_ENV:-}" ]]; then printf 'USBIP_BINARY=%s\n' "$usbip_binary" >> "$GITHUB_ENV"; fi
