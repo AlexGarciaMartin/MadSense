@@ -24,7 +24,7 @@ for attempt in range(15):
     with (output / "audio-installed.stdout").open("w") as stdout, (output / "audio-installed.stderr").open("w") as stderr:
         try:
             result = subprocess.run([probe], stdout=stdout, stderr=stderr,
-                                    timeout=max(1, min(25, deadline - time.monotonic())))
+                                    timeout=max(1, min(35, deadline - time.monotonic())))
         except subprocess.TimeoutExpired:
             print("Installed CoreAudio probe timed out", file=stderr)
             result = None

@@ -153,10 +153,11 @@ TransferPosition measureWarmTransfer(Consumer& consumer, Signal& signal, uint64_
                                      std::chrono::milliseconds idleWait) {
     uint64_t received = 0, validated = 0, silent = 0, lastDropped = baselineDropped;
     uint64_t calls = 0, generationChanges = 0, emptyReads = 0, fullReads = 0, idleWaits = 0;
+    uint64_t firstReadDropDelta = 0;
     std::chrono::nanoseconds longestRead{0}, totalRead{0}, longestIdle{0}, totalIdle{0}, longestReadGap{0};
     auto started = std::chrono::steady_clock::now();
     auto previousReadEnded = started;
-    auto deadline = started + 1s;
+    auto deadline = started + 3s;
     while (std::chrono::steady_clock::now() < deadline) {
         float samples[madsense::kReadFrames * madsense::kChannels];
         uint32_t frames = 0, active = 0;
@@ -173,6 +174,8 @@ TransferPosition measureWarmTransfer(Consumer& consumer, Signal& signal, uint64_
         previousReadEnded = readEnded;
         ++calls;
         check(result, "Warm transfer read");
+        require(lastDropped >= baselineDropped, "Dropped frame counter moved backwards");
+        if (calls == 1) firstReadDropDelta = lastDropped - baselineDropped;
         require(!signal.wrongLayout.load(std::memory_order_relaxed), "Wrong HAL layout during warm transfer");
         require(generation > 0 && frames <= madsense::kReadFrames, "Invalid warm transfer metadata");
         if (frames == 0) ++emptyReads;
@@ -214,6 +217,7 @@ TransferPosition measureWarmTransfer(Consumer& consumer, Signal& signal, uint64_
               << " received_frames=" << received << " received_samples=" << received * madsense::kChannels
               << " verified_frames=" << validated << " silent_frames=" << silent
               << " dropped_delta=" << lastDropped - baselineDropped
+              << " first_read_dropped_delta=" << firstReadDropDelta
               << " max_read_rpc_ms=" << std::chrono::duration<double, std::milli>(longestRead).count()
               << " total_read_rpc_ms=" << std::chrono::duration<double, std::milli>(totalRead).count()
               << " idle_waits=" << idleWaits
@@ -313,7 +317,16 @@ int main(int argc, char** argv) {
         uint64_t firstGeneration = receive(consumer, signal, 0, 0, &baselineDropped, 5ms);
         auto baseline = measureWarmTransfer(consumer, signal, baselineDropped, firstGeneration, "default_qos_5ms", 5ms);
         AudioScheduling scheduling;
-        measureWarmTransfer(consumer, signal, baseline.dropped, baseline.generation, "audio_qos_1ms", 1ms);
+        // Account for the previous policy's final idle interval, then establish
+        // a fresh warm baseline under audio QoS without flushing the queue or
+        // hiding any drops incurred during the transition.
+        uint64_t rewarmedDropped = baseline.dropped;
+        uint64_t rewarmedGeneration = receive(consumer, signal, 0, 0, &rewarmedDropped, 1ms);
+        require(rewarmedDropped >= baseline.dropped, "Dropped frame counter moved backwards during QoS rewarm");
+        std::cout << "audio_qos_rewarm verified_at_least_frames=2048"
+                  << " dropped_delta=" << rewarmedDropped - baseline.dropped
+                  << " generation=" << rewarmedGeneration << '\n';
+        measureWarmTransfer(consumer, signal, rewarmedDropped, rewarmedGeneration, "audio_qos_1ms", 1ms);
 
         stream.stop();
         signal.phase.store(1, std::memory_order_relaxed);

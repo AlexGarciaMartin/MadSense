@@ -34,13 +34,17 @@ dropped frames separately; passing does not establish uninterrupted realtime
 delivery or controller latency. Exit 75 means initial discovery found no loaded
 endpoint and may be retried; transfer or ownership failures return 1.
 
-After the first 2048 verified frames, the probe compares two consecutive warm
-transfer windows of about one second each: the former default-QoS/five-millisecond
-idle wait, then the backend's scoped audio-QoS/one-millisecond idle wait. Full
-packets are drained immediately in both windows. Each
+After the first 2048 verified frames, the probe compares two warm transfer windows
+of about three seconds each: the former default-QoS/five-millisecond idle wait,
+then the backend's scoped audio-QoS/one-millisecond idle wait. After enabling audio
+QoS, it validates at least another 2048 frames before the second window to avoid
+attributing the previous policy's remaining backlog to the new policy. The
+`audio_qos_rewarm` line reports all drops during that transition; no queue is
+flushed. Full packets are drained immediately in both windows. Each
 `warm_measurement_not_latency_guarantee` line identifies the policy and reports
 elapsed time, read calls (including empty/full counts), received frames/samples,
-verified and silent frames, the dropped-frame increase, total/maximum
+verified and silent frames, the dropped-frame increase (including a separate
+first-read increase to expose any boundary backlog), total/maximum
 `ms_audio_read` RPC duration, actual total/maximum idle wait, maximum inter-read
 gap, and generation changes. This separates initial/reconnect gaps from loss
 during continuing delivery and distinguishes idle scheduling gaps from time
