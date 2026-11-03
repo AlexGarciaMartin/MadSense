@@ -36,7 +36,7 @@ def explicit_stop_delivery(record, ready, core_ready, core_rows, bt_rows):
     require(ready.get("vendorId") == 0x054c and ready.get("productId") in (0x0ce6, 0x0df2)
             and observed.get("path") == ready.get("hidrawPath"), "Selector-clear proof requires exact Sony hidraw path")
     require(observed.get("sdlMajor") in (2, 3)
-            and observed.get("version") == {2: "2.30.0", 3: "3.2.28"}.get(observed.get("sdlMajor")),
+            and observed.get("version") in {2: ("2.30.0", "2.32.4"), 3: ("3.2.28",)}.get(observed.get("sdlMajor"), ()),
             "Selector-clear proof is limited to the audited SDL builds")
     require(record.get("exitCode") == 0 and observed.get("result") == "passed"
             and observed.get("identityVerified") is True and observed.get("inputMatches") is True,

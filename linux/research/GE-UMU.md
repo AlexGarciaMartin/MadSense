@@ -8,6 +8,26 @@ This route uses GE-Proton, the UMU launcher and Valve's Steam Linux Runtime;
 it is neither distribution Wine nor an execution of official Valve Proton.
 It does not install Steam or require a Steam account or credentials.
 
+The separate `ge_only` dispatch input (also default false, requiring `ge_umu`)
+uses a fresh VM and a new account without first running distribution-Wine or SDL
+consumers. It still requires the ten broker cases and a complete nine-case core
+actor, including disposal, before starting a second core actor for GE. Its
+result explicitly records `distributionWineExecuted=false` and
+`priorDistributionResultsReused=false`. Earlier default/UDEV failures remain
+separate failed observations; none is reused as a passed prerequisite.
+The baseline and second actor share only their owned VM and verified code:
+their fixture, controller lease, virtual device, core process and consumer
+account are recreated. This mode has not executed natively yet.
+
+`qemu_ge_only.py --run-ge-only` requires the same-commit Windows API/HIDAPI build
+artifacts and the explicitly verified private GE cache. Acquisition and payload
+copy verification still finish before boot. The guest's ordinary namespace
+preflight precedes all broker/core fixtures. The second actor retains the
+600-second budget, the same PE feature/input/output/ContainerId/WASAPI assertions,
+real upstream HIDAPI checks, final raw-capture drain and exact ACL/process cleanup.
+No private runtime/cache/prefix is collected. A GE result cannot replace a failed
+core gate, and this remains GE-Proton with UMU, not official Valve Proton.
+
 ## Pinned upstream inputs
 
 | Component | Exact input | SHA-256 |

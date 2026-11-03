@@ -165,12 +165,25 @@ flag when applying that update. This matches the explicit selected-zero check.
 Independent lightbar updates can contain zero motor bytes without selecting
 rumble, so that byte pattern alone remains insufficient.
 
-After retaining the first actual capture, the next SDL-specific probe should
-separate start, explicit stop and LED phases with monotonic timestamps and use a
-rumble duration longer than the stop observation phase. Require the stop phase's
-exact USB report02 and 47-byte zero payload at virtual ingress, then correlate
-its translated payload with the synthetic physical Bluetooth output and CRC.
-Exclude LED, startup, close and timeout-generated reports from that phase.
-Name the resulting assertion "SDL stop report forwarded to synthetic physical
-writer"; it cannot establish physical cessation or audio restoration. The first
-runtime retains its strict existing check until this additional evidence exists.
+The SDL-specific probe now separates start, explicit stop and LED phases with
+monotonic timestamps and a 60-second rumble duration. It requires the stop phase's
+exact USB report02 and 47-byte zero payload at virtual ingress, then the complete
+translated state in a CRC-valid synthetic Bluetooth report. LED, startup, close
+and timeout-generated reports cannot satisfy that isolated phase. The assertion
+is stop-report forwarding, not physical cessation or audio restoration.
+
+Debian's SDL2 `2.32.4+dfsg-1` is separately audited. Upstream tag `release-2.32.4`
+resolves to [`2359383fc187386204c3bb22de89655a494cd128`](https://github.com/libsdl-org/SDL/blob/2359383fc187386204c3bb22de89655a494cd128/src/joystick/hidapi/SDL_hidapi_ps5.c);
+that `SDL_hidapi_ps5.c` has SHA-256
+`a326d1c8085f14aefac58deddf8911c796026a58a96a72829304e398dc0cf2b8`.
+`UpdateEffects`, `RumbleJoystick` and `SendJoystickEffect` are unchanged from
+2.30.0, and the [Debian patch series](https://sources.debian.org/src/libsdl2/2.32.4%2Bdfsg-1/debian/patches/series/)
+contains only packaging/font changes. The native south/neutral captures in
+[run 41647961138](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41647961138)
+passed all the other stop assertions in a separately labelled posthoc replay,
+including complete USB48/BT47 bytes and phase/CRC checks. Only the version list
+was extended in that replay; native evidence was not rewritten. The verifier now
+allows the exact versions 2.30.0, 2.32.4 and SDL3 3.2.28, not arbitrary releases.
+That Debian run remains failed: a later broker timeout prevented consumer cleanup
+and GE execution. The posthoc observation does not convert it to a passing suite
+or claim a new native run of the updated verifier.

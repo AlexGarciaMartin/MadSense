@@ -40,6 +40,15 @@ class ExplicitStopTests(unittest.TestCase):
                     "causalOneToOneMappingVerified", "latencyValidated"):
             self.assertFalse(result[key])
 
+    def test_only_individually_audited_sdl2_versions_can_use_selector_clear(self):
+        self.observed["sdlMajor"] = 2
+        for version in ("2.30.0", "2.32.4"):
+            self.observed["version"] = version
+            self.assertTrue(self.proof()["stopReportForwarded"])
+        for version in ("2.30.1", "2.32.3", "2.32.5", "3.2.28", None):
+            self.observed["version"] = version
+            with self.subTest(version=version), self.assertRaises(RuntimeError): self.proof()
+
     def test_enabled_raw_observer_requires_one_exact_full_stop_report_in_its_phase(self):
         self.core_ready["rawOutputObservationEnabled"] = True
         with self.assertRaises(RuntimeError): self.proof()

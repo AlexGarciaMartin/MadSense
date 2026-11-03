@@ -18,6 +18,11 @@ on:
         type: boolean
         required: false
         default: false
+      ge_only:
+        description: 'Separate GE-only actor after full broker/core gates; requires ge_umu'
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [feature/linux]
     paths:
@@ -57,6 +62,9 @@ on:
       - 'linux/research/test_ge_umu.py'
       - 'linux/research/test_ge_umu_consumer.py'
       - 'linux/research/test_ge_umu_payload.py'
+      - 'linux/research/test_ge_umu_standalone.py'
+      - 'linux/research/qemu_ge_only.py'
+      - 'linux/research/run_ge_only_guest.sh'
       - 'linux/research/GE-UMU.md'
       - 'linux/research/debian_qemu.py'
       - 'linux/research/test_debian_qemu.py'
@@ -103,11 +111,12 @@ jobs:
           python3 -m unittest discover -s linux/research -p test_ge_umu.py -v
           python3 -m unittest discover -s linux/research -p test_ge_umu_consumer.py -v
           python3 -m unittest discover -s linux/research -p test_ge_umu_payload.py -v
+          python3 -m unittest discover -s linux/research -p test_ge_umu_standalone.py -v
           python3 -m unittest discover -s linux/research -p test_debian_qemu.py -v
           python3 -m unittest discover -s linux/research -p 'test_hidapi_windows*.py' -v
           python3 -m py_compile linux/research/consumer_session.py linux/research/run_wine_consumer.py linux/research/qemu_consumers.py
           bash -n linux/research/run_consumer_guest.sh
-          for script in prepare_debian_kernel.sh run_debian_broker_guest.sh build_hidapi_windows_consumer.sh; do
+          for script in prepare_debian_kernel.sh run_debian_broker_guest.sh build_hidapi_windows_consumer.sh run_ge_only_guest.sh; do
             bash -n "linux/research/$script"
           done
   windows-hidapi-build:
@@ -233,6 +242,7 @@ jobs:
           MADSENSE_GE_UMU: ${{ github.event_name == 'workflow_dispatch' && inputs.ge_umu && 'true' || 'false' }}
           MADSENSE_GUEST_IMAGE: ${{ inputs.guest_image || 'ubuntu' }}
           MADSENSE_OBSERVE_WAITS: ${{ github.event_name == 'workflow_dispatch' && inputs.observe_kernel_waits && 'true' || 'false' }}
+          MADSENSE_GE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.ge_only && 'true' || 'false' }}
         run: |
           ge_arguments=()
           wait_arguments=()
@@ -248,14 +258,23 @@ jobs:
             # The private WirePlumber 0.4 adapters do not validate Debian 0.5.
             audio_observers=(--observe-audio-defaults)
           fi
-          python3 linux/research/qemu_consumers.py \
-            --neutral-probe-directory dist/neutral-probe --core-probe-directory dist/core-probe \
-            --native-artifact dist/consumer-build/linux-consumers \
-            --windows-artifact dist/windows-build/wine-consumer \
-            --hidapi-artifact dist/hidapi-build/hidapi-windows --guest-image "$MADSENSE_GUEST_IMAGE" \
-            "${audio_observers[@]}" \
-            --wine-udev-variant "${ge_arguments[@]}" "${wait_arguments[@]}" \
-            --output dist/consumer-runtime --work dist/consumer-qemu-private
+          if [[ "$MADSENSE_GE_ONLY" == true ]]; then
+            [[ "$MADSENSE_GE_UMU" == true ]] || { echo 'GE-only requires the verified GE cache' >&2; exit 2; }
+            python3 linux/research/qemu_ge_only.py --run-ge-only \
+              --neutral-probe-directory dist/neutral-probe --core-probe-directory dist/core-probe \
+              --windows-artifact dist/windows-build/wine-consumer --hidapi-artifact dist/hidapi-build/hidapi-windows \
+              --guest-image "$MADSENSE_GUEST_IMAGE" "${ge_arguments[@]}" "${wait_arguments[@]}" \
+              --output dist/consumer-runtime --work dist/consumer-qemu-private
+          else
+            python3 linux/research/qemu_consumers.py \
+              --neutral-probe-directory dist/neutral-probe --core-probe-directory dist/core-probe \
+              --native-artifact dist/consumer-build/linux-consumers \
+              --windows-artifact dist/windows-build/wine-consumer \
+              --hidapi-artifact dist/hidapi-build/hidapi-windows --guest-image "$MADSENSE_GUEST_IMAGE" \
+              "${audio_observers[@]}" \
+              --wine-udev-variant "${ge_arguments[@]}" "${wait_arguments[@]}" \
+              --output dist/consumer-runtime --work dist/consumer-qemu-private
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

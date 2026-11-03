@@ -37,6 +37,7 @@ def _run_ge_suite(ready_path, executable, fixture_state_callback, evidence, phys
     with ConsumerSession(ready_path, evidence, physical_parent) as session:
         session.result.update(scope="configured-ge-proton-umu-consumer", replacesDistributionWineResult=False,
                               officialValveProton=False, runtimeCacheCollected=False)
+        original_error = None
         try:
             # Prepare before starting Xvfb or any runtime payload. This retains
             # the ownership-transfer boundary enforced by ge_umu_session.
@@ -79,8 +80,20 @@ def _run_ge_suite(ready_path, executable, fixture_state_callback, evidence, phys
                     arguments, label=label, timeout=120), label_prefix="ge-hidapi-windows")
             session.result["geUmuSession"]["consumerAssertionsPassed"] = True
             session.result["result"] = "passed"
+        except BaseException as failure:
+            original_error = failure
+            raise
         finally:
-            fixture_state_callback("neutral")
+            try:
+                fixture_state_callback("neutral")
+            except Exception as reset_error:
+                session.result["geNeutralResetError"] = f"{type(reset_error).__name__}: {reset_error}"
+                try:
+                    session.save()
+                except Exception as save_error:
+                    session.result["geNeutralResetSaveError"] = str(save_error)
+                if original_error is None:
+                    raise
         session.save()
     return session.result
 

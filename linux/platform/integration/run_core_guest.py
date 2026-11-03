@@ -66,6 +66,8 @@ def main():
     parser.add_argument("--hidapi-windows-consumer", type=Path)
     parser.add_argument("--wine-udev-variant", action="store_true")
     parser.add_argument("--ge-umu-cache", type=Path)
+    parser.add_argument("--ge-umu-only", action="store_true")
+    parser.add_argument("--functional-results", type=Path)
     parser.add_argument("--observe-kernel-waits", action="store_true")
     parser.add_argument("--observe-audio-defaults", action="store_true")
     parser.add_argument("--observe-pipewire-defaults", action="store_true")
@@ -79,8 +81,14 @@ def main():
             "Real Windows HIDAPI requires the separate Wine consumer session")
     require(not args.wine_udev_variant or args.wine_consumer is not None,
             "Wine udev observation requires the optional Wine consumer")
-    require(args.ge_umu_cache is None or (args.wine_udev_variant and args.wine_consumer is not None),
+    require(args.ge_umu_cache is None or ((args.wine_udev_variant or args.ge_umu_only) and args.wine_consumer is not None),
             "GE/UMU requires the preceding Wine/UDEV experiment")
+    require(not args.ge_umu_only or (args.ge_umu_cache is not None and args.functional_results is not None
+            and args.consumer_binaries is not None and args.hidapi_windows_consumer is not None
+            and not args.wine_udev_variant and not args.observe_audio_defaults
+            and not args.observe_pipewire_defaults and not args.adjust_owned_rear_unity),
+            "Standalone GE requires its private payload, prior functional gates and no distribution-Wine/profile stages")
+    require(args.functional_results is None or args.ge_umu_only, "Prior gates path belongs only to GE-only mode")
     require(not args.observe_audio_defaults or args.consumer_binaries is not None,
             "Audio defaults observation requires the optional consumer suite")
     require(not args.observe_pipewire_defaults or args.consumer_binaries is not None,
@@ -92,6 +100,9 @@ def main():
     require(os.geteuid() == 0, "Run only as root inside the owned test guest")
     scope = validate_environment(args.owned_guest_token)
     require(scope["kind"] == "owned-qemu-guest", "Owned QEMU guest required")
+    if args.ge_umu_only:
+        from ge_umu_standalone import prior_gates
+        prior_gates(args.functional_results, args.owned_guest_token)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     require(not any(output.iterdir()), "Fresh output directory required")
@@ -351,19 +362,25 @@ def main():
         if args.consumer_binaries is not None:
             # Only the separate consumer experiment supplies this flag. The
             # normal functional baseline does not import or execute consumers.
-            from consumer_session import run_suite
             def consumer_state(state):
                 require(state in ("south", "neutral"), "Unknown consumer input state")
                 alive()
                 fixture.marker = False
                 fixture.south_only = state == "south"
-            result["consumers"] = run_suite(output / "consumer-ready.json", args.consumer_binaries,
-                args.wine_consumer, consumer_state, output / "consumer-suite", fixture.parent,
-                observe_audio_defaults=args.observe_audio_defaults,
-                observe_pipewire_defaults=args.observe_pipewire_defaults,
-                adjust_owned_rear_unity=args.adjust_owned_rear_unity,
-                wine_udev_variant=args.wine_udev_variant, ge_umu_cache=args.ge_umu_cache,
-                hidapi_windows_exe=args.hidapi_windows_consumer)
+            if args.ge_umu_only:
+                from ge_umu_standalone import run as run_ge_only
+                result["consumers"] = run_ge_only(output / "consumer-ready.json", args.wine_consumer,
+                    consumer_state, output / "ge-umu-suite", fixture.parent, args.ge_umu_cache,
+                    args.functional_results, hidapi_executable=args.hidapi_windows_consumer)
+            else:
+                from consumer_session import run_suite
+                result["consumers"] = run_suite(output / "consumer-ready.json", args.consumer_binaries,
+                    args.wine_consumer, consumer_state, output / "consumer-suite", fixture.parent,
+                    observe_audio_defaults=args.observe_audio_defaults,
+                    observe_pipewire_defaults=args.observe_pipewire_defaults,
+                    adjust_owned_rear_unity=args.adjust_owned_rear_unity,
+                    wine_udev_variant=args.wine_udev_variant, ge_umu_cache=args.ge_umu_cache,
+                    hidapi_windows_exe=args.hidapi_windows_consumer)
             require(result["consumers"].get("result") == "passed"
                     and result["consumers"].get("accountProcessesAndFilesRemoved") is True
                     and not result["consumers"].get("cleanupErrors"), "Consumer suite or scoped cleanup failed")
