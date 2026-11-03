@@ -44,6 +44,15 @@ public sealed class UsbIpServerOptions
     /// <summary>Pack only actual ISO IN bytes for Linux vhci_hcd; preserve true short-packet lengths.
     /// False retains the existing usbip-win2 padded layout.</summary>
     public bool PackIsoInPayload { get; set; }
+
+    /// <summary>
+    /// Complete a fully received interrupt OUT transfer before invoking its output handler.
+    /// This releases the host's HID write before a synchronous physical HID write begins.
+    /// The completion acknowledges USB receipt, not physical delivery. Dispatch remains ordered
+    /// on the session thread; no additional queue or worker is created. Control requests retain
+    /// their existing validation and completion order. Disabled by default.
+    /// </summary>
+    public bool AcknowledgeInterruptOutBeforeDispatch { get; set; }
 }
 
 /// <summary>
@@ -888,7 +897,9 @@ public sealed class UsbIpServer : IDisposable
                 return true;
             }
 
-            return await HandleImmediateTransferAsync(header, transferLength, deviceToHost).ConfigureAwait(false);
+            bool acknowledgeBeforeDispatch = endpoint.Type == UsbEndpointType.Interrupt
+                                             && _server._options.AcknowledgeInterruptOutBeforeDispatch;
+            return await HandleImmediateTransferAsync(header, transferLength, deviceToHost, acknowledgeBeforeDispatch).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -939,8 +950,9 @@ public sealed class UsbIpServer : IDisposable
         /// <param name="header">Parsed submit header.</param>
         /// <param name="transferLength">Declared transfer buffer length.</param>
         /// <param name="deviceToHost">Whether the endpoint is an IN endpoint.</param>
+        /// <param name="acknowledgeBeforeDispatch">Whether a complete interrupt OUT is acknowledged before its callback.</param>
         /// <returns><see langword="true"/> to continue the session; <see langword="false"/> when the connection ends mid-payload.</returns>
-        private async Task<bool> HandleImmediateTransferAsync(UsbIpHeader header, int transferLength, bool deviceToHost)
+        private async Task<bool> HandleImmediateTransferAsync(UsbIpHeader header, int transferLength, bool deviceToHost, bool acknowledgeBeforeDispatch)
         {
             VirtualUsbDevice device = _device!;
             if (deviceToHost)
@@ -958,8 +970,15 @@ public sealed class UsbIpServer : IDisposable
                 return false;
             }
 
+            // Send writes the complete reply to the socket and releases its write lock.
+            // Do not retain the host's hidraw read lock while the callback needs another
+            // hidraw operation: a concurrent open/close can be waiting for the global
+            // minors_rwsem write lock. The callback still finishes before the next URB.
+            if (acknowledgeBeforeDispatch)
+                SendRetSubmit(header.SeqNum, UsbIpStatus.Success, ReadOnlyMemory<byte>.Empty, transferLength);
             device.OnOutputReport(outData);
-            SendRetSubmit(header.SeqNum, UsbIpStatus.Success, ReadOnlyMemory<byte>.Empty, transferLength);
+            if (!acknowledgeBeforeDispatch)
+                SendRetSubmit(header.SeqNum, UsbIpStatus.Success, ReadOnlyMemory<byte>.Empty, transferLength);
             return true;
         }
 

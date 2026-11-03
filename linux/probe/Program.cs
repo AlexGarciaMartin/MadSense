@@ -72,7 +72,8 @@ if (persona != "xbox")
 using UsbIpServer server = new(new UsbIpServerOptions
 {
     ListenEndPoint = new IPEndPoint(IPAddress.Loopback, 0),
-    ImmediateInputDelivery = true, MeasureIsoOutLatency = true, PackIsoInPayload = true, Logger = capture
+    ImmediateInputDelivery = true, MeasureIsoOutLatency = true, PackIsoInPayload = true, Logger = capture,
+    AcknowledgeInterruptOutBeforeDispatch = true
 });
 server.AddDevice("1-1", device);
 server.Start();

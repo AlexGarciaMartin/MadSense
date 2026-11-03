@@ -89,7 +89,8 @@ try
         () => server = new EmulationServer(new EmulationServerOptions
         {
             ListenEndPoint = new IPEndPoint(IPAddress.Loopback, 0), AttachStrategy = session.AttachStrategy,
-            ImmediateInputDelivery = true, PackIsoInPayload = true, MeasureIsoOutLatency = true
+            ImmediateInputDelivery = true, PackIsoInPayload = true, MeasureIsoOutLatency = true,
+            AcknowledgeInterruptOutBeforeDispatch = true
         }), factory, () => session.IsolationVerified);
     emulation.Start(); tracker.TrackController(pad);
     var start = Stopwatch.StartNew();

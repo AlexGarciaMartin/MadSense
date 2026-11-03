@@ -55,4 +55,7 @@ public sealed class EmulationServerOptions
     public bool MeasureIsoOutLatency { get; set; }
     /// <summary>Use compact ISO IN responses with true short-packet lengths for Linux vhci_hcd.</summary>
     public bool PackIsoInPayload { get; set; }
+    /// <summary>Opt in to acknowledging complete interrupt OUT receipt before synchronous physical dispatch.
+    /// Preserves callback order without a new queue; the acknowledgement does not certify physical delivery.</summary>
+    public bool AcknowledgeInterruptOutBeforeDispatch { get; set; }
 }

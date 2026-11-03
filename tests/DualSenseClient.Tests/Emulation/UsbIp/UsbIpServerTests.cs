@@ -617,6 +617,80 @@ public sealed class UsbIpServerTests
         Assert.That(device.OutputReports[0], Is.EqualTo(payload));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void InterruptOut_CompletionPolicy_PreservesOrderedDispatchWithoutAnExtraWorker(bool acknowledgeFirst)
+    {
+        using var device = new BlockingOutputDevice();
+        using var harness = new ServerHarness(device, acknowledgeInterruptOutBeforeDispatch: acknowledgeFirst);
+        using var client = harness.Connect();
+        ImportDevice(client, TestBusId);
+        byte[] first = [0x02, 0x11, 0x22];
+        byte[] second = [0x02, 0x33, 0x44];
+        client.Send(CreateUrbFrame(51, UsbIpDirection.Out, EndpointNumberOf(TestDevices.SimpleInterruptOutAddress), 3, payload: first));
+        try
+        {
+            Assert.That(device.Entered.Wait(CommunicationTimeoutMilliseconds), Is.True);
+            if (acknowledgeFirst)
+            {
+                RetFrame accepted = ReadRetFrame(client);
+                Assert.That(accepted.SeqNum, Is.EqualTo(51u));
+                Assert.That(accepted.Status, Is.Zero);
+                Assert.That(accepted.ActualLength, Is.EqualTo(3u));
+            }
+            else
+                Assert.That(client.TryReadExactly(new byte[UsbIpProtocol.HeaderSize], SilenceProbeMilliseconds), Is.False);
+
+            client.Send(CreateUrbFrame(52, UsbIpDirection.Out, EndpointNumberOf(TestDevices.SimpleInterruptOutAddress), 3, payload: second));
+            // A blocked callback prevents dispatch/acknowledgement of the next OUT;
+            // the new policy is not an unbounded producer queue.
+            Assert.That(client.TryReadExactly(new byte[UsbIpProtocol.HeaderSize], SilenceProbeMilliseconds), Is.False);
+        }
+        finally { device.Release.Set(); }
+
+        if (!acknowledgeFirst) Assert.That(ReadRetFrame(client).SeqNum, Is.EqualTo(51u));
+        Assert.That(ReadRetFrame(client).SeqNum, Is.EqualTo(52u));
+        SendBarrier(client, 53); // the second callback has finished before this reply
+        Assert.That(device.Reports, Is.EqualTo(new[] { first, second }));
+    }
+
+    [Test]
+    public void InterruptOut_AcknowledgeFirst_DoesNotAcceptAnIncompleteFrame()
+    {
+        using var device = new BlockingOutputDevice();
+        using var harness = new ServerHarness(device, acknowledgeInterruptOutBeforeDispatch: true);
+        using var client = harness.Connect();
+        ImportDevice(client, TestBusId);
+        byte[] frame = CreateUrbFrame(54, UsbIpDirection.Out, EndpointNumberOf(TestDevices.SimpleInterruptOutAddress), 3, payload: [0x02, 0x11, 0x22]);
+        try
+        {
+            client.Send(frame[..^1]);
+            Assert.That(client.TryReadExactly(new byte[UsbIpProtocol.HeaderSize], SilenceProbeMilliseconds), Is.False);
+            Assert.That(device.Entered.IsSet, Is.False);
+            client.Send(frame[^1..]);
+            Assert.That(device.Entered.Wait(CommunicationTimeoutMilliseconds), Is.True);
+            Assert.That(ReadRetFrame(client).ActualLength, Is.EqualTo(3u));
+        }
+        finally { device.Release.Set(); }
+        SendBarrier(client, 55);
+        Assert.That(device.Reports.Single(), Is.EqualTo(new byte[] { 0x02, 0x11, 0x22 }));
+    }
+
+    [Test]
+    public void InterruptOut_AcknowledgeFirst_UnknownEndpointStillFailsWithoutDispatch()
+    {
+        using var device = new BlockingOutputDevice();
+        using var harness = new ServerHarness(device, acknowledgeInterruptOutBeforeDispatch: true);
+        using var client = harness.Connect();
+        ImportDevice(client, TestBusId);
+        client.Send(CreateUrbFrame(56, UsbIpDirection.Out, 15, 3, payload: [0x02, 0x11, 0x22]));
+        RetFrame rejected = ReadRetFrame(client);
+        Assert.That(rejected.SeqNum, Is.EqualTo(56u));
+        Assert.That(rejected.Status, Is.EqualTo(UsbIpStatus.NoEntry));
+        Assert.That(device.Entered.IsSet, Is.False);
+        SendBarrier(client, 57);
+    }
+
     [Test]
     public void Unlink_PendingUrb_RepliesEconnresetAndSuppressesCompletion()
     {
@@ -1279,15 +1353,33 @@ public sealed class UsbIpServerTests
     }
 
     /// <summary>
-    /// Started <see cref="UsbIpServer"/> on loopback port 0 with a manual clock and a recording
-    /// logger, optionally registering one device under <see cref="TestBusId"/>.
+    /// A synchronous output consumer held until the test has observed the USB completion order.
     /// </summary>
+    private sealed class BlockingOutputDevice() : VirtualUsbDevice(TestDevices.CreateSimpleDevice()), IDisposable
+    {
+        public ManualResetEventSlim Entered { get; } = new(false);
+        public ManualResetEventSlim Release { get; } = new(false);
+        public List<byte[]> Reports { get; } = [];
+
+        public override void OnOutputReport(ReadOnlySpan<byte> data)
+        {
+            Reports.Add(data.ToArray());
+            Entered.Set();
+            if (!Release.Wait(CommunicationTimeoutMilliseconds))
+                throw new TimeoutException("Test output callback was not released");
+        }
+
+        public void Dispose() { Release.Set(); Entered.Dispose(); Release.Dispose(); }
+    }
+
+    /// <summary>Started loopback server with a manual clock and an optional registered device.</summary>
     private sealed class ServerHarness : IDisposable
     {
         /// <summary>Starts the server and registers <paramref name="device"/> when it is not null.</summary>
         /// <param name="device">Device to register; <see langword="null"/> starts an empty server.</param>
         /// <param name="busId">Bus id to register the device under.</param>
-        public ServerHarness(VirtualUsbDevice? device, string busId = TestBusId, bool immediateInputDelivery = false)
+        public ServerHarness(VirtualUsbDevice? device, string busId = TestBusId, bool immediateInputDelivery = false,
+            bool acknowledgeInterruptOutBeforeDispatch = false)
         {
             TimeProvider = new ManualTimeProvider();
             Logger = new RecordingLogger();
@@ -1297,7 +1389,8 @@ public sealed class UsbIpServerTests
                 TimeProvider = TimeProvider,
                 Logger = Logger,
                 InterruptInterval = Interval,
-                ImmediateInputDelivery = immediateInputDelivery
+                ImmediateInputDelivery = immediateInputDelivery,
+                AcknowledgeInterruptOutBeforeDispatch = acknowledgeInterruptOutBeforeDispatch
             });
             Server.Start();
             if (device is not null)
