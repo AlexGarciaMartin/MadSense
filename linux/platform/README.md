@@ -267,8 +267,19 @@ kernel backlog as unmeasured. Synthetic missing-sequence evidence continues to
 classify `transport-limit`; these counters are not physical latency measurements.
 The client's `AcknowledgedThrough` records a completed socket write, not a
 response from the helper. The final helper journal's `acknowledged` counter is
-the watermark the helper actually validated. Native credit-flow validation is
-still pending; portable protocol/socket tests are not a loss-free hardware claim.
+the watermark the helper actually validated.
+
+[Native run 41659070933](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41659070933)
+at `85cc6d1` passed 112 client tests, 98 Python tests and twelve blocked-pool cases
+on both Linux architectures, then the owned-VM broker/core/app gates (10/9/10),
+upgrade/removal, extended Sony controls and Xbox force feedback. Its core cycle
+delivered all 240 received reports with zero queue overflow and confirmed cleanup.
+The separate [1000 Hz comparison](../tests/latency/HELPER-TRACE.md) completed four
+ten-second sessions without client overflow or disconnection. All four helpers
+finished with issued equal to acknowledged; one credit pause lasted 386575 ns.
+The virtual readers still missed 98/97/122/100 written sequences respectively.
+These native results validate the exercised flow and lifecycle contracts, not
+lossless kernel buffering, physical latency or game parity.
 
 At the end of helper acquisition, after the durable journal and FDSTORE barrier
 and before ACTIVE or the acquire reply, the helper drains the nonblocking hidraw

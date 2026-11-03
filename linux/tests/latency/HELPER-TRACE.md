@@ -62,6 +62,81 @@ causality. All timing cases used the observed helper, so these results do not
 quantify its overhead or prove that every historical failure has the same cause.
 No production scheduling, queue capacity or isolation rule was changed.
 
+## Native observation with negotiated input credits
+
+Run [41658720742](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41658720742)
+used commit `16e857ec9bf3f1da0e0b130a1904914e5df874f3`, including production
+version-1 consumer credits with the unchanged eight-report window. All four
+fresh 1000 Hz cases completed ten seconds, with no client input overflow, setup
+discard, unattempted report, injection error or lost-isolation reason. Each actor
+had one lease and one Ready transition. These observations do not establish
+loss-free transport: the virtual reader still missed written source sequences.
+
+| Case | Written / observed unique | Missing / producer skipped | Observed upper p50 / p95 / p99 |
+|---|---:|---:|---:|
+| control-1 | 9996 / 9898 | 98 / 4 | 0.313162 / 0.473685 / 1.271564 ms |
+| input-1 | 9999 / 9902 | 97 / 1 | 0.301419 / 0.536764 / 1.294446 ms |
+| input-2 | 9987 / 9865 | 122 / 13 | 0.341288 / 0.510060 / 1.382988 ms |
+| control-2 | 9992 / 9892 | 100 / 8 | 0.341539 / 0.499070 / 1.292764 ms |
+
+The upper interval runs from immediately before the UHID write to observation
+by the virtual hidraw reader. Nearest-rank percentiles cover observed reports
+only; missing reports receive no inferred latency. All four results remain
+`transport-limit`. This is synthetic software-path evidence, not Bluetooth or
+physical-controller latency.
+
+The exact owner's final `input-flow-ended` journal records show issued and
+validated acknowledged counts equal at 10140, 10072, 10107 and 10068 respectively.
+Those counts cover each entire lease, including input outside the ten-second
+injection interval. Only input-1 exhausted its credit window: once, for
+386575 ns. The other three cases recorded no credit pause. Client
+`AcknowledgedThrough` means a completed socket write; the helper's final count
+establishes validation. Every record retains `kernelBacklogMeasured=false`.
+Neither the bounded software window nor zero client overflows measures the
+kernel hidraw backlog or proves that no physical input was lost. This one run
+does not establish the behavior of all slow consumers.
+
+Each case retained 20 active verification/inventory calls and ten descriptor
+audits, without an open/overwritten scope, raised scope or observer error.
+
+| Case | Maximum verify / inventory wall time |
+|---|---:|
+| control-1 | 5.880213 / 5.215903 ms |
+| input-1 | 5.749606 / 4.877891 ms |
+| input-2 | 6.219372 / 5.308968 ms |
+| control-2 | 4.782272 / 4.185786 ms |
+
+Synchronous verification still overlaps periodic broker-read gaps. For example,
+input-1's source sequences 8792–8793 have a 4.171477 ms broker-read gap containing
+a 3.128936 ms verification, while the producer interval is 1.010003 ms.
+Input-2's sequences 9727–9728 have a 4.960078 ms gap containing a 3.918369 ms
+verification, with a 1.021389 ms producer interval. Credits do not remove this
+synchronous work. The different maxima from the earlier run do not demonstrate
+an inventory optimization or isolate a credit-related timing improvement.
+
+The two client recorders retained 4096-event tails from 29997 and 29961 events;
+25901 and 25865 earlier events were explicitly overwritten. Both tails have zero
+holes, collisions or bad sequences. Thirteen missing virtual sequences in the
+first tail and six in the second already had client dequeue events. For those
+nineteen sequences, omission is later than channel removal, which itself precedes
+connection checking, copying, parsing and USB delivery. No such attribution is
+possible for the overwritten prefixes. Both cases recorded GC collection-count
+increments `[2, 1, 0]`; collection counts do not identify pause intervals or
+establish a scheduling cause. All timing cases still use the observed helper,
+so there is no same-run measurement of helper-observer overhead.
+
+The original helper passed ten broker, nine core and ten app cases, two upgrades
+and four removals; the observed helper separately passed nine core cases. Both
+observer architectures passed 64 Python tests and their native recorder tests.
+All case cleanup checks passed, the original helper configuration/files and idle
+state were restored, its temporary copy was removed, QEMU stopped and the exact
+temporary KVM ACL restored. The collected runtime ZIP has SHA-256
+`e5a8816f66003ff149fd5736e443d22be4e97c3997aeedce51b3ab11810fb83d`
+(3465385 bytes). The independent audit verified 115 payload source hashes, four
+installed helper files, both exact source transformations and the complete Git
+archive. Separate raw CSV, journal-chunk and final credit audits reproduce the
+counts above; retained diagnostics are bounded and their hashes verified.
+
 ## Experiment and validation contract
 
 Dispatch `run_native=true`, `trace_input=true`, `trace_helper=true`, with

@@ -22,15 +22,15 @@ mandos. La conexión permanece bloqueada hasta verificar el componente de acceso
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
 
-En la revisión `40e2de1`, el
-[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653899459)
-pasó en ambas arquitecturas: 429 pruebas compartidas, 100 de plataforma y 18 de
+En la revisión `add0505`, el
+[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41659529498)
+pasó en ambas arquitecturas: 429 pruebas compartidas, 112 de plataforma y 18 de
 aplicación, las seis interfaces y el ciclo de escritorio de los paquetes extraídos.
 Las [tres pruebas del kernel en `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966377)
 pasaron con DualSense, Edge y Xbox, incluida la retirada de la VM y restauración
 de permisos KVM. Las dos Sony conservaron las 48.000 muestras por canal en la
 reproducción ALSA y el audio ISO IN sintético.
-El [servicio nativo en `40e2de1`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653899463)
+El [servicio nativo en `85cc6d1`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41659070933)
 pasó diez casos de aislamiento/recuperación, dos actualizaciones en reposo y
 cuatro casos de desinstalación/reinstalación. El núcleo pasó
 sus nueve casos: identidad y calibración física del fixture, entrada completa,
@@ -92,6 +92,10 @@ baja. Pasaron dos reconexiones, cierre forzado, recreación y cierre normal. Los
 controles con otro puerto o cadena no reciben esa política. No cambia el número
 de serie USB ni HID. Todavía es un experimento: faltan la comprobación del PCM
 de este exportador y su integración recuperable con el servicio de producto.
+El [ensayo PCM en `86287d8`](tests/audio-hotplug/export/PCM.md) ya confirmó las
+48.000 muestras exactas de los cuatro canales en su control ALSA directo. Se
+detuvo al encontrar un vector de ganancia de dos canales antes de negociar el
+formato del exportador; todavía no valida su reproducción mediante PipeWire.
 El alcance y las fuentes están en [la prueba de exportación](tests/audio-hotplug/export/README.md).
 Estos resultados no equivalen a un escritorio ni a juegos reales.
 
@@ -121,8 +125,13 @@ justifican aumentarla sin más. El cierre y la restauración pasaron en los ocho
 casos. La [observación del servicio en `00484dc`](tests/latency/HELPER-TRACE.md)
 reprodujo por separado desbordamientos en el servicio y en el cliente. En un caso
 sin recolecciones GC, una revisión síncrona de dispositivos ocupó 7,506 ms antes
-de una ráfaga de nueve informes que llenó la cola del cliente. Se está corrigiendo
-el control de flujo; no se han ampliado los límites ni ocultado los informes perdidos.
+de una ráfaga de nueve informes que llenó la cola del cliente. El nuevo protocolo
+conserva la ventana de ocho y devuelve capacidad cuando la app consume el informe.
+En `16e857e`, las cuatro sesiones de diez segundos a 1.000 Hz terminaron sin
+desconexión ni desbordamientos. Persistieron 98/97/122/100 secuencias no observadas
+en el mando virtual; se conservan como límites del transporte. Sólo hubo una
+pausa por falta de capacidad, de 386575 ns. Eso no demuestra que el búfer del
+kernel no pueda perder entrada ni mide latencia física.
 No se ha medido Bluetooth físico: ninguno de estos resultados sustituye
 un mando o un juego real.
 
@@ -134,10 +143,14 @@ de reenviarla al físico, conservando el orden sin añadir una cola. La
 pasó los cuatro casos SDL, entregó sus 7.718 informes sin desbordamientos y
 confirmó la limpieza de los consumidores y el núcleo; no reapareció aquella
 espera. El ensayo sigue fallando por contratos de Wine y por el lanzamiento de
-GE-Proton todavía no validado. Una ejecución GE independiente volvió a saturar
-la cola del servicio durante sus requisitos previos, por lo que el problema de
-flujo de entrada sigue abierto. La ruta de control USB `SET_REPORT` también
-requiere validación específica y no se modifica con esta corrección.
+GE-Proton todavía no validado. La repetición independiente con créditos completó
+sus requisitos previos y cerró ambos actores, pero GE sigue sin proporcionar el
+resultado de sus programas de prueba; se está corrigiendo su captura de salida.
+La [prueba de control USB](tests/control-report/README.md) confirmó además que el
+identificador incluido en `SET_REPORT` desplaza el subcomando de características
+en el decodificador actual. Su corrección y repetición están pendientes. La
+solicitud de salida por control recibió `EBUSY` del kernel y permanece sin validar;
+no se desconectó el driver para forzarla.
 
 El motor de la app ya conecta la sesión del broker con el servicio de emulación,
 los ajustes originales y el forwarder Bluetooth. Pausar cancela una adquisición

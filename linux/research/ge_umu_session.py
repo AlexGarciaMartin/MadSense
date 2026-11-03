@@ -8,7 +8,7 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import re
 import shutil
@@ -124,8 +124,19 @@ def offline_command(launcher, program, arguments):
     # No host networking or protection changes. The additional namespace keeps
     # even an upstream download regression from reaching the network. If this
     # normal unprivileged operation is unavailable, retain failure and stop.
+    # GE's Unix-path umu.exe shim starts console PEs with CREATE_NEW_CONSOLE
+    # and bInheritHandles=FALSE. Our observers need their ordinary redirected
+    # stdout; the supported Windows-path branch still runs through UMU/Proton
+    # and the same pressure-vessel runtime, but launches Wine directly.
+    path = str(program)
+    require(path.startswith("/") and str(PurePosixPath(path)) == path
+            and ".." not in PurePosixPath(path).parts and PurePosixPath(path).suffix.lower() == ".exe"
+            and not any(character in path for character in '\\:"<>|?*')
+            and all(ord(character) >= 32 and ord(character) != 127 for character in path),
+            "An unambiguous absolute Linux PE path is required")
+    windows_path = "Z:" + path.replace("/", "\\")
     return ["unshare", "--user", "--map-current-user", "--net", "--",
-            "python3", str(launcher), str(program), *map(str, arguments)]
+            "python3", str(launcher), windows_path, *map(str, arguments)]
 
 
 def change_owner_tree(root, uid, gid):
@@ -214,8 +225,12 @@ actual input/output and PCM markers, and always close its ConsumerSession.
     with program.open("rb") as stream:
         require(stream.read(2) == b"MZ", "Expected the built Windows PE consumer")
     require(1 <= timeout <= 120, "Consumer timeout exceeds budget")
+    command = offline_command(prepared["launcher"], program, arguments)
+    session.result["geUmuSession"].update(consumerLaunchPath=command[7],
+        consumerLaunchPathKind="windows-z-drive", unixConsoleShimRequested=False)
+    session.save()
     try:
-        row, output = session.command(label, offline_command(prepared["launcher"], program, arguments),
+        row, output = session.command(label, command,
                                       env=prepared["environment"], timeout=timeout, required=False)
     finally:
         capture_proton_logs(session, label)

@@ -132,8 +132,16 @@ class AcquisitionTests(unittest.TestCase):
         argv = offline_command("/owned path/umu-run", "/owned path/probe.exe", ["sony", "a;echo b"])
         self.assertEqual(argv[:5], ["unshare", "--user", "--map-current-user", "--net", "--"])
         self.assertNotIn("--map-root-user", argv)
+        self.assertEqual(argv[5:8], ["python3", "/owned path/umu-run", "Z:\\owned path\\probe.exe"])
         self.assertEqual(argv[-1], "a;echo b")
         self.assertNotIn("sh", argv)
+
+    def test_console_path_mapping_rejects_ambiguous_or_non_pe_paths(self):
+        for program in ("probe.exe", "/owned/../probe.exe", "/owned//probe.exe", "/owned/./probe.exe",
+                        "/owned/a:probe.exe", "/owned/a\\probe.exe", "/owned/probe.exe\n", "/owned/probe.cmd",
+                        '/owned/"probe.exe', '/owned/p*.exe', '/owned/p?.exe'):
+            with self.subTest(program=program), self.assertRaises(ValueError):
+                offline_command("/owned/umu-run", program, [])
 
     def test_secondary_log_snapshot_error_does_not_replace_runtime_failure(self):
         from types import SimpleNamespace
@@ -141,9 +149,12 @@ class AcquisitionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);program=root/'consumer.exe';program.write_bytes(b'MZ-owned-test')
             original=RuntimeError('Original runtime timeout')
-            session=SimpleNamespace(root=root,result={},save=lambda:None,
+            session=SimpleNamespace(root=root,result={"geUmuSession":{}},save=lambda:None,
                 command=Mock(side_effect=[original,RuntimeError('Diagnostic unavailable')]))
-            with self.assertRaises(RuntimeError) as caught:
+            # This orchestration test runs on Windows too; path conversion is
+            # separately tested against the actual Linux-only input contract.
+            with patch('ge_umu_session.offline_command',return_value=['unshare','--user','--map-current-user',
+                    '--net','--','python3','umu','Z:\\owned\\consumer.exe']), self.assertRaises(RuntimeError) as caught:
                 run_consumer(session,dict(launcher='umu',environment={}),program,[],label='case')
             self.assertIs(caught.exception,original)
             self.assertIn('Diagnostic unavailable',session.result['protonLogSnapshots'][0]['unavailable'])

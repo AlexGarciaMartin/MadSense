@@ -283,6 +283,36 @@ the disposal assertion. The second actor and GE session never started. This is
 a distinct bridge/core failure, not a GE runtime result; distribution Wine was
 not executed in that mode.
 
+## Console output and the standalone credit-flow run
+
+[Run 41658726882](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41658726882)
+at `16e857ec9bf3f1da0e0b130a1904914e5df874f3` retained runtime artifact SHA-256
+`78d2bd14d1d3fbb3671027545e86643df08fa26db596aefc2aed913a9074d506`.
+Its first core actor passed all nine prerequisites. The fresh GE actor retained
+eight completed cases and confirmed disposal, with no input overflow or isolation
+failure; its overall result still failed because the consumers supplied no final
+JSON. Neither runtime identity nor game compatibility is inferred from that exit.
+
+The four bounded Proton logs do show the two observer PEs being loaded. Their
+stdout remained empty and all four launches returned exit 1. This is more precise
+than saying that the PE never ran. The Win32 observer's log also contains a C++
+exception; obtaining its own final diagnostic remains necessary. The logs contain
+other warnings, including i386 loader probing and xalia/Mono, which are not by
+themselves evidence that missing packages caused the consumer failure.
+
+The pinned [Proton launcher](https://github.com/GloriousEggroll/proton-ge-custom/blob/c0c2ee35e6d4d3bff4d39c6246ac46636434feb8/proton)
+routes Unix executable paths through `umu.exe`. Its
+[helper implementation](https://github.com/GloriousEggroll/proton-ge-custom/blob/c0c2ee35e6d4d3bff4d39c6246ac46636434feb8/umu_helper/umu.c)
+selects `CREATE_NEW_CONSOLE` for console PEs and calls `CreateProcessW` with handle
+inheritance disabled. That path does not preserve the redirected output contract
+required by these observers. The next experiment passes the same resolved,
+session-owned PE as a canonical Windows `Z:` path, using Proton's existing direct
+Wine-launch branch. UMU, the pinned pressure-vessel runtime, ordinary UID,
+offline namespace and all consumer assertions remain in place. No runtime is
+patched or bypassed. The launch intent is recorded separately; a native rerun
+must establish whether it recovers diagnostic output and what the consumer then
+reports. This change alone is not a compatibility result.
+
 ## Primary references
 
 - [GE release](https://github.com/GloriousEggroll/proton-ge-custom/releases/tag/GE-Proton11-11),
