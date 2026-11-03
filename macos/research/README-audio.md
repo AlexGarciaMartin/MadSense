@@ -14,19 +14,61 @@ the existing CI-only installer, verifies its existing integration tests, and
 then saves JSONL results and CoreAudio diagnostics. Its installation guard
 refuses ordinary developer machines and self-hosted runners.
 
-The current research matrix compares timestamp periods of **256 and 16384
+The initial clock experiment compared timestamp periods of **256 and 16384
 frames** on both architectures. The actual runner's Apple SDK documents a
 minimum of 10923 frames for `kAudioDevicePropertyZeroTimeStampPeriod`; 256 is
 retained only as the known noncompliant control. The generated variants differ
 in one constant shared by the property and `GetZeroTimeStamp` calculation.
 Production uses the compliant 16384 constant; the generator overrides its three
 uses only in the isolated source copy to preserve the explicit 256 control.
-Queue capacity, drop thresholds, nominal sample rate and reader behavior do
-not change, and no client buffer size is requested. HAL may choose a different
-buffer size, which the probe records. No discontinuity-discard policy is added.
+Queue capacity, backlog thresholds and nominal sample rate did not change,
+and no client buffer size was requested. HAL chose 96-frame callbacks for 256
+and 512-frame callbacks for 16384; the probe records the actual selection.
 Artifacts include the chosen period, source digests, SDK version/header digest
 and extracted minimum instead of redistributing the full SDK header. Separate
 VMs run each variant, so between-host variation still limits timing comparisons.
+
+The current matrix keeps the corrected **16384** period and compares the
+unchanged `observe` behavior with an isolated `reject` recovery policy. On a
+documented cycle-counter rollback to one after a prior value greater than one,
+the latter observes and retains the incoming source failure, rejects the entire
+WriteMix operation, counts its frames and conditionally advances its captured
+PCM generation. A compare/exchange prevents replacing a concurrent owner,
+lease or stream transition. Existing per-frame generation tags then filter and
+count queued old PCM; the producer never writes the consumer's cursor. The
+HAL clock seed is unchanged. Initial cycle one is accepted. No PCM value is
+used to decide what to reject.
+
+This policy exists only in generated source/header copies under `.build`.
+The generated ring adds rejected-frame accounting and an acquiring loss-counter
+accessor; its existing queue algorithm and limits are unchanged. Native fake-host tests verify the old
+pending frame count, rejected count, surviving fresh payload and unchanged
+clock seed. Portable tests check a late old-epoch publication and concurrent
+reading across recovery, including exact delivered-plus-dropped accounting.
+After copying candidate frames and acquiring their loss snapshot, the recovery
+variant checks the epoch once more. If it changed, the candidate is counted and
+returned as zero frames, preventing a new-drop acknowledgement from carrying
+pre-recovery PCM. A deterministic test forces capture G, recovery, pop old G,
+and this final check. It does not double-count already filtered or trimmed
+frames. The final epoch check is the read's linearization point; a later
+transition cannot revoke a completed RPC. Nonempty data always keeps its
+captured epoch and is never relabeled with the new one.
+
+The source observer carries errors/counters across only its own successful
+recovery epoch changes. Other epoch changes still reset and scrub it. Metrics
+separate `source_data_integrity` from `reader_data_integrity` and retain
+`host_cycle_resets`, `policy_rejections`, `policy_rejected_frames`,
+`policy_epoch_advances`, reader generation changes, native drops and sequence
+gaps. Any observed recovery makes `measurement_valid` false even if the reader
+receives no repeated frame. Stop-tail source anomalies remain recorded. One
+post-stop read closes pending native loss accounting, with frames/drop delta
+reported separately from the measured reader window.
+
+The managed backend currently calls full forwarder `Flush` on every generation
+or dropped-frame change. That resets Bluetooth priming and can require eight
+warmup packets (about 85 ms at the configured cadence). This native experiment
+does not include that managed/transport cost. It must be measured separately;
+no shared-forwarder optimization or claim of uninterrupted audio is included.
 
 On a development Mac where the endpoint is already installed and unused:
 
@@ -88,8 +130,8 @@ JSON statistics report count, minimum, p50, p95, p99 and maximum in milliseconds
 frames or overlapping source callbacks. A lock-free guard detects unexpected
 concurrent IOProc invocation, leaves that callback's HAL-zeroed output alone,
 and invalidates the trial instead of allowing metadata races.
-`stream_discontinuity` records a generation change or a read with no
-active output client. `measurement_valid` additionally requires no such
+`stream_discontinuity` records a generation change, a read with no
+active output client, or an observed recovery-policy rejection. `measurement_valid` additionally requires no such
 discontinuity. These flags do not hide the counters or claim zero frame loss:
 drops and gaps remain separate, and age statistics describe received frames.
 `first_nonincreasing_frames` retains up to 32 violations with the prior highest

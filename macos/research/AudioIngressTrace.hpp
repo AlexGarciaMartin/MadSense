@@ -9,7 +9,7 @@
 
 namespace audio_probe {
 constexpr uint32_t kIngressProperty = 0x6d736967; // msig
-constexpr uint32_t kIngressVersion = 1;
+constexpr uint32_t kIngressVersion = 2;
 constexpr uint32_t kIngressEvents = 32, kIngressMarkers = 8;
 struct TraceTime {
     double sample = 0;
@@ -36,6 +36,7 @@ struct IngressSnapshot {
     uint32_t version = kIngressVersion, eventCount = 0;
     uint64_t generation = 0, calls = 0, frames = 0, verified = 0, silent = 0;
     uint64_t invalidMarkers = 0, nonIncreasing = 0, overlaps = 0;
+    uint64_t hostCycleResets = 0, resyncEvents = 0, rejectedFrames = 0, advancedEpochs = 0;
     std::array<IngressEvent, kIngressEvents> events{};
 };
 static_assert(std::is_trivially_copyable<IngressSnapshot>::value, "Trace must be a plain CFData payload");
@@ -63,9 +64,12 @@ public:
             data_.generation = generation;
             data_.calls = data_.frames = data_.verified = data_.silent = 0;
             data_.invalidMarkers = data_.nonIncreasing = 0;
+            data_.resyncEvents = data_.rejectedFrames = data_.advancedEpochs = 0;
+            data_.hostCycleResets = 0;
             previous_ = {}; highest_ = {}; seen_ = false;
         }
         ++data_.calls; data_.frames += frames;
+        if (cycle.cycle == 1 && previous_.cycle > 1) ++data_.hostCycleResets;
         IngressEvent* event = nullptr;
         for (uint32_t i = 0; i < frames; ++i) {
             const auto* frame = samples + i * 4;
@@ -95,6 +99,13 @@ public:
     // Keep the guard across the unchanged ring.push too, so overlapping plugin
     // writes are detected even when their observer scans themselves don't overlap.
     void end() noexcept { active_.clear(std::memory_order_release); }
+    // Called only while holding the observer guard. A successful CAS of the
+    // captured PCM epoch identifies our own recovery; other epoch changes still
+    // reset the observer and hide previous-owner records in the usual way.
+    void recordRecovery(uint64_t rejectedFrames, uint64_t adoptedGeneration) noexcept {
+        ++data_.resyncEvents; data_.rejectedFrames += rejectedFrames;
+        if (adoptedGeneration) { ++data_.advancedEpochs; data_.generation = adoptedGeneration; }
+    }
     // Only called off realtime after StopIO. A lingering writer makes the
     // snapshot fail explicitly; it is never waited on or raced with.
     bool snapshot(IngressSnapshot& output) noexcept {

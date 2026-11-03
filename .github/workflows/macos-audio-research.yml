@@ -8,6 +8,8 @@ on:
       - 'macos/research/*audio*'
       - 'macos/research/AudioProbeSignal.hpp'
       - 'macos/research/AudioIngressTrace.hpp'
+      - 'macos/research/AudioResyncPolicy.hpp'
+      - 'macos/research/AudioRecoveryRead.hpp'
 permissions:
   contents: read
 concurrency:
@@ -19,7 +21,8 @@ jobs:
       fail-fast: false
       matrix:
         runner: [macos-15, macos-15-intel]
-        timestamp_period: [256, 16384]
+        timestamp_period: [16384]
+        recovery: [observe, reject]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     steps:
@@ -30,7 +33,7 @@ jobs:
           cmake --build .build/audio --parallel
           ctest --test-dir .build/audio --output-on-failure
           bash macos/research/build_audio_probe.sh .build/audio-research
-          bash macos/research/build_audio_ingress.sh .build/audio-research .build/audio/MadSenseAudio.driver ${{ matrix.timestamp_period }}
+          bash macos/research/build_audio_ingress.sh .build/audio-research .build/audio/MadSenseAudio.driver ${{ matrix.timestamp_period }} ${{ matrix.recovery }}
           mkdir -p dist/audio-research
           cp .build/audio-research/ingress-source.json dist/audio-research/
       - name: Install and validate endpoint only on disposable runner
@@ -58,6 +61,7 @@ jobs:
               'header_path': str(header), 'header_sha256': hashlib.sha256(raw).hexdigest(),
               'documented_minimum_timestamp_period_frames': int(minimum[1]),
               'selected_timestamp_period_frames': ${{ matrix.timestamp_period }},
+              'recovery_policy': '${{ matrix.recovery }}',
               'counter_contract_summary': 'The cycle ordinal begins at one, advances each cycle, and returns to one when the IO thread resynchronizes.'}
           (output / 'sdk-contract.json').write_text(json.dumps(metadata, indent=2) + '\n')
           with (output / 'audio-path.jsonl').open('w') as stdout, (output / 'audio-path.stderr').open('w') as stderr:
@@ -83,6 +87,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: audio-research-${{ matrix.runner }}-period${{ matrix.timestamp_period }}
+          name: audio-research-${{ matrix.runner }}-period${{ matrix.timestamp_period }}-${{ matrix.recovery }}
           path: dist/audio-research/*
           retention-days: 14

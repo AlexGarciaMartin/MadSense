@@ -1,4 +1,4 @@
-#include "../audio/AudioProtocol.hpp"
+#include "AudioProtocol.hpp" // The same generated headers as the test driver.
 #include "AudioIngressTrace.hpp"
 #include <unistd.h>
 #include <cstdlib>
@@ -17,9 +17,12 @@ AudioObjectPropertyAddress address(UInt32 selector) {
 }
 int main(int argc, char** argv) {
     using namespace madsense;
-    require(argc == 2);
+    require(argc == 3);
     const UInt32 expectedPeriod = static_cast<UInt32>(std::stoul(argv[1]));
     require(expectedPeriod == 256 || expectedPeriod == 16384);
+    const std::string recovery = argv[2];
+    require(recovery == "observe" || recovery == "reject");
+    const bool rejectResync = recovery == "reject";
     auto driver = static_cast<AudioServerPlugInDriverRef>(MadSenseAudio_Create(nullptr, kAudioServerPlugInTypeUUID));
     require(driver != nullptr);
     AudioServerPlugInHostInterface host{};
@@ -61,6 +64,47 @@ int main(int argc, char** argv) {
     require((*driver)->StopIO(driver, kDevice, client.mClientID) == noErr);
     require(readTrace(getpid(), snapshot) == noErr);
     require(snapshot.nonIncreasing == 96 && snapshot.events[0].current.output.sample == 123 && snapshot.events[0].current.client == 42);
+    require((*driver)->StartIO(driver, kDevice, client.mClientID) == noErr);
+    auto readPacket = [&] {
+        auto readAddress = address(kRead);
+        CFDataRef data = nullptr; UInt32 bytes = 0;
+        require((*driver)->GetPropertyData(driver, kDevice, getpid(), &readAddress, 0, nullptr,
+            sizeof(data), &bytes, &data) == noErr && data);
+        AudioPacket packet{};
+        require(CFDataGetLength(data) <= sizeof(packet));
+        std::memcpy(&packet, CFDataGetBytePtr(data), CFDataGetLength(data)); CFRelease(data);
+        return packet;
+    };
+    const auto before = readPacket();
+    UInt64 recoveryClockSeed = 0;
+    require((*driver)->GetZeroTimeStamp(driver, kDevice, client.mClientID, &sample, &ticks, &recoveryClockSeed) == noErr);
+    for (unsigned i = 0; i < 96; ++i) audio_probe::encode(2, i, frames + i * 4);
+    for (unsigned ordinal : {2u, 1u}) {
+        cycle.mIOCycleCounter = ordinal;
+        require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
+            kAudioServerPlugInIOOperationWriteMix, 96, &cycle, frames, nullptr) == noErr);
+    }
+    for (unsigned i = 0; i < 96; ++i) audio_probe::encode(3, i, frames + i * 4);
+    cycle.mIOCycleCounter = 2;
+    require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
+        kAudioServerPlugInIOOperationWriteMix, 96, &cycle, frames, nullptr) == noErr);
+    require((*driver)->StopIO(driver, kDevice, client.mClientID) == noErr);
+    const auto after = readPacket();
+    require((*driver)->GetZeroTimeStamp(driver, kDevice, client.mClientID, &sample, &ticks, &seed) == noErr && seed == recoveryClockSeed);
+    require(readTrace(getpid(), snapshot) == noErr && snapshot.nonIncreasing == 96 && snapshot.eventCount == 1);
+    require(snapshot.generation == after.generation);
+    if (rejectResync) {
+        require(after.generation == before.generation + 1 && after.frames == 96);
+        require(after.droppedFrames - before.droppedFrames == 192); // 96 rejected + 96 pending.
+        require(snapshot.resyncEvents == 1 && snapshot.rejectedFrames == 96 && snapshot.advancedEpochs == 1);
+        for (unsigned i = 0; i < 96; ++i) {
+            audio_probe::Marker marker{};
+            require(audio_probe::decode(after.samples + i * 4, marker) && marker.callback == 3 && marker.offset == i);
+        }
+    } else {
+        require(after.generation == before.generation && after.frames == 288);
+        require(after.droppedFrames == before.droppedFrames && snapshot.resyncEvents == 0);
+    }
     claim = kCFBooleanFalse;
     require((*driver)->SetPropertyData(driver, kDevice, getpid(), &ownerAddress, 0, nullptr, sizeof(claim), &claim) == noErr);
     require(readTrace(getpid(), snapshot) != noErr);

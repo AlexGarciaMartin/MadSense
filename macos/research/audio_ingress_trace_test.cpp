@@ -28,28 +28,33 @@ int main() {
     require(event.previous.cycle == 1 && event.current.cycle == 2 && event.nonIncreasing == 96);
     require(event.current.output.sample == 192 && event.markerCount == audio_probe::kIngressMarkers);
     require(event.markers[0].highest.offset == 95 && event.markers[0].current.offset == 0);
+    require(trace.begin(block, 96, 7, cycle));
+    trace.recordRecovery(192, 8); trace.end();
+    require(trace.snapshot(snapshot) && snapshot.generation == 8 && snapshot.nonIncreasing == 192);
+    require(snapshot.resyncEvents == 1 && snapshot.rejectedFrames == 192 && snapshot.advancedEpochs == 1);
     // A stream restart legitimately reuses callback1: its generation resets
     // order/count state while making old event records inaccessible.
-    observe(block, 96, 8, cycle);
+    observe(block, 96, 9, cycle);
     require(trace.snapshot(snapshot));
-    require(snapshot.generation == 8 && snapshot.calls == 1 && snapshot.nonIncreasing == 0 && snapshot.eventCount == 0);
+    require(snapshot.generation == 9 && snapshot.calls == 1 && snapshot.nonIncreasing == 0 && snapshot.eventCount == 0);
+    require(snapshot.resyncEvents == 0 && snapshot.rejectedFrames == 0);
     require(snapshot.events[0].current.cycle == 0); // Unused wire storage is scrubbed.
     // Bounded event storage must not stop counting later failures.
-    for (unsigned i = 0; i < 40; ++i) observe(block, 96, 8, cycle);
+    for (unsigned i = 0; i < 40; ++i) observe(block, 96, 9, cycle);
     require(trace.snapshot(snapshot));
     require(snapshot.nonIncreasing == 40 * 96 && snapshot.eventCount == audio_probe::kIngressEvents);
     block[0] = -1;
-    observe(block, 1, 8, cycle);
+    observe(block, 1, 9, cycle);
     for (unsigned i = 0; i < 4; ++i) block[i] = 0;
-    observe(block, 1, 8, cycle);
+    observe(block, 1, 9, cycle);
     require(trace.snapshot(snapshot));
     require(snapshot.invalidMarkers == 1 && snapshot.silent == 1 && snapshot.overlaps == 0);
     // A second plugin write between observation and ring publication is also
     // diagnosed; neither the loser nor a snapshot clears the winner's guard.
-    require(trace.begin(block, 1, 8, cycle));
-    require(!trace.begin(block, 1, 8, cycle));
+    require(trace.begin(block, 1, 9, cycle));
+    require(!trace.begin(block, 1, 9, cycle));
     require(!trace.snapshot(snapshot));
-    require(!trace.begin(block, 1, 8, cycle));
+    require(!trace.begin(block, 1, 9, cycle));
     trace.end();
     require(trace.snapshot(snapshot) && snapshot.overlaps == 2);
     std::cout << "Ingress observer ordering, generation and bounds passed\n";

@@ -1,6 +1,6 @@
 import pathlib
 import unittest
-from instrument_audio_plugin import instrument
+from instrument_audio_plugin import instrument, instrument_ring
 
 
 class InstrumentationTests(unittest.TestCase):
@@ -44,6 +44,27 @@ class InstrumentationTests(unittest.TestCase):
     def test_arbitrary_period_not_accepted(self):
         with self.assertRaises(ValueError):
             instrument(self.source, 512)
+
+    def test_recovery_is_opt_in_and_observes_before_rejecting(self):
+        baseline = instrument(self.source, 16384)
+        recovery = instrument(self.source, 16384, True)
+        self.assertNotIn('compare_exchange_strong(expected, generation + 1', baseline)
+        self.assertIn('compare_exchange_strong(expected, generation + 1', recovery)
+        self.assertLess(recovery.index('ingressTrace.begin('), recovery.index('resyncPolicy.reject('))
+        self.assertLess(recovery.index('ring.rejectFrames(frames)'), recovery.index('ring.push('))
+        self.assertLess(recovery.index('packet.generation = pcmGeneration.load'), recovery.index('ring.popLatest('))
+        self.assertLess(recovery.index('ring.popLatest('), recovery.index('audio_probe::finishCapturedRead('))
+
+    def test_ring_changes_are_counting_and_acquire_accessor(self):
+        source = (self.path.parent / 'AudioRing.hpp').read_text(encoding='utf-8')
+        self.assertEqual(instrument_ring(source, False), source)
+        result = instrument_ring(source, True)
+        addition = '''    void rejectFrames(uint32_t frames) noexcept {
+        dropped_.fetch_add(frames, std::memory_order_release);
+    }
+'''
+        self.assertEqual(result.replace(addition, '').replace('dropped_.load(std::memory_order_acquire)',
+                                                             'dropped_.load(std::memory_order_relaxed)'), source)
 
 
 if __name__ == '__main__':

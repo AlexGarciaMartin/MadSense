@@ -256,7 +256,8 @@ void printBadMarker(const audio_probe::BadMarker& marker) {
               << ",\"highest_callback\":" << marker.highest.callback << ",\"highest_offset\":" << marker.highest.offset
               << ",\"current_callback\":" << marker.current.callback << ",\"current_offset\":" << marker.current.offset << '}';
 }
-bool ingressTrace(AudioDeviceID device, unsigned trialIndex, bool elevated, uint64_t generation) {
+struct IngressResult { bool integrity = true; uint64_t rejections = 0; };
+IngressResult ingressTrace(AudioDeviceID device, unsigned trialIndex, bool elevated, uint64_t generation) {
     auto addr = address(audio_probe::kIngressProperty);
     CFDataRef data = nullptr;
     UInt32 size = sizeof(data);
@@ -276,6 +277,11 @@ bool ingressTrace(AudioDeviceID device, unsigned trialIndex, bool elevated, uint
               << ",\"calls\":" << trace.calls << ",\"frames\":" << trace.frames
               << ",\"verified\":" << trace.verified << ",\"silent\":" << trace.silent
               << ",\"invalid_markers\":" << trace.invalidMarkers << ",\"nonincreasing_frames\":" << trace.nonIncreasing
+              << ",\"host_cycle_resets\":" << trace.hostCycleResets
+              << ",\"policy_rejections\":" << trace.resyncEvents
+              << ",\"policy_rejected_frames\":" << trace.rejectedFrames
+              << ",\"policy_epoch_advances\":" << trace.advancedEpochs
+              << ",\"history_carries_policy_epochs\":true,\"includes_stop_tail\":true"
               << ",\"observer_overlaps_since_load\":" << trace.overlaps << ",\"first_anomalous_blocks\":[";
     for (uint32_t i = 0; i < trace.eventCount; ++i) {
         const auto& event = trace.events[i];
@@ -293,7 +299,7 @@ bool ingressTrace(AudioDeviceID device, unsigned trialIndex, bool elevated, uint
         std::cout << "]}";
     }
     std::cout << "]}\n" << std::flush;
-    return integrity;
+    return {integrity, trace.resyncEvents};
 }
 
 bool trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned warmup,
@@ -378,7 +384,13 @@ bool trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
     ended = mach_absolute_time();
     const Cpu after = cpu();
     stream.stop();
-    const bool ingressIntegrity = !hasIngress || ingressTrace(device, trialIndex, elevated, generation);
+    // Close out pending native loss accounting, but keep all post-stop samples
+    // outside the measured reader window. The source observer still retains
+    // teardown replays; this read neither clears nor reclassifies those failures.
+    ReadBlock postStop{};
+    postStop.read(consumer);
+    require(postStop.active == 0 && postStop.dropped >= lastDropped, "Invalid stopped endpoint metadata");
+    const IngressResult ingress = hasIngress ? ingressTrace(device, trialIndex, elevated, postStop.generation) : IngressResult{};
     require(!signal.failed.load(), "Unsupported callback layout/size or metadata capacity exceeded");
     std::vector<double> callbackGap, callbackDuration;
     std::map<uint32_t, uint64_t> blockSizes;
@@ -393,10 +405,14 @@ bool trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
         previousCallback = record.entered;
     }
     const uint32_t callbackOverlaps = signal.callbackOverlaps.load();
-    const bool integrity = sequence.nonIncreasing == 0 && !age.empty() && callbackOverlaps == 0 && ingressIntegrity;
-    const bool discontinuity = changes != 0 || activeZero != 0;
+    const bool readerIntegrity = sequence.nonIncreasing == 0 && !age.empty() && callbackOverlaps == 0;
+    const bool integrity = readerIntegrity && ingress.integrity;
+    const bool discontinuity = changes != 0 || activeZero != 0 || ingress.rejections != 0;
     std::cout << "{\"kind\":\"audio_path_trial\",\"trial\":" << trialIndex
               << ",\"data_integrity\":" << (integrity ? "true" : "false")
+              << ",\"reader_data_integrity\":" << (readerIntegrity ? "true" : "false")
+              << ",\"source_data_integrity\":" << (!hasIngress ? "null" : ingress.integrity ? "true" : "false")
+              << ",\"recovery_occurred\":" << (ingress.rejections ? "true" : "false")
               << ",\"stream_discontinuity\":" << (discontinuity ? "true" : "false")
               << ",\"measurement_valid\":" << (integrity && !discontinuity ? "true" : "false")
               << ",\"policy\":\"" << (elevated ? "scoped_user_interactive" : "default")
@@ -407,6 +423,9 @@ bool trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
               << ",\"dropped_delta\":" << lastDropped - baselineDropped
               << ",\"sequence_gap_frames\":" << sequence.gaps << ",\"nonincreasing_frames\":" << sequence.nonIncreasing
               << ",\"generation_changes\":" << changes << ",\"empty_reads\":" << empty << ",\"full_reads\":" << full
+              << ",\"post_stop_frames\":" << postStop.frames
+              << ",\"post_stop_dropped_delta\":" << postStop.dropped - lastDropped
+              << ",\"post_stop_generation\":" << postStop.generation
               << ",\"callback_overlaps\":" << callbackOverlaps
               << ",\"reads_without_active_client\":" << activeZero
               << ",\"frames_without_presentation_timestamp\":" << missingPresentation;
