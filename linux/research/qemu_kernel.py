@@ -111,8 +111,14 @@ def main():
         while True:
             if qemu.poll() is not None:
                 raise RuntimeError("Owned QEMU exited before SSH readiness")
-            attempt = command("ssh-ready", [*ssh, "true"], timeout=8, required=False)
-            if attempt.returncode == 0:
+            try:
+                attempt = command("ssh-ready", [*ssh, "true"], timeout=8, required=False)
+                connected = attempt.returncode == 0
+            except subprocess.TimeoutExpired:
+                # A booting TCG guest may accept TCP before sshd can answer.
+                # This bounded attempt is retryable within the overall boot budget.
+                connected = False
+            if connected:
                 break
             if time.monotonic() > deadline:
                 raise TimeoutError("Owned guest did not become ready within its boot budget")
