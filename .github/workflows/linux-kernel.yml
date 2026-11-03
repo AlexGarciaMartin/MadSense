@@ -14,7 +14,7 @@ permissions:
 jobs:
   kernel:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -27,25 +27,27 @@ jobs:
       - name: Protocol regressions
         run: |
           dotnet test linux/probe/tests/MadSense.Linux.Protocol.Tests.csproj -c Release --logger 'trx;LogFileName=protocol.trx' --results-directory dist/linux-protocol
-          python3 -m unittest discover -s linux/research -p test_kernel_probe.py
+          python3 -m unittest discover -s linux/research -p 'test_*.py'
       - name: Build neutral exporter and independent host observer
         run: |
-          dotnet publish linux/probe/MadSense.Linux.Probe.csproj -c Release -o dist/linux-probe
+          dotnet publish linux/probe/MadSense.Linux.Probe.csproj -c Release -r linux-x64 --self-contained true -o dist/linux-probe
           gcc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -Werror linux/research/host_probe.c -o dist/linux-host-probe
-      - name: Prepare standard kernel modules and client utilities
-        run: bash linux/research/prepare_kernel.sh
-      - name: Verify owned virtual device on the real Linux kernel
+      - name: Prepare official-image guest tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client
+          test -r /usr/share/keyrings/ubuntu-cloudimage-keyring.gpg
+      - name: Verify owned virtual device in a signed Ubuntu kernel guest
         run: >-
-          python3 linux/research/kernel_probe.py --persona '${{ matrix.persona }}'
-          --probe dist/linux-probe/MadSense.Linux.Probe.dll
-          --host-probe dist/linux-host-probe --usbip "$USBIP_BINARY"
-          --output dist/linux-kernel
+          python3 linux/research/qemu_kernel.py --persona '${{ matrix.persona }}'
+          --probe-directory dist/linux-probe --host-probe dist/linux-host-probe
+          --output dist/linux-guest --work dist/qemu-private
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: linux-kernel-${{ matrix.persona }}
           path: |
-            dist/linux-kernel/**
+            dist/linux-guest/**
             dist/linux-protocol/**
           retention-days: 14
           if-no-files-found: warn

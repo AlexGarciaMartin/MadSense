@@ -14,6 +14,7 @@ import struct
 import subprocess
 import sys
 import time
+from ci_environment import validate_environment
 
 
 def wait_for(callback, seconds=15):
@@ -69,16 +70,17 @@ def main():
     parser.add_argument("--host-probe", type=Path, required=True)
     parser.add_argument("--usbip", type=Path, required=True)
     parser.add_argument("--dotnet", default="dotnet")
+    parser.add_argument("--self-contained", action="store_true", help="--probe is a self-contained executable")
+    parser.add_argument("--owned-guest-token")
     args = parser.parse_args()
-    if (sys.platform != "linux" or os.environ.get("GITHUB_ACTIONS") != "true"
-            or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
-        raise RuntimeError("Kernel integration is restricted to disposable GitHub-hosted Linux CI")
+    environment = validate_environment(args.owned_guest_token)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         raise RuntimeError("Use a fresh evidence directory")
     result = dict(schema=1, persona=args.persona, result="failed", physicalDeviceAccess=False,
                   radioInitialized=False, gamesValidated=False, physicalLatencyValidated=False)
+    result["environment"] = environment
     def save(name, data):
         (output / name).write_text(json.dumps(data, indent=2) + "\n")
     def command(label, argv, timeout=30, required=True):
@@ -105,7 +107,9 @@ def main():
         probe_output = output / "server"
         stdout = (output / "server.stdout").open("wb")
         stderr = (output / "server.stderr").open("wb")
-        process = subprocess.Popen([args.dotnet, str(args.probe.resolve()), "--persona", args.persona,
+        exporter = ([str(args.probe.resolve())] if args.self_contained
+                    else [args.dotnet, str(args.probe.resolve())])
+        process = subprocess.Popen([*exporter, "--persona", args.persona,
                                     "--output", str(probe_output), "--seconds", "180"],
                                    stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, start_new_session=True)
         def ready_file():

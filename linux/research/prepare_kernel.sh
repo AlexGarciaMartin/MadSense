@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]
+python3 "$(dirname "$0")/ci_environment.py" "${1:-}"
+uname -a
 sudo apt-get update -qq
 sudo apt-get install -y linux-tools-generic linux-tools-common usbutils alsa-utils
 missing_module=false
@@ -19,4 +20,5 @@ done
 usbip_binary="$(find /usr/lib/linux-tools -type f -name usbip -executable | sort -V | tail -1)"
 [[ -n "$usbip_binary" && -x "$usbip_binary" ]]
 "$usbip_binary" --version
-printf 'USBIP_BINARY=%s\n' "$usbip_binary" >> "$GITHUB_ENV"
+if [[ -n "${GITHUB_ENV:-}" ]]; then printf 'USBIP_BINARY=%s\n' "$usbip_binary" >> "$GITHUB_ENV"; fi
+if [[ -n "${USBIP_BINARY_FILE:-}" ]]; then printf '%s\n' "$usbip_binary" > "$USBIP_BINARY_FILE"; fi
