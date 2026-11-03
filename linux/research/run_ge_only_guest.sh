@@ -16,7 +16,9 @@ bash linux/platform/integration/run_core_experiment.sh "$owner_uuid"
 python3 -c 'import sys; sys.path.insert(0,"linux/research"); from ge_umu_standalone import prior_gates; prior_gates("result",sys.argv[1])' "$owner_uuid"
 # No distribution Wine, SDL consumer or desktop-profile observer is run here.
 sudo -n apt-get install -y --no-install-recommends libudev1 acl xvfb pulseaudio pulseaudio-utils dbus
-python3 -m unittest discover -s linux/research -p test_ge_umu_standalone.py -v
+# Host payload construction is tested before boot; guest runs only gate/error
+# regressions that are supported by the deliberately smaller staged tree.
+python3 -m unittest discover -s linux/research -p test_ge_umu_standalone.py -k StandaloneTests -v
 sudo -n python3 linux/platform/integration/run_core_guest.py --owned-guest-token "$owner_uuid" \
   --probe-directory "$PWD/core-probe" --host-probe "$PWD/host_probe" --output "$PWD/result/core-ge-experiment" \
   --consumer-binaries "$PWD/consumer-bin" --wine-consumer "$PWD/consumer-bin/wine_consumer.exe" \

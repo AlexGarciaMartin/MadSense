@@ -92,6 +92,7 @@ class StandaloneTests(unittest.TestCase):
             self.assertIs(caught.exception,original)
             self.assertIn("fixture disappeared",session.result["geNeutralResetError"])
 
+class StandalonePayloadTests(unittest.TestCase):
     def test_real_staged_ge_only_tree_imports_without_checkout_fallback(self):
         import hashlib, subprocess, sys
         from test_ge_umu_payload import GePrivatePayloadTests
@@ -113,7 +114,10 @@ class StandaloneTests(unittest.TestCase):
         self.assertFalse(metadata["geUmuPrivatePayload"]["runtimeCacheCollected"])
         self.assertFalse(fixture.output.exists())
         research=fixture.payload/"linux/research"
-        command="import pathlib,sys; p=pathlib.Path(sys.argv[1]);sys.path.insert(0,str(p));import ge_umu_standalone as m;assert pathlib.Path(m.__file__).parent==p"
+        command=("import pathlib,sys,unittest; p=pathlib.Path(sys.argv[1]);sys.path.insert(0,str(p));"
+                 "import ge_umu_standalone as m;assert pathlib.Path(m.__file__).parent==p;"
+                 "s=unittest.defaultTestLoader.loadTestsFromName('test_ge_umu_standalone.StandaloneTests');"
+                 "assert s.countTestCases()==6;r=unittest.TextTestRunner().run(s);sys.exit(not r.wasSuccessful())")
         result=subprocess.run([sys.executable,"-I","-c",command,str(research)],cwd=fixture.root,capture_output=True,text=True,timeout=15)
         self.assertEqual(result.returncode,0,result.stderr)
         for name in ("linux/research/ge_umu_standalone.py","linux/research/run_ge_only_guest.sh",
