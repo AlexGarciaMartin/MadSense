@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Darwin
 import ServiceManagement
+import UniformTypeIdentifiers
 
 // The backend alone decides whether the bridge is usable. A running child process,
 // an open physical controller or an available library never implies "Ready".
@@ -79,7 +80,7 @@ private func smokeLog(_ message: String) {
     try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
 }
 
-private func onMainRunLoop(_ action: @escaping () -> Void) {
+func onMainRunLoop(_ action: @escaping () -> Void) {
     // AppKit's terminateLater runs NSModalPanelRunLoopMode. Main dispatch-queue
     // blocks cannot re-enter their own serial queue, but CF run-loop blocks can
     // run in that nested loop. Include the modal mode explicitly, not by guess.
@@ -174,8 +175,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var log = ""
     private var logWindow: NSWindow?
     private var logView: NSTextView?
+    private var logWasTruncated = false
+    private var diagnosticStatusLabel: NSTextField?
+    private var refreshInventoryButton: NSButton?
+    private var exportDiagnosticButton: NSButton?
+    private var inventoryTask: NativeInventoryTask?
+    private var inventoryToken = UUID()
+    private var latestNativeInventory: [String: Any]?
+    private var nativeInventoryText = ""
+    private var latestBackendDiagnostic: [String: Any]?
+    private var latestBackendStatus: [String: Any]?
+    private var exportingDiagnostic = false
+    private var inventorySmokeFinished = false
     private var lastStatusTime = Date()
     private var healthTimer: Timer?
+    private var inventorySmoke: Bool {
+        CommandLine.arguments.contains("--smoke-test") && CommandLine.arguments.contains("--native-inventory-smoke")
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         smokeLog("applicationDidFinishLaunching")
@@ -205,9 +221,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
             return
         }
+        // Inventory smoke tests use the real backend's existing start-paused
+        // protocol, so even a runner with a controller never captures it.
+        if inventorySmoke { requestedPaused = true }
         startBackend()
         smokeLog("window visible; backend startup requested")
-        if CommandLine.arguments.contains("--smoke-test") {
+        if inventorySmoke {
+            afterOnMainRunLoop(2) { [weak self] in self?.showDiagnostics() }
+            afterOnMainRunLoop(25) { [weak self] in
+                guard let self = self, !self.inventorySmokeFinished, !self.quitting else { return }
+                smokeLog("native inventory smoke failed: completion deadline expired")
+                NSApp.terminate(nil)
+            }
+        } else if CommandLine.arguments.contains("--smoke-test") {
             // Exercise the real startup/shutdown path in a graphical CI session.
             // There is no mock controller and no fabricated connected state.
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
@@ -275,12 +301,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
     }
 
-    private func captureSmokeSnapshot() {
+    private func captureSmokeSnapshot(_ target: NSWindow? = nil) {
         guard let path = ProcessInfo.processInfo.environment["MADSENSE_SMOKE_SCREENSHOT"], !path.isEmpty else {
             smokeLog("snapshot skipped: MADSENSE_SMOKE_SCREENSHOT is unset")
             return
         }
-        guard let view = window?.contentView else {
+        guard let view = (target ?? window)?.contentView else {
             smokeLog("snapshot failed: the native window has no content view")
             return
         }
@@ -605,11 +631,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 refreshSpeaker()
             }
             if state == "diagnostic" {
+                latestBackendDiagnostic = ["received_at": ISO8601DateFormatter().string(from: Date()),
+                    "session_id": token.uuidString, "value": status]
                 if let formatted = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted, .sortedKeys]) {
                     appendLog(String(decoding: formatted, as: UTF8.self) + "\n")
                 }
+                finishInventorySmokeIfReady()
                 continue
             }
+            latestBackendStatus = ["received_at": ISO8601DateFormatter().string(from: Date()),
+                "session_id": token.uuidString, "value": status]
             // Fatal startup errors also emit valid JSON before exiting. Only
             // thirty seconds of consecutive healthy reports reset retry limits.
             if ["waiting", "connecting", "paused", "ready"].contains(state) {
@@ -796,9 +827,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func finishTermination() {
-        guard quitting, !terminationReplied, process?.isRunning != true else { return }
+        guard quitting, !terminationReplied, process?.isRunning != true, inventoryTask == nil else { return }
         terminationReplied = true
-        smokeLog("backend exited; replying to application termination")
+        smokeLog("backend and native inventory exited; replying to application termination")
         NSApp.reply(toApplicationShouldTerminate: true)
     }
 
@@ -891,9 +922,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func appendLog(_ text: String) {
         log += text
-        if log.count > 100_000 { log = String(log.suffix(80_000)) }
-        logView?.string = log
-        if let view = logView { view.scrollToEndOfDocument(nil) }
+        if log.count > 100_000 { log = String(log.suffix(80_000)); logWasTruncated = true }
+        refreshDiagnosticText(scrollToEnd: true)
     }
 
     @objc private func togglePause() {
@@ -937,34 +967,204 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         refreshTelemetry()
         refreshActivity()
         logWindow?.title = "MadSense · " + tr("Diagnostics", "Diagnóstico")
+        refreshDiagnosticControls()
         if visible { showWindow() }
     }
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func showDiagnostics() {
-        send("diagnose")
         if logWindow == nil {
-            let diagnostics = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 480),
+            let diagnostics = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 540),
                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             diagnostics.title = "MadSense · " + tr("Diagnostics", "Diagnóstico")
             diagnostics.isReleasedWhenClosed = false
-            let scroll = NSScrollView(frame: diagnostics.contentView!.bounds)
-            scroll.autoresizingMask = [.width, .height]
+            diagnostics.contentMinSize = NSSize(width: 740, height: 420)
+            diagnostics.backgroundColor = Palette.paper
+            diagnostics.appearance = NSAppearance(named: .aqua)
+            let root = AppContentView()
+            diagnostics.contentView = root
+            let status = label("", size: 12, color: Palette.muted)
+            diagnosticStatusLabel = status
+            let refresh = BrandButton(title: "", target: self, action: #selector(refreshNativeInventory))
+            let export = BrandButton(title: "", target: self, action: #selector(saveDiagnostics))
+            export.accent = true
+            refreshInventoryButton = refresh
+            exportDiagnosticButton = export
+            let buttons = NSStackView(views: [refresh, export])
+            buttons.orientation = .horizontal
+            buttons.spacing = 10
+            let scroll = NSScrollView()
             scroll.hasVerticalScroller = true
-            let view = NSTextView(frame: scroll.bounds)
+            scroll.borderType = .bezelBorder
+            let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 820, height: 400))
             view.isEditable = false
             view.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+            view.backgroundColor = Palette.paper
+            view.textColor = Palette.ink
             view.autoresizingMask = [.width]
             view.isVerticallyResizable = true
             view.textContainer?.widthTracksTextView = true
             view.string = log
             scroll.documentView = view
-            diagnostics.contentView?.addSubview(scroll)
+            let content = NSStackView(views: [status, buttons, scroll])
+            content.orientation = .vertical
+            content.alignment = .leading
+            content.spacing = 10
+            content.translatesAutoresizingMaskIntoConstraints = false
+            root.addSubview(content)
+            NSLayoutConstraint.activate([
+                content.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
+                content.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
+                content.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
+                content.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
+                status.widthAnchor.constraint(equalTo: content.widthAnchor),
+                scroll.widthAnchor.constraint(equalTo: content.widthAnchor),
+                scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 240)
+            ])
             diagnostics.center()
             logView = view
             logWindow = diagnostics
         }
         logWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        refreshNativeInventory()
+    }
+
+    @objc private func refreshNativeInventory() {
+        guard !quitting, inventoryTask == nil else { return }
+        send("diagnose")
+        let token = UUID()
+        inventoryToken = token
+        let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/MadSenseNativeProbe")
+        let stalled = inventorySmoke && ProcessInfo.processInfo.environment["MADSENSE_SMOKE_INVENTORY_STALL"] == "1"
+        let task = NativeInventoryTask(executable: executable, stallForSmoke: stalled) { [weak self] message in
+            smokeLog(message)
+            self?.appendLog(message + "\n")
+            if let self = self, self.inventorySmoke,
+               ProcessInfo.processInfo.environment["MADSENSE_SMOKE_INVENTORY_QUIT"] == "1",
+               message == "native inventory smoke SIGSTOP result: 0" {
+                smokeLog("native inventory smoke: requesting Quit with helper pending")
+                NSApp.terminate(nil)
+            }
+        }
+        inventoryTask = task
+        refreshDiagnosticControls()
+        task.start { [weak self] record, cleanupComplete in
+            guard let self = self, self.inventoryToken == token else { return }
+            self.inventoryTask = nil
+            self.latestNativeInventory = record
+            var displayed = record
+            if record["inventory"] is [String: Any] { displayed.removeValue(forKey: "stdout") }
+            self.nativeInventoryText = (try? JSONSerialization.data(withJSONObject: displayed, options: [.prettyPrinted, .sortedKeys]))
+                .map { String(decoding: $0, as: UTF8.self) } ?? ""
+            self.refreshDiagnosticControls()
+            self.refreshDiagnosticText(scrollToEnd: false)
+            guard cleanupComplete else {
+                // The helper has already received SIGKILL. Never report normal
+                // cleanup or silently orphan a child the OS still considers alive.
+                let failure = Data("MadSense: native inventory child did not exit after SIGKILL.\n".utf8)
+                try? FileHandle.standardError.write(contentsOf: failure)
+                Darwin._exit(EXIT_FAILURE)
+            }
+            if self.quitting { self.finishTermination() }
+            else { self.finishInventorySmokeIfReady() }
+        }
+    }
+
+    private func refreshDiagnosticControls() {
+        refreshInventoryButton?.title = tr("Refresh native inventory", "Actualizar inventario nativo")
+        exportDiagnosticButton?.title = tr("Save diagnostics…", "Guardar diagnóstico…")
+        refreshInventoryButton?.invalidateIntrinsicContentSize()
+        exportDiagnosticButton?.invalidateIntrinsicContentSize()
+        refreshInventoryButton?.isEnabled = inventoryTask == nil && !quitting
+        exportDiagnosticButton?.isEnabled = !exportingDiagnostic && !quitting
+        let outcome = latestNativeInventory?["outcome"] as? String
+        if inventoryTask != nil {
+            diagnosticStatusLabel?.stringValue = tr("Reading native interfaces… Previous results keep their capture time.",
+                "Leyendo interfaces nativas… Los resultados anteriores conservan su fecha de captura.")
+        } else if outcome == "complete" {
+            diagnosticStatusLabel?.stringValue = tr("Interfaces recorded. Hardware and game support remain unverified.",
+                "Interfaces registradas. El hardware y la compatibilidad con juegos siguen sin verificar.")
+        } else if outcome != nil {
+            diagnosticStatusLabel?.stringValue = tr("Inventory incomplete or unavailable. The diagnostic retains the original errors.",
+                "Inventario incompleto o no disponible. El diagnóstico conserva los errores originales.")
+        } else {
+            diagnosticStatusLabel?.stringValue = tr("Native inventory has not been requested.", "Aún no se ha solicitado el inventario nativo.")
+        }
+    }
+
+    private func refreshDiagnosticText(scrollToEnd: Bool) {
+        guard let view = logView else { return }
+        let prefix = nativeInventoryText.isEmpty ? "" : nativeInventoryText + "\n\n"
+        view.string = prefix + log
+        if scrollToEnd { view.scrollToEndOfDocument(nil) }
+        else { view.scrollRangeToVisible(NSRange(location: 0, length: 0)) }
+    }
+
+    private func diagnosticExport() -> [String: Any] {
+        ["schema": 1, "exported_at": ISO8601DateFormatter().string(from: Date()),
+         "application": ["name": "MadSense", "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+                         "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"],
+         "backend_running": process?.isRunning == true, "backend_session_id": session.uuidString,
+         "latest_backend_status": latestBackendStatus.map { $0 as Any } ?? NSNull(),
+         "latest_backend_diagnostic": latestBackendDiagnostic.map { $0 as Any } ?? NSNull(),
+         "native_inventory": latestNativeInventory.map { $0 as Any } ?? NSNull(),
+         "native_inventory_in_progress": inventoryTask != nil,
+         "application_log_tail": log, "application_log_truncated": logWasTruncated,
+         "hardware_validation_performed": false]
+    }
+
+    private func writeDiagnostics(to url: URL, completion: @escaping (Error?) -> Void) {
+        let snapshot = diagnosticExport()
+        exportingDiagnostic = true
+        refreshDiagnosticControls()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let failure: Error?
+            do {
+                let data = try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
+                try data.write(to: url, options: .atomic)
+                failure = nil
+            } catch { failure = error }
+            onMainRunLoop {
+                self?.exportingDiagnostic = false
+                self?.refreshDiagnosticControls()
+                completion(failure)
+            }
+        }
+    }
+
+    @objc private func saveDiagnostics() {
+        guard let logWindow = logWindow, !quitting, !exportingDiagnostic else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "MadSense-diagnostics.json"
+        panel.canCreateDirectories = true
+        panel.beginSheetModal(for: logWindow) { [weak self] response in
+            guard response == .OK, let self = self, let url = panel.url else { return }
+            self.writeDiagnostics(to: url) { [weak self] failure in
+                guard let failure = failure, let window = self?.logWindow, self?.quitting == false else { return }
+                let alert = NSAlert()
+                alert.messageText = tr("Could not save diagnostics", "No se pudo guardar el diagnóstico")
+                alert.informativeText = failure.localizedDescription
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            }
+        }
+    }
+
+    private func finishInventorySmokeIfReady() {
+        guard inventorySmoke, !quitting, !inventorySmokeFinished, inventoryTask == nil,
+              latestNativeInventory != nil,
+              let bridge = latestBackendDiagnostic?["value"] as? [String: Any],
+              bridge["bridgeState"] as? String == "paused", paused, requestedPaused,
+              let path = ProcessInfo.processInfo.environment["MADSENSE_SMOKE_DIAGNOSTIC_EXPORT"], !path.isEmpty else { return }
+        inventorySmokeFinished = true
+        writeDiagnostics(to: URL(fileURLWithPath: path)) { [weak self] failure in
+            if let failure = failure { smokeLog("native inventory smoke export failed: \(failure)") }
+            else {
+                smokeLog("native inventory smoke export saved; backend remains paused")
+                self?.captureSmokeSnapshot(self?.logWindow)
+            }
+            NSApp.terminate(nil)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showWindow(); return true }
@@ -972,17 +1172,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         smokeLog("applicationShouldTerminate: backend running=\(process?.isRunning == true), already quitting=\(quitting)")
         healthTimer?.invalidate()
-        guard let child = process, child.isRunning else { return .terminateNow }
+        guard process?.isRunning == true || inventoryTask != nil else { quitting = true; return .terminateNow }
         if quitting { return .terminateLater }
         quitting = true
         refreshSpeaker()
-        stopBackend(child, token: session)
+        refreshDiagnosticControls()
+        inventoryTask?.cancel()
+        if let child = process, child.isRunning { stopBackend(child, token: session) }
         // Child completion and deadlines are CF/NS run-loop sources explicitly
         // available in modal mode, not GCD main-queue continuations. This keeps
         // normal Quit and system logout/shutdown waiting for the same cleanup.
         return .terminateLater
     }
     func applicationWillTerminate(_ notification: Notification) {
+        smokeLog("native inventory active at termination: \(inventoryTask != nil)")
         smokeLog("applicationWillTerminate")
     }
 }
@@ -991,6 +1194,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 private enum MadSenseApplication {
     private static let delegate = AppDelegate()
     static func main() {
+        if CommandLine.arguments.contains("--inventory-parser-self-test") {
+            do { try NativeInventoryResult.selfTest() }
+            catch { try? FileHandle.standardError.write(contentsOf: Data("\(error)\n".utf8)); Darwin.exit(1) }
+            return
+        }
         smokeLog("creating NSApplication")
         let app = NSApplication.shared
         app.delegate = delegate

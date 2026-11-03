@@ -69,7 +69,13 @@ cp "$root"/vendor/licenses/*.txt "$app/Contents/Resources/licenses/"
 cp "$root/macos/README.md" "$app/Contents/Resources/macOS-README.md"
 cp "$root/macos/audio/README.md" "$app/Contents/Resources/Audio-README.md"
 swiftc -swift-version 5 -O -target "$arch-apple-macosx$minimum_macos" -framework AppKit -framework ServiceManagement \
-  "$root/macos/app/MadSense.swift" "$root/macos/app/Branding.swift" -o "$app/Contents/MacOS/MadSense"
+  "$root/macos/app/MadSense.swift" "$root/macos/app/Branding.swift" "$root/macos/app/NativeInventory.swift" \
+  -o "$app/Contents/MacOS/MadSense"
+# Reuse the audited read-only probe. It never opens/seizes the controller,
+# writes HID reports, starts an audio engine, or requests virtual HID rights.
+swiftc -swift-version 5 -O -target "$arch-apple-macosx$minimum_macos" \
+  -framework IOKit -framework CoreAudio -framework GameController \
+  "$root/macos/research/usb_native_probe.swift" -o "$app/Contents/MacOS/MadSenseNativeProbe"
 swift "$root/macos/app/MakeIcon.swift" "$build/MadSense.iconset"
 iconutil -c icns "$build/MadSense.iconset" -o "$app/Contents/Resources/MadSense.icns"
 
@@ -89,9 +95,11 @@ while IFS= read -r -d '' binary; do
   fi
 done < <(find "$app/Contents/Resources/backend" -type f -print0)
 codesign --force --sign - "$app/Contents/MacOS/MadSense"
+codesign --force --sign - "$app/Contents/MacOS/MadSenseNativeProbe"
 codesign --force --sign - "$app"
 codesign --verify --deep --strict "$app"
 lipo "$app/Contents/MacOS/MadSense" -verify_arch "$arch"
+lipo "$app/Contents/MacOS/MadSenseNativeProbe" -verify_arch "$arch"
 lipo "$app/Contents/Resources/backend/libmadsense_hid.dylib" -verify_arch "$arch"
 lipo "$app/Contents/Resources/backend/libmadsense_audio.dylib" -verify_arch "$arch"
 

@@ -2,6 +2,8 @@
 
 Esta rama añade una aplicación nativa de macOS y un puente HID propio. No es todavía una versión equivalente a Windows: compilar un `.app` no verifica que un juego reciba el mando, que el sistema acepte el dispositivo virtual ni que la vibración funcione en un DualSense físico.
 
+La [evaluación de compatibilidad, alternativas y latencia](COMPATIBILITY.md) compara USB nativo, integración dentro de Wine y el puente global. La autorización de Apple afecta a publicar HID virtual; no es un requisito general para usar el DualSense USB físico. El puente global no se considera la única ruta ni una reproducción completa del USB de Windows.
+
 ## Componentes
 
 - `app/`: interfaz AppKit y menú de la barra de macOS; arranca el backend incluido, muestra su estado real y ofrece pausa, reanudación, diagnóstico y cierre ordenado.
@@ -11,6 +13,8 @@ Esta rama añade una aplicación nativa de macOS y un puente HID propio. No es t
 - HIDAPI: acceso al mando físico por IOKit. La apertura exclusiva mantiene la captura durante la vida del identificador; al cerrarlo, macOS libera la captura.
 
 La interfaz ofrece inglés, español, francés, alemán, italiano y portugués de Brasil. Detecta el idioma del sistema y permite cambiarlo desde el menú de la barra; los mensajes técnicos del backend se conservan en inglés. Cerrar la ventana mantiene el servicio activo; **Salir de MadSense** lo detiene. No cambia preferencias de seguridad de macOS ni instala controladores automáticamente.
+
+**LOGS** incluye un inventario nativo bajo demanda de HID, CoreAudio y GameController, además del diagnóstico del servicio. Se ejecuta en un proceso auxiliar de solo lectura con plazo y salida acotados; no captura el mando ni inicia efectos o grabación. **Guardar diagnóstico…** conserva el JSON original, errores, fecha de captura y sesión del backend. Una interfaz enumerada no se presenta como función validada; las capturas anteriores conservan su fecha al actualizar.
 
 El volumen del altavoz ofrece alto, bajo y apagado, con los mismos valores que Windows. Puede elegirse mientras se espera al mando y se conserva entre ejecuciones en `~/Library/Application Support/MadSense/preferences.json`. La interfaz muestra el valor confirmado por el servicio. Silenciar el altavoz conserva los canales de háptica; requiere que la ruta de audio opcional esté disponible para producir sonido.
 

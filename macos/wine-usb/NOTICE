@@ -1,0 +1,25 @@
+MadSense optional Wine USB source patch kit
+
+The three files under patches/ are unmodified MacGameFix engine patches by
+Mathias Kowoll and the upstream contributors. They were obtained from:
+https://github.com/MathiasKowoll/MacGameFix
+commit 233d4daa8c5c06d2a2b85dee8d720bdc2dc7f65d
+directory engine/patches/wine-11.17
+
+MacGameFix engine/README.md, section Licence, explicitly states:
+"Wine is LGPL-2.1-or-later, and so are these modules."
+https://github.com/MathiasKowoll/MacGameFix/blob/233d4daa8c5c06d2a2b85dee8d720bdc2dc7f65d/engine/README.md#licence
+
+The target is the public Wine project, tag wine-11.17, commit
+36b6a2cf679fb395f668a917b76537190e212d9c.
+https://github.com/wine-mirror/wine/tree/36b6a2cf679fb395f668a917b76537190e212d9c
+Wine and these patched modules are LGPL-2.1-or-later. COPYING.LIB is the
+unmodified license from that Wine commit. Original source copyright and
+license notices remain in the prepared files. This kit provides no binaries.
+
+MacGameFix's top-level application has a separate GPL3 license; this notice
+does not describe the entire project as LGPL. MadSense's preparation/test
+scripts are GPL-3.0-or-later under the repository license.
+
+manifest.json records original source and patch SHA256 hashes. No upstream
+patch was edited to broaden compatibility or suppress validation failures.

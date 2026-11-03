@@ -1,0 +1,35 @@
+name: macOS Wine USB source verification
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/macos]
+    paths:
+      - 'macos/wine-usb/**'
+      - '.github/workflows/macos-wine-usb-source.yml'
+  pull_request:
+    paths:
+      - 'macos/wine-usb/**'
+      - '.github/workflows/macos-wine-usb-source.yml'
+permissions:
+  contents: read
+jobs:
+  source-and-container-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify pinned public Wine sources and actual upstream parser
+        env:
+          REQUIRE_C_COMPILER: '1'
+        run: python3 macos/wine-usb/test_kit.py
+      - name: Produce reviewable three-file fixture
+        run: |
+          mkdir -p .build
+          python3 macos/wine-usb/prepare_source.py --output .build/wine-usb-source-check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wine-usb-source-verification-not-a-binary
+          path: |
+            .build/wine-usb-source-check/MADSENSE-WINE-USB.json
+            macos/wine-usb/manifest.json
+          retention-days: 14

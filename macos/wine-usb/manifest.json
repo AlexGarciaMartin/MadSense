@@ -1,0 +1,39 @@
+{
+  "wine_tag": "wine-11.17",
+  "wine_commit": "36b6a2cf679fb395f668a917b76537190e212d9c",
+  "patch_commit": "233d4daa8c5c06d2a2b85dee8d720bdc2dc7f65d",
+  "sources": [
+    {
+      "path": "dlls/winebus.sys/main.c",
+      "url": "https://raw.githubusercontent.com/wine-mirror/wine/36b6a2cf679fb395f668a917b76537190e212d9c/dlls/winebus.sys/main.c",
+      "sha256": "c308c4bd404559beb97b8176779b120ab47f63388254acbcfde1575feee6eb97"
+    },
+    {
+      "path": "dlls/winecoreaudio.drv/coreaudio.c",
+      "url": "https://raw.githubusercontent.com/wine-mirror/wine/36b6a2cf679fb395f668a917b76537190e212d9c/dlls/winecoreaudio.drv/coreaudio.c",
+      "sha256": "db0b96d80e4bbca10e6b3b55630eda817716d7221960c585e12298001833e92a"
+    },
+    {
+      "path": "dlls/mmdevapi/devenum.c",
+      "url": "https://raw.githubusercontent.com/wine-mirror/wine/36b6a2cf679fb395f668a917b76537190e212d9c/dlls/mmdevapi/devenum.c",
+      "sha256": "43585cdb1eb5cf950bbf3fb37f42cee66d232e5837fae93e54a323608f2b4cad"
+    }
+  ],
+  "patches": [
+    {
+      "path": "patches/0001-winebus.patch",
+      "url": "https://raw.githubusercontent.com/MathiasKowoll/MacGameFix/233d4daa8c5c06d2a2b85dee8d720bdc2dc7f65d/engine/patches/wine-11.17/0001-winebus.patch",
+      "sha256": "e937765470c1c15396aa704ed1eb966a3314ace21ea9fde71db6aed445ba5786"
+    },
+    {
+      "path": "patches/0002-winecoreaudio.patch",
+      "url": "https://raw.githubusercontent.com/MathiasKowoll/MacGameFix/233d4daa8c5c06d2a2b85dee8d720bdc2dc7f65d/engine/patches/wine-11.17/0002-winecoreaudio.patch",
+      "sha256": "ed40bc4e0f3567e37f9fb18331576effbbc8687beb73e353001d591980100b3b"
+    },
+    {
+      "path": "patches/0003-mmdevapi.patch",
+      "url": "https://raw.githubusercontent.com/MathiasKowoll/MacGameFix/233d4daa8c5c06d2a2b85dee8d720bdc2dc7f65d/engine/patches/wine-11.17/0003-mmdevapi.patch",
+      "sha256": "60fb020c5f01cc8ffbcc1122de5b7071c0361548a058ee4cdc1d9355cd9791bf"
+    }
+  ]
+}
