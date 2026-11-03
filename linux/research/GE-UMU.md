@@ -1,7 +1,8 @@
 # GE-Proton and UMU: separate owned-VM experiment
 
 The acquisition path is implemented and verified. Native GE/UMU execution is
-**pending**. No current workflow or production component calls these modules.
+**pending**. The consumer workflow exposes an explicit `ge_umu` dispatch input,
+default false; ordinary pushes and production components do not execute GE.
 This route uses GE-Proton, the UMU launcher and Valve's Steam Linux Runtime;
 it is neither distribution Wine nor an execution of official Valve Proton.
 It does not install Steam or require a Steam account or credentials.
@@ -59,7 +60,10 @@ same-size corruption, wrong/duplicate checksum entries, redirected credentials
 or hosts, overflow/truncation/deadline, archive traversal/devices/escaping links,
 and preservation of notice bytes. Two additional Linux-only regressions cover
 exclusive marker creation and a pre-existing symlink without changing its
-target; they are skipped on Windows and await Linux execution. No downloaded
+target. Both executed successfully on Ubuntu in
+[run 41628578603](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41628578603)
+at `0325da760148b9988315c6b2172c3a55bf9a1b01` (70/70 evidence tests, no skips).
+They remain skipped on the Windows development host. No downloaded
 code was executed on Windows.
 
 ## Sources, licenses and distribution scope
@@ -81,7 +85,63 @@ redistributable MadSense package**. Do not upload the runtime cache as a product
 artifact. An eventual redistribution needs the complete applicable sources and
 notices; this work does not assert that obligation has been fulfilled.
 
-## Future consumer hook
+## Optional consumer hook and explicit dispatch
+
+The `Linux consumer compilation and owned runtime` workflow accepts boolean
+`ge_umu=true` on manual dispatch. Acquisition, checksum/source/notice verification
+and private cache staging finish before QEMU boot and before its core actor starts.
+Only inventories, notices and JSON provenance enter the artifact;
+`dist/ge-umu-private-cache` and `dist/consumer-qemu-private` are excluded.
+The acquisition step is bounded to 15 minutes. This opt-in increases the CI job
+budget from 50 to 65 minutes; it does not increase the actor's 600-second lifetime.
+Ordinary pushes keep the default Wine/UDEV path and never download this cache.
+
+For an already verified private cache, the equivalent launcher option is
+`qemu_consumers.py --ge-umu-cache /owned-work/ge-umu-cache --wine-udev-variant`
+alongside its normal same-commit binary, output and private-work arguments.
+The guest accepts only the staged `ge-umu-private-cache` location and forwards
+it to `run_core_guest.py --ge-umu-cache`. Supplying GE without the preceding
+Wine/UDEV experiment fails before starting consumers. Preparation records actual
+extraction/verifier timing; no claim is made that it fits the total actor budget
+until native evidence is available.
+
+`ge_umu_consumer.run_after_experiments(primary, ready_path, executable,
+fixture_state_callback, evidence, physical_parent, cache)` is implemented for
+the opt-in guest integration. `primary` runs the normal suite with its
+separate UDEV diagnostic; both must leave same-guest, same-virtual-device cleanup
+records, including an exact digest join to the UDEV result. API failures in those
+earlier experiments remain recorded and are rethrown after GE; cleanup failures
+prevent GE from starting at all. This specifically preserves the failed default
+Wine result instead of letting another runtime replace it.
+
+GE uses a fresh `ConsumerSession`, prepares the pinned runtime before launching
+the private display, and calls the exact same `run_windows_cases` assertions
+as distribution Wine through its own bounded UMU invocation callback. Those
+assertions require MAC/features, Raw Input, RGB delivery and the exact
+ContainerId/WASAPI/PCM association. Launcher output must still parse as native
+observer evidence; absent or contaminated output fails. Version/inventory alone
+cannot set `runtimeExecutionConfirmed`; an actual PE runtime record is required.
+`consumerAssertionsPassed` remains false until the entire shared suite completes.
+
+The separate `ge-umu-suite/result.json` has scope
+`configured-ge-proton-umu-consumer`, `officialValveProton=false`, and a cleanup
+summary/digest joined to the primary result. The launcher keeps the verified cache
+outside collected `result/` and transfers it only to the owned guest's private
+payload/work space. The hook never copies archives into evidence. Six new portable tests verify dependency
+cleanup/identity/digests, retention of default failures, stale-result rejection
+and unchanged feature-byte assertions even when the PE returns exit zero.
+
+`ge_umu_payload.stage(cache, payload, collected_output)` is the prepared launcher
+seam: it runs only after the acquisition/inventory command has finished and before
+booting the guest or starting its core actor. It rejects evidence/cache/payload
+tree overlaps, copies the locked archives only to `payload/ge-umu-private-cache`,
+verifies the copied bytes again, and adds the GE modules to the private guest
+payload. Three regressions cover output-tree exclusion, copied-byte corruption
+and refusal to reuse a partial destination, plus imports from the staged tree.
+The launcher records `geUmuStagedBeforeGuestBoot` after this call and before boot;
+the helper alone does not prove execution order.
+Downloads therefore consume no part of the actor's 600-second lifetime. Native
+extraction and verifier/namespace execution remain inside the later fresh UID.
 
 [ge_umu_session.py](ge_umu_session.py) exposes `prepare(session, cache)` and
 `run_consumer(session, prepared, staged_pe, arguments, label=..., timeout=...)`.
@@ -112,7 +172,7 @@ This extra offline namespace is an experimental condition, not a desktop default
 The launcher `--version` output and runtime version files are inventory evidence.
 They do not prove that a Windows consumer ran. `run_consumer` preserves exit
 status and raw output and leaves `runtimeExecutionConfirmed` and
-`consumerAssertionsPassed` false for a future suite to establish independently.
+`consumerAssertionsPassed` false for the independent consumer suite to establish.
 Before reporting success that suite must still verify the `02:D5` virtual MAC,
 HID/RawInput path and features, identity inside the container, matching Windows
 ContainerId/audio endpoint, controlled input states, actual output markers and
@@ -126,7 +186,7 @@ Still pending: native extraction/pv-verify, UMU/pressure-vessel start, ordinary
 container device visibility, the PE assertions, SDL comparison, audio, cleanup
 under actual GE child processes and licensing work for any redistribution.
 Neither games, physical latency nor official Valve Proton compatibility is
-validated by this acquisition or the future hook.
+validated by this acquisition or the hook's implementation.
 
 ## Primary references
 

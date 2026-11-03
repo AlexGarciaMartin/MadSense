@@ -1,8 +1,25 @@
 # Optional application Xbox force-feedback forwarding
 
-This extension is prepared for native execution; no pass is claimed yet. It
-checks Linux evdev force feedback through the real app's Xbox mode to synthetic
-Bluetooth output. It does not establish physical vibration, game support or latency.
+This extension first passed native execution in [run 41634461048](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41634461048)
+at `d8f3ca0287fa3c1c091ffe58b2221c4df40b92ea`. It checks Linux evdev force
+feedback through the real app's Xbox mode to synthetic Bluetooth output. It
+does not establish physical vibration, game support or latency.
+
+The run passed the original broker/core/app gates (10/9/10), protocol extension
+(1 core and 6 app cases), two idle upgrades and four removal/reinstall cases.
+The fresh Xbox session then passed all ten app cases and its additional marker/
+explicit-stop delivery case. Its ordinary UID 1001 received access only to the
+attributed virtual `/dev/input/event7`; that ACL, account and processes were
+cleaned up before the application continued. Guest source hashes matched 78
+committed files and four installed broker files. The native artifact SHA-256 is
+`23f7331213318056acff36edcad2d06af91f57647b8f6650109a27abb342503f`.
+
+Recomputing the committed verifier over the retained UHID trace confirmed the
+selected motor marker and selected-zero stop, both complete CRC-valid 78-byte
+Bluetooth packets. The separate stop observation lasted 300,081,979 ns and
+ended before erase/close and the 60-second effect expiry. The retained readiness
+file matched its SHA-256, nested consumer identity and owned guest token. These
+timestamps establish attribution and ordering, not a physical latency result.
 
 `qemu_core.py --xbox-force-feedback` runs a fresh application/fixture session
 after the original broker, core and application gates (and after the protocol

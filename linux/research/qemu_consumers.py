@@ -74,9 +74,12 @@ def main():
     parser.add_argument("--observe-pipewire-defaults", action="store_true")
     parser.add_argument("--adjust-owned-rear-unity", action="store_true")
     parser.add_argument("--wine-udev-variant", action="store_true")
+    parser.add_argument("--ge-umu-cache", type=Path, help="Explicit private verified cache; requires Wine/UDEV; no download during actor")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     args = parser.parse_args()
+    if args.ge_umu_cache is not None and not args.wine_udev_variant:
+        parser.error("--ge-umu-cache requires --wine-udev-variant")
     guest = OwnedQemu(args.output, args.work)
     provenance = guest.provenance
     try:
@@ -86,7 +89,8 @@ def main():
                           audioDefaultsObservationRequested=args.observe_audio_defaults,
                           pipewireDefaultsObservationRequested=args.observe_pipewire_defaults,
                           pipewireGainExperimentRequested=args.adjust_owned_rear_unity,
-                          configuredWineUdevVariantRequested=args.wine_udev_variant)
+                          configuredWineUdevVariantRequested=args.wine_udev_variant,
+                          geUmuExperimentRequested=args.ge_umu_cache is not None)
         native = verify_build(args.native_artifact, ("consumer_sdl2", "consumer_sdl3", "ff_probe"), commit)
         windows = verify_build(args.windows_artifact, ("wine_consumer.exe",), commit)
         provenance["consumerBuildDigests"] = native | windows
@@ -103,6 +107,10 @@ def main():
         shutil.copytree(args.native_artifact / "bin", payload / "consumer-bin")
         shutil.copy2(args.windows_artifact / "bin/wine_consumer.exe", payload / "consumer-bin")
         stage_consumer_research(payload)
+        if args.ge_umu_cache is not None:
+            from ge_umu_payload import stage as stage_ge
+            provenance["geUmuPrivatePayload"] = stage_ge(args.ge_umu_cache, payload, guest.output)
+            provenance["geUmuStagedBeforeGuestBoot"] = True
         hashes = {path.relative_to(payload).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in sorted(payload.rglob("*")) if path.is_file() and path.name != "PAYLOAD-SHA256SUMS"}
         (payload / "PAYLOAD-SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for name, digest in hashes.items()))
@@ -120,7 +128,8 @@ def main():
                                      + (" --observe-audio-defaults" if args.observe_audio_defaults else "")
                                      + (" --observe-pipewire-defaults" if args.observe_pipewire_defaults else "")
                                      + (" --adjust-owned-rear-unity" if args.adjust_owned_rear_unity else "")
-                                     + (" --wine-udev-variant" if args.wine_udev_variant else ""),
+                                     + (" --wine-udev-variant" if args.wine_udev_variant else "")
+                                     + (" --ge-umu" if args.ge_umu_cache is not None else ""),
                                      timeout=900, required=False)
                 provenance["consumerExit"] = consumer.returncode
         finally:
@@ -146,6 +155,13 @@ def main():
                 scope=variant.get("scope"), defaultWinebus=variant.get("defaultWinebus"),
                 resultSha256=hashlib.sha256(variant_path.read_bytes()).hexdigest(),
                 cleanupVerified=variant.get("accountProcessesAndFilesRemoved") is True and not variant.get("cleanupErrors"))
+        ge_path = guest.output / "result/core-experiment/ge-umu-suite/result.json"
+        if ge_path.exists():
+            ge = json.loads(ge_path.read_text())
+            provenance["geUmuExperiment"] = dict(result=ge.get("result"), scope=ge.get("scope"),
+                officialValveProton=ge.get("officialValveProton"), runtimeCacheCollected=ge.get("runtimeCacheCollected"),
+                resultSha256=hashlib.sha256(ge_path.read_bytes()).hexdigest(),
+                cleanupVerified=ge.get("accountProcessesAndFilesRemoved") is True and not ge.get("cleanupErrors"))
         if pipewire_path.exists():
             pipewire_observation = json.loads(pipewire_path.read_text())
             provenance["pipewireDefaultsObservationResult"] = pipewire_observation.get("result")
@@ -167,6 +183,19 @@ def main():
         verify_core_result(json.loads(core_path.read_text()), guest.token)
         result = json.loads(consumer_path.read_text())
         verify_consumer_result(result)
+        if args.ge_umu_cache is not None:
+            from ge_umu_consumer import prerequisites
+            from run_wine_variant import clean_result
+            prerequisites(consumer_path, result["ready"])
+            checked_ge = clean_result(ge_path, result["ready"])
+            summary = result.get("geUmuExperiment", {})
+            if (checked_ge.get("result") != "passed" or checked_ge.get("scope") != "configured-ge-proton-umu-consumer"
+                    or checked_ge.get("officialValveProton") is not False
+                    or checked_ge.get("runtimeCacheCollected") is not False
+                    or checked_ge.get("geUmuSession", {}).get("consumerAssertionsPassed") is not True
+                    or summary.get("cleanupVerified") is not True
+                    or summary.get("resultSha256") != hashlib.sha256(ge_path.read_bytes()).hexdigest()):
+                raise RuntimeError("Requested GE/UMU experiment lacks complete matching assertions and cleanup")
         if gain_summary is not None:
             retained = result.get("pipewireGainExperiment", {})
             if any(retained.get(key) != value for key, value in gain_summary.items()):

@@ -456,14 +456,21 @@ def run_audio_defaults_observer(ready_path, evidence, physical_parent):
 
 def run_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
               observe_audio_defaults=False, observe_pipewire_defaults=False, wine_udev_variant=False,
-              adjust_owned_rear_unity=False):
+              adjust_owned_rear_unity=False, ge_umu_cache=None):
     def primary():
         return _run_primary_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
                                   observe_audio_defaults, observe_pipewire_defaults, adjust_owned_rear_unity)
-    if wine_udev_variant:
-        from run_wine_variant import run_after_default
-        return run_after_default(primary, ready_path, wine_exe, fixture_state_callback, evidence, physical_parent)
-    return primary()
+    def with_variant():
+        if wine_udev_variant:
+            from run_wine_variant import run_after_default
+            return run_after_default(primary, ready_path, wine_exe, fixture_state_callback, evidence, physical_parent)
+        return primary()
+    if ge_umu_cache is not None:
+        require(wine_udev_variant and wine_exe is not None, "GE/UMU requires the preceding Wine/UDEV experiment")
+        from ge_umu_consumer import run_after_experiments
+        return run_after_experiments(with_variant, ready_path, wine_exe, fixture_state_callback,
+                                     evidence, physical_parent, ge_umu_cache)
+    return with_variant()
 
 
 def _run_primary_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,

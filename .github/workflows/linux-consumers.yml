@@ -1,6 +1,12 @@
 name: Linux consumer compilation and owned runtime
 on:
   workflow_dispatch:
+    inputs:
+      ge_umu:
+        description: 'Also measure pinned GE-Proton/UMU in a fresh owned guest session (not official Valve Proton)'
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [feature/linux]
     paths:
@@ -36,6 +42,8 @@ on:
       - 'linux/research/ge_umu_*'
       - 'linux/research/ge-umu-lock.json'
       - 'linux/research/test_ge_umu.py'
+      - 'linux/research/test_ge_umu_consumer.py'
+      - 'linux/research/test_ge_umu_payload.py'
       - 'linux/research/GE-UMU.md'
       - 'linux/research/ci_environment.py'
       - 'linux/research/wine_consumer.cpp'
@@ -63,6 +71,8 @@ jobs:
           python3 -m unittest discover -s linux/research -p test_pipewire_defaults.py -v
           python3 -m unittest discover -s linux/research -p test_pipewire_gain.py -v
           python3 -m unittest discover -s linux/research -p test_ge_umu.py -v
+          python3 -m unittest discover -s linux/research -p test_ge_umu_consumer.py -v
+          python3 -m unittest discover -s linux/research -p test_ge_umu_payload.py -v
           python3 -m py_compile linux/research/consumer_session.py linux/research/run_wine_consumer.py linux/research/qemu_consumers.py
           bash -n linux/research/run_consumer_guest.sh
   windows-api-build:
@@ -123,7 +133,7 @@ jobs:
   runtime:
     needs: [evidence-tests, consumers-build, windows-api-build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: ${{ inputs.ge_umu && 65 || 50 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -150,17 +160,27 @@ jobs:
         run: |
           python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-runner.json
           sudo -n python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-root.json
-      - name: Ordinary SDL and Wine consumers of the production core in owned QEMU
+      - name: Acquire and verify pinned private GE and UMU inputs before the guest starts
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ge_umu }}
+        timeout-minutes: 15
         run: >-
-          python3 linux/research/qemu_consumers.py
-          --neutral-probe-directory dist/neutral-probe --core-probe-directory dist/core-probe
-          --native-artifact dist/consumer-build/linux-consumers
-          --windows-artifact dist/windows-build/wine-consumer
-          --observe-audio-defaults
-          --observe-pipewire-defaults
-          --adjust-owned-rear-unity
-          --wine-udev-variant
-          --output dist/consumer-runtime --work dist/consumer-qemu-private
+          python3 linux/research/ge_umu_acquire.py
+          --cache dist/ge-umu-private-cache --evidence dist/ge-umu-acquisition
+      - name: Ordinary SDL and Wine consumers of the production core in owned QEMU
+        env:
+          MADSENSE_GE_UMU: ${{ github.event_name == 'workflow_dispatch' && inputs.ge_umu && 'true' || 'false' }}
+        run: |
+          ge_arguments=()
+          if [[ "$MADSENSE_GE_UMU" == true ]]; then
+            ge_arguments=(--ge-umu-cache dist/ge-umu-private-cache)
+          fi
+          python3 linux/research/qemu_consumers.py \
+            --neutral-probe-directory dist/neutral-probe --core-probe-directory dist/core-probe \
+            --native-artifact dist/consumer-build/linux-consumers \
+            --windows-artifact dist/windows-build/wine-consumer \
+            --observe-audio-defaults --observe-pipewire-defaults --adjust-owned-rear-unity \
+            --wine-udev-variant "${ge_arguments[@]}" \
+            --output dist/consumer-runtime --work dist/consumer-qemu-private
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -168,5 +188,6 @@ jobs:
           path: |
             dist/consumer-runtime/**
             dist/kvm-*.json
+            dist/ge-umu-acquisition/**
           retention-days: 14
           if-no-files-found: warn

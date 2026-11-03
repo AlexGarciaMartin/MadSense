@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
 # Runs after the native broker baseline, inside the owned hardware-free guest.
 set -euo pipefail
-[[ $# -ge 1 ]] || { echo 'usage: run_consumer_guest.sh OWNER_UUID [--observe-audio-defaults] [--observe-pipewire-defaults] [--adjust-owned-rear-unity] [--wine-udev-variant]' >&2; exit 2; }
+[[ $# -ge 1 ]] || { echo 'usage: run_consumer_guest.sh OWNER_UUID [--observe-audio-defaults] [--observe-pipewire-defaults] [--adjust-owned-rear-unity] [--wine-udev-variant] [--ge-umu]' >&2; exit 2; }
 owner_uuid=$1
 shift
 observer_args=()
 pipewire_observer=false
+ge_umu=false
+wine_udev=false
 for option in "$@"; do
   case "$option" in
     --observe-audio-defaults) observer_args+=("$option") ;;
     --observe-pipewire-defaults) observer_args+=("$option"); pipewire_observer=true ;;
     --adjust-owned-rear-unity) observer_args+=("$option"); pipewire_observer=true ;;
-    --wine-udev-variant) observer_args+=("$option") ;;
+    --wine-udev-variant) observer_args+=("$option"); wine_udev=true ;;
+    --ge-umu) ge_umu=true ;;
     *) echo "Unknown consumer experiment option: $option" >&2; exit 2 ;;
   esac
 done
 cd /home/ubuntu/madsense
+if "$ge_umu"; then
+  "$wine_udev" || { echo '--ge-umu requires --wine-udev-variant' >&2; exit 2; }
+  test -d "$PWD/ge-umu-private-cache"
+  observer_args+=(--ge-umu-cache "$PWD/ge-umu-private-cache")
+fi
 python3 linux/research/ci_environment.py "$owner_uuid"
 python3 -c 'import json; r=json.load(open("result/result.json")); assert r["result"] == "passed" and not r.get("cleanupError")'
 sudo -n systemctl start madsense-broker.service
@@ -36,6 +44,10 @@ python3 -m unittest discover -s linux/research -p test_wine_variant.py -v
 python3 -m unittest discover -s linux/research -p test_audio_defaults.py -v
 python3 -m unittest discover -s linux/research -p test_pipewire_defaults.py -v
 python3 -m unittest discover -s linux/research -p test_pipewire_gain.py -v
+if "$ge_umu"; then
+  python3 -m unittest discover -s linux/research -p test_ge_umu.py -v
+  python3 -m unittest discover -s linux/research -p test_ge_umu_consumer.py -v
+fi
 cc -std=c11 -O2 -Wall -Wextra -Werror linux/research/host_probe.c -o host_probe
 chmod +x core-probe/MadSense.Linux.CoreProbe consumer-bin/consumer_sdl2 consumer-bin/consumer_sdl3 consumer-bin/ff_probe
 sudo -n python3 linux/platform/integration/run_core_guest.py --owned-guest-token "$owner_uuid" \

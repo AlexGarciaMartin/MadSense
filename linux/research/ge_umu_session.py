@@ -1,6 +1,6 @@
-"""Optional GE/UMU primitive for a future owned-VM consumer experiment.
+"""Optional GE/UMU primitive for the explicit owned-VM consumer experiment.
 
-No current workflow calls this module. Uses ConsumerSession's ordinary account,
+The separate opt-in hook uses ConsumerSession's ordinary account,
 exact virtual device grants and mandatory process/ACL cleanup. Never changes
 AppArmor, sysctls, host Steam, production settings or existing Wine assertions.
 """
@@ -138,7 +138,7 @@ def run_consumer(session, prepared, pe_path, arguments, *, label="ge-umu-consume
     """Return raw PE evidence for the caller's independent existing assertions.
 
 This deliberately does not turn exit zero or missing output into compatibility.
-The future suite must still join MAC/HID/ContainerId, virtual node visibility,
+The calling suite must still join MAC/HID/ContainerId, virtual node visibility,
 actual input/output and PCM markers, and always close its ConsumerSession.
 """
     program = Path(pe_path).resolve(strict=True)

@@ -176,3 +176,29 @@ backends. This source difference explains why a newer derivative is a useful
 separate experiment; it is not proof that any installed GE/UMU or official Valve
 Proton runtime has passed this probe. No fallback to an unrelated audio endpoint
 is allowed.
+
+The diagnostic rerun
+[41634461320](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41634461320)
+at `d8f3ca0287fa3c1c091ffe58b2221c4df40b92ea` confirmed both configured-prefix
+writes returned pending initially, then completed successfully with **47 bytes
+reported for 48 requested**. Wait status and completion error were both zero;
+no timeout or cancellation occurred. Both exact 48-byte USB RGB reports and
+matching CRC-valid Bluetooth reports were captured. Core capture drained without
+loss, and both consumer accounts/processes/ACLs cleaned up. The runtime artifact
+SHA-256 is `e9e2d1f1f7bb00eae5e91675ca089be6f5357b362518fa8ae036e356313610b2`;
+the PE SHA-256 is `6cfd2620f9c16507a5601994456a8595875f07b954ad1002a2420a14d0fb5834`.
+The strict API-count failure remains separate from successful synthetic forwarding.
+
+Wine 9's
+[HID class completion](https://github.com/wine-mirror/wine/blob/wine-9.0/dlls/hidclass.sys/device.c#L398)
+subtracts one for a nonzero report ID on its write path. Its
+[test_write_file regression](https://github.com/wine-mirror/wine/blob/wine-9.0/dlls/dinput/tests/hid.c#L1264)
+explicitly expects that subtraction from the minidriver's returned count.
+Valve's pinned Wine retains this behavior. This explains the observed 47 without
+attributing it to dropped payload or an uncompleted pending request. Microsoft's
+[HID client sample](https://github.com/microsoft/Windows-driver-samples/blob/main/hid/hclient/report.c)
+compares bytes written to the full output-report length, as does this observer.
+This experiment has not resolved the differing count contracts through a native
+Windows comparison; it does not silently accept 47 or claim native parity.
+ContainerId remained unavailable and WASAPI remained unattempted. SDL's four
+independent input/output cases passed; GE/UMU remains a separately labeled test.

@@ -64,6 +64,7 @@ def main():
     parser.add_argument("--consumer-binaries", type=Path)
     parser.add_argument("--wine-consumer", type=Path)
     parser.add_argument("--wine-udev-variant", action="store_true")
+    parser.add_argument("--ge-umu-cache", type=Path)
     parser.add_argument("--observe-audio-defaults", action="store_true")
     parser.add_argument("--observe-pipewire-defaults", action="store_true")
     parser.add_argument("--adjust-owned-rear-unity", action="store_true")
@@ -74,6 +75,8 @@ def main():
             "Wine consumer requires the optional consumer binary directory")
     require(not args.wine_udev_variant or args.wine_consumer is not None,
             "Wine udev observation requires the optional Wine consumer")
+    require(args.ge_umu_cache is None or (args.wine_udev_variant and args.wine_consumer is not None),
+            "GE/UMU requires the preceding Wine/UDEV experiment")
     require(not args.observe_audio_defaults or args.consumer_binaries is not None,
             "Audio defaults observation requires the optional consumer suite")
     require(not args.observe_pipewire_defaults or args.consumer_binaries is not None,
@@ -345,7 +348,7 @@ def main():
                 observe_audio_defaults=args.observe_audio_defaults,
                 observe_pipewire_defaults=args.observe_pipewire_defaults,
                 adjust_owned_rear_unity=args.adjust_owned_rear_unity,
-                wine_udev_variant=args.wine_udev_variant)
+                wine_udev_variant=args.wine_udev_variant, ge_umu_cache=args.ge_umu_cache)
             require(result["consumers"].get("result") == "passed"
                     and result["consumers"].get("accountProcessesAndFilesRemoved") is True
                     and not result["consumers"].get("cleanupErrors"), "Consumer suite or scoped cleanup failed")

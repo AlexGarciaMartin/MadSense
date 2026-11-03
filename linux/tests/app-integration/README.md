@@ -41,7 +41,9 @@ assertion. Standard DualSense is covered. The separate
 Edge variant selection, Fn/paddle input, trigger and headset-routing cases.
 The separate optional [Xbox force-feedback extension](XBOX-FF.md) adds an
 ordinary-user evdev rumble marker and explicit stop after the original gates;
-its native execution is still pending.
+its ten fresh application cases and additional delivery case passed in
+[run 41634461048](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41634461048)
+at `d8f3ca0`, with exact ready identity and confirmed cleanup.
 Authorization denial/dialog interaction, delayed-feature cancellation and helper-crash UI
 transitions remain additional scenarios. Existing unit and broker tests are not
 relabelled as coverage of those whole application flows.

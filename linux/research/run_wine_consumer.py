@@ -180,12 +180,19 @@ def run_wine_suite(session, executable, fixture_state_callback, *, winebus_mode=
     if winebus_mode == "udev-diagnostic":
         from run_wine_variant import configure_udev
         configure_udev(session, prefix, version.decode("utf-8", errors="strict"))
+    def invoke(label, arguments, *, required=False):
+        return session.command(label, ["wine", program_windows, *arguments], required=required)
+    run_windows_cases(session, invoke, fixture_state_callback)
+
+
+def run_windows_cases(session, invoke, fixture_state_callback, *, result_key="wineSession", label_prefix="wine"):
+    """The same PE/device/output/PCM assertions for explicitly separate runtimes."""
     token = session.ready["ownedGuestToken"]
     sony = session.ready["vendorId"] == 0x054c
     containers, failures = set(), []
     for state in ("south", "neutral"):
         fixture_state_callback(state); time.sleep(.1)
-        label = "wine-" + ("sony-" if sony else "xinput-") + state
+        label = label_prefix + "-" + ("sony-" if sony else "xinput-") + state
         try:
             clear_sony_state(session, label + "-clear")
             if sony:
@@ -193,7 +200,7 @@ def run_wine_suite(session, executable, fixture_state_callback, *, winebus_mode=
                 arguments = ["sony", token, persona, session.ready["virtualMacHex"], state]
             else:
                 arguments = ["xinput", token, state]
-            record, stdout = session.command(label, ["wine", program_windows, *arguments], required=False)
+            record, stdout = invoke(label, arguments, required=False)
             rows = parse_pe_output(stdout); record["evidence"] = rows
             if sony:
                 containers.add(matching_container(rows))
@@ -205,11 +212,11 @@ def run_wine_suite(session, executable, fixture_state_callback, *, winebus_mode=
                 wait_rgb(session, record)
             else:
                 wait_delivery(session, record, rgb=False)
-            session.result["wineSession"]["cases"].append(dict(name=label, passed=True))
+            session.result[result_key]["cases"].append(dict(name=label, passed=True))
         except Exception as error:
             session.check_device()
             failures.append(f"{label}: {error}")
-            session.result["wineSession"]["cases"].append(dict(name=label, passed=False, error=str(error)))
+            session.result[result_key]["cases"].append(dict(name=label, passed=False, error=str(error)))
         session.save()
     fixture_state_callback("neutral")
     if sony:
@@ -218,21 +225,21 @@ def run_wine_suite(session, executable, fixture_state_callback, *, winebus_mode=
                 require(shutil.which(command), f"Missing test guest prerequisite: {command}")
             require(len(containers) == 1, "No stable MAC-verified HID container for Wine audio")
             start_pulse(session)
-            record, stdout = session.command("wine-audio-inventory", ["wine", program_windows, "audio-inventory", token])
+            record, stdout = invoke(label_prefix + "-audio-inventory", ["audio-inventory", token], required=True)
             rows = parse_pe_output(stdout); record["evidence"] = rows
             container = next(iter(containers)); endpoint = select_audio_endpoint(rows, container)
             directory = Path(session.ready["coreOutputDirectory"])
             offsets = {name: (directory / name).stat().st_size for name in ("audio-ingress.pcm", "haptics-ingress.pcm")}
             require(offsets["audio-ingress.pcm"] % 8 == 0 and offsets["haptics-ingress.pcm"] % 4 == 0,
                     "Core PCM capture offset is not frame aligned")
-            record, stdout = session.command("wine-wasapi", ["wine", program_windows, "audio", token, endpoint, "{" + container + "}"])
+            record, stdout = invoke(label_prefix + "-wasapi", ["audio", token, endpoint, "{" + container + "}"], required=True)
             rows = parse_pe_output(stdout); record["evidence"] = rows
             require(rows[-1].get("result") == "passed", "Windows WASAPI assertions failed")
             check_pcm(session, record, offsets)
-            session.result["wineSession"]["cases"].append(dict(name="wine-wasapi", passed=True))
+            session.result[result_key]["cases"].append(dict(name=label_prefix + "-wasapi", passed=True))
         except Exception as error:
             session.check_device()
-            failures.append(f"wine-wasapi: {error}")
-            session.result["wineSession"]["cases"].append(dict(name="wine-wasapi", passed=False, error=str(error)))
+            failures.append(f"{label_prefix}-wasapi: {error}")
+            session.result[result_key]["cases"].append(dict(name=label_prefix + "-wasapi", passed=False, error=str(error)))
     session.save()
     require(not failures, "; ".join(failures))
