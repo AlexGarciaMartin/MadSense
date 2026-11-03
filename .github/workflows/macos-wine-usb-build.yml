@@ -1,0 +1,37 @@
+name: macOS Wine USB module compilation
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/macos]
+    paths:
+      - 'macos/wine-usb/**'
+      - '.github/workflows/macos-wine-usb-build.yml'
+permissions:
+  contents: read
+jobs:
+  compile:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: wine-mirror/wine
+          ref: 36b6a2cf679fb395f668a917b76537190e212d9c
+          path: .build/wine-original
+          persist-credentials: false
+      - name: Install build dependencies on disposable runner
+        run: brew install bison sdl2
+      - name: Compile patched public Wine modules without installing or executing Wine
+        run: bash macos/wine-usb/compile_modules.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wine-usb-compile-${{ matrix.runner }}
+          path: dist/wine-usb-compile/*
+          retention-days: 14
+          if-no-files-found: error
