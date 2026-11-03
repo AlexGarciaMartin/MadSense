@@ -152,7 +152,7 @@ internal static class Program
                     lastLogged = health;
                 }
                 WriteStatus(state, detail, session?.Battery ?? -1, session?.Reports ?? 0,
-                    session?.AudioAvailable ?? false, session?.AudioStatus, preferences.Speaker);
+                    session?.AudioAvailable ?? false, session?.AudioStatus, preferences.Speaker, session?.Charging, session?.Activity);
                 // Wake for commands immediately; periodic health/discovery remains bounded.
                 using var wake = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
                 wake.CancelAfter(1000);
@@ -172,6 +172,8 @@ internal static class Program
         state = "diagnostic", version = "0.5.0-macos-dev", os = RuntimeInformation.OSDescription,
         architecture = RuntimeInformation.ProcessArchitecture.ToString(), capabilities = Capabilities(session?.AudioAvailable ?? false),
         speaker, bridgeState, detail, fault = session?.Fault, audio = session?.AudioStatus,
+        battery = session?.Battery ?? -1, charging = session?.Charging,
+        activity = session?.Activity ?? default,
         devices = enumerator.Enumerate(0x054c).Select(d => new { d.ProductName, d.ProductId, bus = d.BusType.ToString(), d.UsagePage })
     }));
 
@@ -185,10 +187,11 @@ internal static class Program
         return 0;
     }
 
-    private static void WriteStatus(string state, string detail, int battery = -1, long reports = 0,
-        bool audioAvailable = false, object? audio = null, string speaker = "high") =>
-        Console.WriteLine(JsonSerializer.Serialize(new { state, detail, battery, reports, speaker,
-            version = "0.5.0-macos-dev", capabilities = Capabilities(audioAvailable), audio }));
+    internal static void WriteStatus(string state, string detail, int battery = -1, long reports = 0,
+        bool audioAvailable = false, object? audio = null, string speaker = "high", bool? charging = null,
+        ControllerActivity? activity = null) =>
+        Console.WriteLine(JsonSerializer.Serialize(new { state, detail, battery, charging, reports, speaker,
+            version = "0.5.0-macos-dev", capabilities = Capabilities(audioAvailable), audio, activity = activity ?? default }));
 
     private sealed class StderrLog : ILogSink
     {

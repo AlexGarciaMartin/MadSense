@@ -66,7 +66,7 @@ mkdir -p "$app/Contents/Resources/licenses"
 cp "$root"/vendor/licenses/*.txt "$app/Contents/Resources/licenses/"
 cp "$root/macos/README.md" "$app/Contents/Resources/macOS-README.md"
 cp "$root/macos/audio/README.md" "$app/Contents/Resources/Audio-README.md"
-swiftc -swift-version 5 -O -target "$arch-apple-macosx$minimum_macos" -framework AppKit \
+swiftc -swift-version 5 -O -target "$arch-apple-macosx$minimum_macos" -framework AppKit -framework ServiceManagement \
   "$root/macos/app/MadSense.swift" -o "$app/Contents/MacOS/MadSense"
 swift "$root/macos/app/MakeIcon.swift" "$build/MadSense.iconset"
 iconutil -c icns "$build/MadSense.iconset" -o "$app/Contents/Resources/MadSense.icns"

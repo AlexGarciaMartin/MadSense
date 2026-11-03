@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Darwin
+import ServiceManagement
 
 // The backend alone decides whether the bridge is usable. A running child process,
 // an open physical controller or an available library never implies "Ready".
@@ -130,18 +131,29 @@ private func label(_ text: String, size: CGFloat, weight: NSFont.Weight = .regul
     return field
 }
 
-private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private var window: NSWindow!
     private var statusItem: NSStatusItem!
     private var stateLabel = label(tr("Starting", "Iniciando"), size: 30, weight: .bold)
     private var detailLabel = label(tr("Opening the controller bridge…", "Abriendo el puente del mando…"), size: 14)
     private var telemetryLabel = label("—", size: 12, color: Palette.muted)
+    private var lowBatteryLabel = label("", size: 12, weight: .semibold,
+        color: NSColor(srgbRed: 0.52, green: 0.27, blue: 0.02, alpha: 1))
     private var capabilityLabel = label("", size: 12, color: Palette.muted)
+    private var activityLabel = label("", size: 12, color: Palette.muted)
+    private var outputActivity: [String: Bool] = [:]
+    private var batteryPercent: Int?
+    private var charging: Bool?
+    private var reportCount: NSNumber?
+    private var backendVersion: String?
     private var displayedState: (() -> String)?
     private var displayedDetail: (() -> String)?
     private var displayedReady = false
     private var pauseButton: NSButton!
     private var pauseMenuItem: NSMenuItem!
+    private var activityMenuItem: NSMenuItem!
+    private var loginMenuItem: NSMenuItem!
+    private var loginSettingsMenuItem: NSMenuItem!
     private var speakerPopup: NSPopUpButton!
     private var speakerMenuItems: [String: NSMenuItem] = [:]
     private var confirmedSpeaker: String?
@@ -304,12 +316,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let limitation = label(tr(
             "The optional CoreAudio audio/PCM endpoint is experimental. Game association and hardware compatibility are unverified. XInput is unsupported. Virtual HID requires Apple-authorized signing.",
             "El dispositivo de audio/PCM CoreAudio es opcional y experimental. La asociación con juegos y la compatibilidad con hardware no están verificadas. XInput no está soportado. El HID virtual requiere una firma autorizada por Apple."), size: 12, color: Palette.muted)
-        let stack = NSStackView(views: [header, badge, rule, stateLabel, detailLabel, telemetryLabel, capabilityLabel, speakerRow, buttons, limitation])
+        lowBatteryLabel.isHidden = true
+        let stack = NSStackView(views: [header, badge, rule, stateLabel, detailLabel, telemetryLabel, lowBatteryLabel, capabilityLabel, activityLabel, speakerRow, buttons, limitation])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 16
         stack.setCustomSpacing(4, after: stateLabel)
         stack.setCustomSpacing(6, after: telemetryLabel)
+        stack.setCustomSpacing(6, after: capabilityLabel)
         stack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -318,7 +332,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 26),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -22),
             detailLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            lowBatteryLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             capabilityLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            activityLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             limitation.widthAnchor.constraint(equalTo: stack.widthAnchor),
             rule.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
@@ -339,10 +355,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         statusItem.button?.title = "M·S"
         statusItem.button?.toolTip = "MadSense"
         let menu = NSMenu()
+        menu.delegate = self
+        menu.autoenablesItems = false
         menu.addItem(withTitle: tr("Show MadSense", "Mostrar MadSense"), action: #selector(showWindow), keyEquivalent: "").target = self
         pauseMenuItem = menu.addItem(withTitle: tr("Pause bridge", "Pausar puente"), action: #selector(togglePause), keyEquivalent: "")
         pauseMenuItem.target = self
         menu.addItem(withTitle: tr("Diagnostics", "Diagnóstico"), action: #selector(showDiagnostics), keyEquivalent: "").target = self
+        activityMenuItem = menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
+        activityMenuItem.isEnabled = false
+        refreshActivity()
         let speakerMenu = NSMenu()
         speakerMenu.autoenablesItems = false
         speakerMenuItems.removeAll()
@@ -365,6 +386,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         let languageItem = menu.addItem(withTitle: tr("Language", "Idioma"), action: nil, keyEquivalent: "")
         languageItem.submenu = languages
+        menu.addItem(.separator())
+        loginMenuItem = menu.addItem(withTitle: tr("Launch at login", "Abrir al iniciar sesión"), action: #selector(toggleLogin), keyEquivalent: "")
+        loginMenuItem.target = self
+        loginSettingsMenuItem = menu.addItem(withTitle: tr("Approve in Login Items…", "Autorizar en Ítems de inicio…"), action: #selector(openLoginSettings), keyEquivalent: "")
+        loginSettingsMenuItem.target = self
+        refreshLogin()
         menu.addItem(.separator())
         menu.addItem(withTitle: tr("Quit MadSense", "Salir de MadSense"), action: #selector(quit), keyEquivalent: "").target = self
         statusItem.menu = menu
@@ -484,13 +511,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             paused = state == "paused"
             blocked = state == "blocked"
             refreshPause()
-            var parts: [String] = []
-            if let battery = status["battery"] as? NSNumber, battery.intValue >= 0 {
-                parts.append(tr("Battery", "Batería") + ": \(battery)%")
-            }
-            if let reports = status["reports"] as? NSNumber { parts.append(tr("Reports", "Informes") + ": \(reports)") }
-            if let version = status["version"] as? String { parts.append(version) }
-            telemetryLabel.stringValue = parts.joined(separator: "  ·  ")
+            let percent = (status["battery"] as? NSNumber)?.intValue
+            batteryPercent = percent.flatMap { (0...100).contains($0) ? $0 : nil }
+            // null is unknown; neither a full battery nor a missing field means
+            // charging. The backend reads the physical controller power state.
+            charging = status["charging"] as? Bool
+            reportCount = status["reports"] as? NSNumber
+            backendVersion = status["version"] as? String
+            refreshTelemetry()
+            outputActivity = ready ? (status["activity"] as? [String: Bool] ?? [:]) : [:]
+            refreshActivity()
             if let capabilities = status["capabilities"] as? [String: Any] {
                 let labels = ["hidInput": tr("controller input", "entrada del mando"),
                               "hidFeedback": tr("HID effects", "efectos HID"),
@@ -516,6 +546,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         displayedState = state
         displayedDetail = detail
         displayedReady = ready
+        if !ready {
+            batteryPercent = nil
+            charging = nil
+            outputActivity.removeAll()
+            refreshTelemetry()
+            refreshActivity()
+        }
         redrawState()
     }
 
@@ -524,9 +561,88 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         stateLabel.stringValue = title
         stateLabel.textColor = displayedReady ? NSColor(srgbRed: 0.18, green: 0.42, blue: 0.12, alpha: 1) : Palette.ink
         detailLabel.stringValue = displayedDetail?() ?? ""
-        statusItem?.button?.title = displayedReady ? "M·S ●" : "M·S"
-        statusItem?.button?.toolTip = "MadSense · \(title)"
+        refreshStatusItem()
     }
+
+    private func refreshStatusItem() {
+        var title = displayedReady ? "M·S ●" : "M·S"
+        var tooltip = "MadSense · \(displayedState?() ?? tr("Starting", "Iniciando"))"
+        if let battery = batteryPercent {
+            title += " \(battery)%"
+            tooltip += " · " + tr("Battery", "Batería") + ": \(battery)%"
+            if charging == true {
+                title += " ⚡"
+                tooltip += " · " + tr("Charging / charged", "Cargando / cargado")
+            }
+        }
+        statusItem?.button?.title = title
+        statusItem?.button?.toolTip = tooltip
+    }
+
+    private func refreshTelemetry() {
+        var parts: [String] = []
+        if let battery = batteryPercent {
+            parts.append(tr("Battery", "Batería") + ": \(battery)%")
+            if charging == true { parts.append(tr("Charging / charged", "Cargando / cargado")) }
+        }
+        if let reports = reportCount { parts.append(tr("Reports", "Informes") + ": \(reports)") }
+        if let version = backendVersion { parts.append(version) }
+        telemetryLabel.stringValue = parts.isEmpty ? "—" : parts.joined(separator: "  ·  ")
+        let low = batteryPercent.map { $0 <= 15 } == true && charging == false
+        lowBatteryLabel.stringValue = low ? tr("Low battery — connect the controller to USB.", "Batería baja — conecta el mando por USB.") : ""
+        lowBatteryLabel.isHidden = !low
+        refreshStatusItem()
+    }
+
+    private func refreshLogin() {
+        guard loginMenuItem != nil else { return }
+        let status = SMAppService.mainApp.status
+        loginMenuItem.state = status == .enabled ? .on : status == .requiresApproval ? .mixed : .off
+        loginMenuItem.isEnabled = !quitting
+        loginSettingsMenuItem.isHidden = status != .requiresApproval
+        loginSettingsMenuItem.isEnabled = !quitting
+    }
+
+    private func refreshActivity() {
+        // These flags describe successfully delivered HID output. They do not
+        // measure a physical actuator. Expiration/state comes from the backend.
+        let effects = [("haptics", tr("Haptics", "Háptica")),
+                       ("triggers", tr("Triggers", "Gatillos")),
+                       ("audio", tr("Audio", "Audio")),
+                       ("rumble", tr("Rumble", "Vibración"))]
+        let active = effects.compactMap { key, title in outputActivity[key] == true ? title : nil }
+        let title = tr("Output sent: ", "Salida enviada: ") + (active.isEmpty ? "—" : active.joined(separator: " · "))
+        activityLabel.stringValue = title
+        activityLabel.textColor = active.isEmpty ? Palette.muted : Palette.ink
+        activityMenuItem?.title = title
+    }
+
+    func menuWillOpen(_ menu: NSMenu) { refreshLogin() }
+    func applicationDidBecomeActive(_ notification: Notification) { refreshLogin() }
+
+    @objc private func toggleLogin() {
+        // This is the only registration path. Launch, status refresh and smoke
+        // tests only read the OS setting; they never change login preferences.
+        guard !quitting else { return }
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled || service.status == .requiresApproval {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            appendLog("Login setting failed: \(error)\n")
+            showWindow()
+            let alert = NSAlert()
+            alert.messageText = tr("Could not change login setting", "No se pudo cambiar el inicio de sesión")
+            alert.informativeText = error.localizedDescription
+            alert.beginSheetModal(for: window)
+        }
+        refreshLogin()
+    }
+
+    @objc private func openLoginSettings() { SMAppService.openSystemSettingsLoginItems() }
 
     private func send(_ command: String) {
         guard let input = input, process?.isRunning == true else { return }
@@ -667,6 +783,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         buildMenu()
         refreshPause()
         redrawState()
+        refreshTelemetry()
+        refreshActivity()
         logWindow?.title = "MadSense · " + tr("Diagnostics", "Diagnóstico")
         if visible { showWindow() }
     }

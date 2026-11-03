@@ -27,6 +27,12 @@ the real plugin's COM/HAL interface through an in-process host; it does not prov
 the operating system will load the driver. `madsense-audio-installed-probe` is an
 additional, opt-in end-to-end test against the installed HAL driver. It sends a
 small test signal only to this virtual endpoint and needs no controller.
+It checks complete frames on all four channels, stop/start generations, rejection
+of another process's claim and PCM read, and recovery after a consumer is killed
+without cleanup while the render client remains active. It reports silent and
+dropped frames separately; passing does not establish uninterrupted realtime
+delivery or controller latency. Exit 75 means initial discovery found no loaded
+endpoint and may be retried; transfer or ownership failures return 1.
 
 For a distributable build, sign the library and driver with the application's
 Developer ID identity, notarize the package, and verify the install on a clean Mac.

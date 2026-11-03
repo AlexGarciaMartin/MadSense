@@ -19,16 +19,22 @@ set +e
 python3 - "$build/madsense-audio-installed-probe" "$output" <<'PY'
 import pathlib, subprocess, sys, time
 probe, output = sys.argv[1], pathlib.Path(sys.argv[2])
+deadline = time.monotonic() + 90
 for attempt in range(15):
     with (output / "audio-installed.stdout").open("w") as stdout, (output / "audio-installed.stderr").open("w") as stderr:
         try:
-            result = subprocess.run([probe], stdout=stdout, stderr=stderr, timeout=8)
+            result = subprocess.run([probe], stdout=stdout, stderr=stderr,
+                                    timeout=max(1, min(25, deadline - time.monotonic())))
         except subprocess.TimeoutExpired:
             print("Installed CoreAudio probe timed out", file=stderr)
             result = None
     if result is not None and result.returncode == 0:
         print((output / "audio-installed.stdout").read_text())
         sys.exit(0)
+    # A fresh coreaudiod may need a moment to discover the new bundle. Once it
+    # is found, any transfer/identity/lifecycle failure is a real test failure.
+    if result is None or result.returncode != 75 or time.monotonic() >= deadline:
+        break
     time.sleep(1)
 print((output / "audio-installed.stderr").read_text(), file=sys.stderr)
 sys.exit(1)

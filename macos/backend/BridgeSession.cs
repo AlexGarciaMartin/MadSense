@@ -1,4 +1,5 @@
 using DualSenseClient.Controllers.Devices;
+using DualSenseClient.Controllers.DualSense.Enum;
 using DualSenseClient.Controllers.DualSense.Input;
 using DualSenseClient.Controllers.Emulation;
 using DualSenseClient.Emulation.Devices.DualSense;
@@ -15,6 +16,7 @@ internal sealed class BridgeSession : IDisposable
     private readonly PhysicalPad physical;
     private readonly VirtualDualSenseController adapter;
     private readonly HidDevice hid;
+    private readonly ActivityHidDevice meteredHid;
     private readonly MacAudioCapture? audio;
     private readonly string? audioUnavailable;
     private readonly long started;
@@ -23,6 +25,8 @@ internal sealed class BridgeSession : IDisposable
     private int stopping;
     public long Reports => Interlocked.Read(ref reports);
     public int Battery => physical.InputReport?.Battery.DisplayPercentage ?? -1;
+    public bool? Charging => ChargingFromReport(physical.InputReport);
+    public ControllerActivity Activity => Volatile.Read(ref stopping) != 0 ? default : meteredHid.Activity;
     public string? Fault => Volatile.Read(ref fault);
     public bool AudioAvailable => audio != null && audio.Fault == null;
     public string? AudioDetail => audio?.Fault ?? audioUnavailable;
@@ -39,6 +43,10 @@ internal sealed class BridgeSession : IDisposable
         }
     }
 
+    internal static bool? ChargingFromReport(InputReport? report) => report is { } input
+        ? input.Battery.PowerState is BatteryPowerState.Charging or BatteryPowerState.ChargingComplete
+        : null;
+
     public BridgeSession(HidDeviceEnumerator enumerator, IHidDeviceInfo info, string speaker = "high")
     {
         bool edge = info.ProductId == 0x0df2;
@@ -51,7 +59,8 @@ internal sealed class BridgeSession : IDisposable
         {
             opened = enumerator.OpenDeviceExclusive(info.Path);
             hid = opened;
-            pad = edge ? new DualSenseEdgeDevice(opened, info) : new PhysicalPad(opened, info);
+            meteredHid = new ActivityHidDevice(opened);
+            pad = edge ? new DualSenseEdgeDevice(meteredHid, info) : new PhysicalPad(meteredHid, info);
             physical = pad;
             physical.ThrowOnAudioWriteFailure = true;
             physical.BluetoothAudioSessionBufferLengths = [0x40, 0x40, 0x40, 0x40, 0x20];
