@@ -63,6 +63,10 @@ gaps. Any observed recovery makes `measurement_valid` false even if the reader
 receives no repeated frame. Stop-tail source anomalies remain recorded. One
 post-stop read closes pending native loss accounting, with frames/drop delta
 reported separately from the measured reader window.
+`measurement_started_ticks`, `measurement_ended_ticks` and
+`stop_completed_ticks` use the same `mach_absolute_time` clock as ingress
+records. Together with the environment's timebase numerator/denominator, they
+separate warmup, measured-window and stop-tail events reproducibly.
 
 The managed backend currently calls full forwarder `Flush` on every generation
 or dropped-frame change. That resets Bluetooth priming and can require eight

@@ -384,6 +384,7 @@ bool trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
     ended = mach_absolute_time();
     const Cpu after = cpu();
     stream.stop();
+    const uint64_t stopCompleted = mach_absolute_time();
     // Close out pending native loss accounting, but keep all post-stop samples
     // outside the measured reader window. The source observer still retains
     // teardown replays; this read neither clears nor reclassifies those failures.
@@ -418,6 +419,8 @@ bool trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
               << ",\"policy\":\"" << (elevated ? "scoped_user_interactive" : "default")
               << "\",\"requested_idle_ms\":" << idleMs << ",\"requested_seconds\":" << seconds
               << ",\"warmup_seconds\":" << warmup << ",\"elapsed_ms\":" << elapsedMs(ended, started)
+              << ",\"measurement_started_ticks\":" << started << ",\"measurement_ended_ticks\":" << ended
+              << ",\"stop_completed_ticks\":" << stopCompleted
               << ",\"received_frames\":" << received << ",\"silent_frames\":" << silent
               << ",\"verified_frames\":" << age.size() << ",\"produced_frames_callback_window\":" << producedInWindow
               << ",\"dropped_delta\":" << lastDropped - baselineDropped
