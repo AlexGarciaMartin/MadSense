@@ -1,0 +1,79 @@
+name: Linux private audio ignore and client export
+on:
+  workflow_dispatch:
+    inputs:
+      run_native:
+        description: 'Run private ignore/export experiment after production baseline/core/app gates'
+        type: boolean
+        default: false
+  push:
+    branches: [feature/linux]
+    paths: ['linux/tests/audio-hotplug/**', '.github/workflows/linux-audio-export.yml']
+permissions:
+  contents: read
+concurrency:
+  group: linux-audio-export-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  portable:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test isolated descriptor and evidence contracts
+        run: |
+          mkdir -p dist/export-tests
+          set -o pipefail
+          python3 -m unittest discover -s linux/tests/audio-hotplug/export -p 'test_*.py' -v 2>&1 | tee dist/export-tests/python.txt
+          dotnet run --project linux/tests/audio-hotplug/export/descriptor-tests/Descriptor.Tests.csproj -c Release | tee dist/export-tests/descriptor.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc pkg-config libpipewire-0.3-dev
+          cc -std=c11 -Wall -Wextra -Werror -O2 linux/tests/audio-hotplug/export/client.c $(pkg-config --cflags --libs libpipewire-0.3) -o dist/export-tests/audio-export-client
+          python3 -c 'import subprocess; p=subprocess.run(["dist/export-tests/audio-export-client"]); assert p.returncode == 2'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-audio-export-contracts
+          path: dist/export-tests/**
+          retention-days: 14
+  native:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_native
+    needs: portable
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish unmodified functional actors and separate descriptor overlay
+        env:
+          EXPORT_SOURCE: ${{ runner.temp }}/madsense-audio-export-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          dotnet publish linux/probe/MadSense.Linux.Probe.csproj -c Release -r linux-x64 --self-contained true -o dist/probe
+          dotnet publish linux/platform/integration/MadSense.Linux.CoreProbe.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o dist/core-probe
+          dotnet publish linux/tests/app-integration/MadSense.Linux.AppProbe.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o dist/app-probe
+          dotnet run --project linux/tests/audio-hotplug/export/descriptor-tests/Descriptor.Tests.csproj -c Release -- --reference dist/descriptor-reference.json
+          python3 linux/tests/audio-hotplug/export/stage_export.py --output "$EXPORT_SOURCE"
+          dotnet publish "$EXPORT_SOURCE/linux/tests/app-integration/MadSense.Linux.AppProbe.csproj" -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -p:SourceRevisionId="$GITHUB_SHA" -o dist/marked-app-probe
+          cp "$EXPORT_SOURCE/research-audio-overlay.json" dist/marked-app-probe/
+      - name: Install signed guest tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client acl
+      - name: Base gates then private ignore/export cases
+        run: >-
+          python3 linux/tests/audio-hotplug/export/qemu_export.py --run-private-ignore-export
+          --neutral-probe-directory dist/probe --core-probe-directory dist/core-probe
+          --app-probe-directory dist/app-probe --marked-probe-directory dist/marked-app-probe
+          --descriptor-reference dist/descriptor-reference.json
+          --output dist/audio-export-guest --work dist/audio-export-qemu-private
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-audio-export-native-x64
+          path: dist/audio-export-guest/**
+          retention-days: 14

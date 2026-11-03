@@ -66,6 +66,9 @@ class AppActor:
         self.commands += 1
         actor_files.call(self.actor, self.uid, self.gid, "command", dict(sequence=self.commands, operation=operation))
 
+    def actor_environment(self):
+        return {"PATH":"/usr/bin:/bin", "HOME":str(self.actor), "LANG":"C.UTF-8"}
+
     def resume(self):
         self.action("resume"); self.fixture.input_enabled = True
         status = self.state(lambda state: state["ready"])
@@ -130,7 +133,8 @@ class AppActor:
                 f'SUBSYSTEM=="hidraw|input", KERNELS=="{self.fixture.parent.name}", OWNER="root", '
                 f'GROUP="{self.user}", MODE="0660", TAG-="uaccess", TAG-="seat"\n')
             self.command("reload-rules", ["udevadm", "control", "--reload-rules"])
-            self.command("trigger-fixture", ["udevadm", "trigger", "--action=change", "--parent-match="+str(self.fixture.parent)])
+            self.command("trigger-fixture", ["udevadm", "trigger", "--action=change", "--subsystem-match=hidraw",
+                "--subsystem-match=input", "--parent-match="+str(self.fixture.parent)])
             self.command("settle-fixture", ["udevadm", "settle", "--timeout=5"])
             self.baseline = self.snapshot()
             (self.output / "fixture-before.json").write_text(json.dumps(self.baseline, indent=2))
@@ -138,7 +142,7 @@ class AppActor:
             self.process = subprocess.Popen([exe, "--owned-guest-token", self.token, "--device", str(self.fixture.hidraw),
                 "--fixture-label", self.fixture.label, "--output", str(self.actor)], stdout=self.log, stderr=self.log,
                 cwd=self.private, user=account.pw_uid, group=account.pw_gid, extra_groups=[],
-                env={"PATH":"/usr/bin:/bin", "HOME":str(self.actor), "LANG":"C.UTF-8"})
+                env=self.actor_environment())
             self.state(lambda state: state["paused"])
             return self
         except BaseException:

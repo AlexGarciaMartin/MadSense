@@ -15,7 +15,7 @@ from run_guest import verify_gates, verify_result, LINUX, require
 def add_payload(payload):
     payload = Path(payload)
     shutil.copytree(Path(__file__).resolve().parent, payload / "linux/tests/audio-hotplug",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "bin", "obj"))
     target = payload / "linux/research"; target.mkdir(parents=True, exist_ok=True)
     for name in ("audio_defaults.py", "pipewire_defaults.py", "consumer_session.py", "consumer_files.py", "run_consumers.py"):
         shutil.copy2(LINUX / "research" / name, target / name)
