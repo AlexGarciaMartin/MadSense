@@ -1,6 +1,6 @@
 # Private PipeWire rear-volume experiment
 
-This is prepared research, not production policy. Its twenty portable tests cover identity, channel
+This is prepared research, not production policy. Its twenty-five portable tests cover identity, channel
 binding, PCM alignment/gain evidence, conservative control restoration, staged
 imports and the mandatory cleanup boundary before subsequent consumers. The
 target/control parsers also accept the retained real dumps from both observations
@@ -85,6 +85,43 @@ The 64d gain result SHA-256 is
 the final failed-restore dump SHA-256 is
 `f390f01a0be3edd660892d43fac3db78e2a521acb6d344c86f9baadbfef3f7cc`.
 
+## Prepared four-channel phase
+
+The next revision retains the rear-only control and adds a `front-preserving`
+phase. It requests the original **software** FL/FR gains as the new raw FL/FR
+values, with raw RL/RR set to one. ACP still chooses its hardware/software split;
+the experiment never writes `softVolumes` directly. This is a candidate for the
+synthetic UAC implementation whose hardware master does not scale PCM, not a
+general USB-amplifier policy. There is no native result for this phase yet.
+
+The baseline software values are read directly from SPA float32 PODs. A small
+read-only `wpexec` script uses the already installed WirePlumber 0.4 API and emits
+17 significant decimal digits. This avoids the six-decimal `%f` serialization in
+the pinned `pw-dump`/`pw-cli` tools. The Python side requires exact float32 values,
+matching IDs/serials/route indices, and agreement with the surrounding graph
+snapshots. It also rejects distinct Route/Node float32 values hidden by the same
+rounded text. Gains are never inferred from the measured PCM or adjusted to fit
+it. The script, its hash, stdout and stderr remain in the evidence directory.
+The supported Noble `wireplumber` package includes
+[`/usr/bin/wpexec`](https://packages.ubuntu.com/noble/amd64/wireplumber/filelist);
+no SDK, new package or downloaded script is required.
+
+`wpexec` runs under the session's ordinary UID with its private PipeWire socket;
+the script loads no policy components and performs no writes. Each invocation
+must finish within ten seconds. Precise values are checked before and after each
+playback, and the original raw Route values are used for restoration. A failed
+write can authorize rollback only from the original exact raw vector or a vector
+recorded before one of this experiment's own requests. Graph identity, profile,
+default and full state checks remain in force.
+
+All four aligned channels get sample-by-sample comparisons with baseline,
+including counts of differing samples and maximum absolute differences. Front
+preservation requires zero different FL/FR samples; rear unity requires every
+RL/RR sample to equal the source. Even a one-LSB difference is retained as a
+failure of equality, without a new tolerance. The precise software equality,
+PCM equality and measured gains are separate facts. Restoration replays the
+source and compares all four PCM channels to baseline, as before.
+
 The first private observations at commits `7d9f906` and `0325da7` used PipeWire
 1.0.5 / WirePlumber 0.4.17 on Noble. Both exposed the owned virtual card as
 `output:analog-surround-40+input:iec958-stereo`, with an S16LE 48 kHz four-channel
@@ -119,7 +156,7 @@ sudo python3 linux/research/pipewire_gain.py \
 ```
 
 Use the already reviewed Noble guest packages for the private observer, including
-`pw-play`, `pw-cli`, `pw-dump`, `wpctl`, `amixer` and private D-Bus. The runner does
+`pw-play`, `pw-cli`, `pw-dump`, `wpctl`, `wpexec`, `amixer` and private D-Bus. The runner does
 not install packages, alter global configuration, start host services or select
 another profile. It supports the same version family as `pipewire_defaults.py`.
 It must not overlap the Pulse observer, Wine or other PCM playback.
@@ -146,7 +183,7 @@ profile-device/route index, profile and default metadata must remain stable.
 VID/PID, display name and the synthesized `device.serial` string do not identify
 the target. Only one ALSA card and one sink on it are allowed.
 
-## Three measurements and restoration
+## Four measurements and restoration
 
 1. Snapshot ALSA controls before starting the private stack. After policy settles,
    retain all active routes, the exact node/route volume properties, profile and
@@ -165,7 +202,12 @@ the target. Only one ALSA card and one sink on it are allowed.
    controls. Repeat the same marked PCM and capture the actual core ingress.
    Retaining front raw requests does **not** assert preservation of their effective
    gain; all four channels are measured.
-3. Restore the original route volume request and require the entire recorded
+3. Request all four raw gains explicitly: original exact software FL/FR followed
+   by unity RL/RR. Record the resulting Route, Node and ALSA controls, then repeat
+   the marked PCM. Compare the front samples to baseline and the rear samples to
+   source independently; a successful rear comparison cannot hide changed front
+   PCM. The phase name states the intent, not its outcome.
+4. Restore the original exact route volume request and require the entire recorded
    profile/default/route/node state to match. Replay the source and compare its
    aligned samples with baseline. Stop and reap the session's own audio processes,
    then restore only changed writable ALSA controls to the exact pre-stack values.
@@ -186,8 +228,10 @@ only when both rear channels equal the source sample for sample. Reordered,
 missing or duplicate marker data cannot silently become a unity result. No
 existing compatibility gate or numerical tolerance is changed.
 
-`result=measured` means collection completed; inspect `rearUnityPcmExact`, every
-channel's residual, `restoredMarkedPcmEqualsBaseline` and cleanup separately. It
+`result=measured` means collection completed; inspect `rearUnityPcmExact` for the
+rear-only control, `frontSoftwareGainsPreserved`, `frontPcmEqualsBaseline`,
+`frontPreservingRearUnityPcmExact`, every channel's residual,
+`restoredMarkedPcmEqualsBaseline` and cleanup separately. It
 does not mean the adjustment worked. The alignment is not latency, USB ingress
 is not Bluetooth/acoustic output, and the private session is not a real desktop
 or a hotplug/default-preservation test.
@@ -203,6 +247,26 @@ accepts a target serial and explicit channel map. The
 [ALSA ACP device](https://github.com/PipeWire/pipewire/blob/1.0.5/spa/plugins/alsa/alsa-acp-device.c)
 publishes raw and software volume properties; neither alone substitutes for the
 marked PCM comparison.
+
+The [ACP volume implementation](https://github.com/PipeWire/pipewire/blob/1.0.5/spa/plugins/alsa/acp/acp.c)
+converts requests to its internal volume scale and publishes the resulting
+software coefficients. The [WirePlumber POD parser](https://github.com/PipeWire/wireplumber/blob/0.4.17/modules/module-lua-scripting/api/pod.c)
+promotes float32 array values to Lua numbers; the
+[proxy API](https://github.com/PipeWire/wireplumber/blob/0.4.17/docs/rst/lua_api/lua_proxies_api.rst)
+exposes parameter iteration. The
+[wpexec entrypoint](https://github.com/PipeWire/wireplumber/blob/0.4.17/src/tools/wpexec.c)
+loads the script engine and the supplied script, rather than a second session
+policy. The precision distinction follows
+[pw-dump](https://github.com/PipeWire/pipewire/blob/1.0.5/src/tools/pw-dump.c),
+[SPA JSON formatting](https://github.com/PipeWire/pipewire/blob/1.0.5/spa/include/spa/utils/json.h)
+and [spa_dtoa](https://github.com/PipeWire/pipewire/blob/1.0.5/spa/include/spa/utils/string.h).
+The parser's `push_luapod` supplies Object `pod_type`, `object_id`, `properties`
+and Array `pod_type`, `value_type`, numeric entries; upstream
+[POD tests](https://github.com/PipeWire/wireplumber/blob/0.4.17/tests/wplua/scripts/pod.lua)
+cover these keys and the `Spa:Float` type name. In `alsa-acp-device.c`, enumeration
+of `SPA_PARAM_Route` passes that ID to `build_route`, which also uses it for the
+nested `SPA_TYPE_OBJECT_Props`. The nested object's `object_id` is therefore
+`Route`, while the Node's separately enumerated property object's ID is `Props`.
 
 PipeWire 1.0.5 [identity keys](https://github.com/PipeWire/pipewire/blob/1.0.5/src/pipewire/keys.h)
 define the client credential properties. The

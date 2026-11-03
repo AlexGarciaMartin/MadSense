@@ -1,12 +1,18 @@
 name: Linux platform isolation and recovery
 on:
   workflow_dispatch:
+    inputs:
+      audio_hotplug:
+        description: 'Private PipeWire arrival/removal observation after base functional gates'
+        type: boolean
+        default: false
   push:
     branches: [feature/linux]
     paths:
       - '.github/workflows/linux-platform.yml'
       - 'linux/platform/**'
       - 'linux/tests/app-integration/**'
+      - 'linux/tests/audio-hotplug/**'
       - 'linux/app/**'
       - 'linux/probe/**'
       - 'linux/research/ci_environment.py'
@@ -24,11 +30,11 @@ on:
       - 'vendor/DualSenseClient/DualSenseClient.Controllers/**'
       - 'vendor/DualSenseClient/DualSenseClient.Emulation/**'
   pull_request:
-    paths: ['linux/platform/**', 'linux/tests/app-integration/**', 'linux/app/**', 'linux/research/kvm_acceleration.py', 'linux/research/test_kvm_acceleration.py', 'macos/backend/ActivityHidDevice.cs', 'src/Localization*', '.github/workflows/linux-platform.yml']
+    paths: ['linux/platform/**', 'linux/tests/app-integration/**', 'linux/tests/audio-hotplug/**', 'linux/app/**', 'linux/research/kvm_acceleration.py', 'linux/research/test_kvm_acceleration.py', 'macos/backend/ActivityHidDevice.cs', 'src/Localization*', '.github/workflows/linux-platform.yml']
 permissions:
   contents: read
 concurrency:
-  group: linux-platform-${{ github.ref }}
+  group: linux-platform-${{ github.ref }}-${{ inputs.audio_hotplug && 'audio-hotplug' || 'default' }}
   cancel-in-progress: true
 jobs:
   portable:
@@ -57,12 +63,13 @@ jobs:
           python3 -m unittest discover -s linux/platform/tests -p 'test_*.py' -v 2>&1 | tee dist/linux-platform-portable/python-tests.txt
           python3 -m unittest discover -s linux/platform/integration -p 'test_*.py' -v 2>&1 | tee dist/linux-platform-portable/core-fixture-tests.txt
           python3 -m unittest discover -s linux/tests/app-integration -p 'test_*.py' -v 2>&1 | tee dist/linux-platform-portable/app-payload-tests.txt
+          python3 -m unittest discover -s linux/tests/audio-hotplug -p 'test_*.py' -v 2>&1 | tee dist/linux-platform-portable/audio-hotplug-tests.txt
           python3 -m unittest discover -s linux/research -p 'test_kvm_acceleration.py' -v 2>&1 | tee dist/linux-platform-portable/kvm-tests.txt
           dotnet restore linux/platform/integration/MadSense.Linux.CoreProbe.csproj --locked-mode
           dotnet run --project linux/platform/integration/MadSense.Linux.CoreProbe.csproj -c Release --no-restore -- --verify-fixtures linux/platform/integration/fixtures.json | tee dist/linux-platform-portable/core-parser.txt
           dotnet build linux/tests/app-integration/MadSense.Linux.AppProbe.csproj -c Release -p:RestoreLockedMode=true
-          python3 -m py_compile linux/platform/broker.py linux/platform/broker_core.py linux/platform/tests/*.py linux/platform/integration/*.py linux/tests/app-integration/*.py linux/research/kvm_acceleration.py
-          for script in linux/platform/install.sh linux/platform/uninstall.sh linux/platform/tests/run_native_broker_guest.sh linux/platform/tests/run_broker_experiment.sh linux/platform/integration/run_core_experiment.sh linux/tests/app-integration/run_app_experiment.sh; do bash -n "$script"; done
+          python3 -m py_compile linux/platform/broker.py linux/platform/broker_core.py linux/platform/tests/*.py linux/platform/integration/*.py linux/tests/app-integration/*.py linux/tests/audio-hotplug/*.py linux/research/kvm_acceleration.py
+          for script in linux/platform/install.sh linux/platform/uninstall.sh linux/platform/tests/run_native_broker_guest.sh linux/platform/tests/run_broker_experiment.sh linux/platform/integration/run_core_experiment.sh linux/tests/app-integration/run_app_experiment.sh linux/tests/audio-hotplug/run_experiment.sh; do bash -n "$script"; done
       - name: Synchronous HID and USB import progress with a restricted worker pool
         run: |
           set -o pipefail
@@ -101,12 +108,20 @@ jobs:
           python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-runner.json
           sudo -n python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-root.json
       - name: Native broker baseline, idle upgrade, production core and application over UHID
+        if: ${{ !inputs.audio_hotplug }}
         run: >-
           python3 linux/platform/integration/qemu_core.py
           --neutral-probe-directory dist/linux-platform-probe --core-probe-directory dist/linux-core-probe
           --app-probe-directory dist/linux-app-probe
           --extended-protocol
           --xbox-force-feedback
+          --output dist/linux-platform-guest --work dist/platform-qemu-private
+      - name: Base functional gates then private desktop audio arrival and removal
+        if: ${{ inputs.audio_hotplug }}
+        run: >-
+          python3 linux/tests/audio-hotplug/qemu_audio_hotplug.py --run-private-audio-hotplug
+          --neutral-probe-directory dist/linux-platform-probe --core-probe-directory dist/linux-core-probe
+          --app-probe-directory dist/linux-app-probe
           --output dist/linux-platform-guest --work dist/platform-qemu-private
       - uses: actions/upload-artifact@v4
         if: always()

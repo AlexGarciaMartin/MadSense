@@ -23,6 +23,114 @@ from pipewire_defaults import (capture, default_sink, describe_nodes, object_ser
 
 CHANNELS = ["FL", "FR", "RL", "RR"]
 
+# Read only. pw-dump and pw-cli print floats with %f (six decimals). The
+# WirePlumber 0.4 POD parser promotes the actual float32 to a Lua number;
+# %.17g retains it exactly in JSON. wpexec loads no policy components here.
+EXACT_VOLUMES_LUA = r'''local args = ...
+local function number(key)
+  local value = tonumber(args[key])
+  assert(value and value >= 0 and value % 1 == 0, "invalid identity")
+  return value
+end
+local card_id, node_id = number("cardId"), number("nodeId")
+local route_index, route_device = number("routeIndex"), number("routeDevice")
+local om = ObjectManager {
+  Interest { type = "device", Constraint { "bound-id", "=", card_id, type = "gobject" } },
+  Interest { type = "node", Constraint { "bound-id", "=", node_id, type = "gobject" } },
+}
+local function properties(pod, id)
+  assert(pod.pod_type == "Object" and pod.object_id == id, "unexpected POD")
+  return pod.properties
+end
+local function volumes(p)
+  assert(p.mute == false and p.channelMap.pod_type == "Array" and #p.channelMap == 4, "invalid map/mute")
+  local map = { "FL", "FR", "RL", "RR" }
+  for i = 1, 4 do assert(p.channelMap[i] == map[i], "channel map changed") end
+  local function array(a)
+    assert(a.pod_type == "Array" and a.value_type == "Spa:Float" and #a == 4, "invalid float array")
+    local values = {}
+    for i = 1, 4 do
+      assert(a[i] >= 0 and a[i] <= 1, "volume out of range")
+      values[i] = string.format("%.17g", a[i])
+    end
+    return "[" .. table.concat(values, ",") .. "]"
+  end
+  return array(p.channelVolumes), array(p.softVolumes)
+end
+om:connect("installed", function ()
+  assert(om:get_n_objects() == 2, "missing exact device/node")
+  local card, node
+  for obj in om:iterate() do
+    if obj["bound-id"] == card_id then card = obj else node = obj end
+  end
+  assert(tonumber(card.properties["object.serial"]) == number("cardSerial"), "device replaced")
+  assert(tonumber(node.properties["object.serial"]) == number("nodeSerial"), "node replaced")
+  assert(tonumber(node.properties["device.id"]) == card_id, "different card")
+  assert(tonumber(node.properties["card.profile.device"]) == route_device, "different profile device")
+  local rr, rs, nr, ns
+  for param in card:iterate_params("Route") do
+    local r = properties(param:parse(), "Route")
+    if r.index == route_index and r.device == route_device then
+      assert(not rr and r.direction == "Output" and r.save == false, "ambiguous/saved route")
+      -- ACP nests a Props-typed object carrying the enclosing Route ID.
+      rr, rs = volumes(properties(r.props, "Route"))
+    end
+  end
+  for param in node:iterate_params("Props") do
+    assert(not nr, "ambiguous node props")
+    nr, ns = volumes(properties(param:parse(), "Props"))
+  end
+  assert(rr and rs and nr and ns, "missing volumes")
+  print(string.format('{"cardId":%d,"cardSerial":%d,"nodeId":%d,"nodeSerial":%d,' ..
+    '"routeIndex":%d,"routeDevice":%d,"routeRaw":%s,"routeSoft":%s,"nodeRaw":%s,"nodeSoft":%s}',
+    card["bound-id"], tonumber(card.properties["object.serial"]),
+    node["bound-id"], tonumber(node.properties["object.serial"]), route_index, route_device, rr, rs, nr, ns))
+  Core.quit()
+end)
+om:activate()
+'''
+
+
+def dump_volumes(values):
+    """The pinned pw-dump text representation, never a PCM tolerance."""
+    return [float(format(value, ".6f")) for value in values]
+
+
+def exact_volumes(record, state):
+    keys = ("cardId", "cardSerial", "nodeId", "nodeSerial", "routeIndex", "routeDevice")
+    require(isinstance(record, dict) and set(record) == set(keys) | {"routeRaw", "routeSoft", "nodeRaw", "nodeSoft"},
+            "Unexpected precise volume record")
+    require(all(type(record[key]) is int and record[key] == state["identity"][key] for key in keys),
+            "Precise volumes belong to a different card/node/route")
+    for name, owner, field in (("routeRaw", "routeProps", "channelVolumes"), ("routeSoft", "routeProps", "softVolumes"),
+                               ("nodeRaw", "nodeProps", "channelVolumes"), ("nodeSoft", "nodeProps", "softVolumes")):
+        values = record[name]
+        require(isinstance(values, list) and len(values) == 4 and all(type(value) in (int, float)
+                and math.isfinite(value) and 0 <= value <= 1
+                and struct.unpack("<f", struct.pack("<f", value))[0] == value for value in values),
+                "Precise volumes must contain four exact bounded float32 values")
+        require(dump_volumes(values) == state[owner][field], "Precise volume record disagrees with the graph snapshot")
+    return record
+
+
+def front_preserving_request(original, precise):
+    precise = exact_volumes(precise, original)
+    require(precise["routeSoft"] == precise["nodeSoft"] and precise["routeRaw"] == precise["nodeRaw"],
+            "Exact Route and sink gains disagree; Route-only rollback cannot restore this baseline")
+    wanted = precise["nodeSoft"][:2] + [1.0, 1.0]
+    route_request(original, wanted)
+    return wanted
+
+
+def compare_pcm_channels(reference, actual):
+    require(len(reference) == len(actual) and len(reference) > 0 and len(reference) % 8 == 0,
+            "Channel comparison requires equally sized complete marked quad PCM")
+    pairs = list(zip(struct.iter_unpack("<hhhh", reference), struct.iter_unpack("<hhhh", actual)))
+    return [dict(channel=channel, samples=len(pairs),
+                 differingSamples=sum(left[i] != right[i] for left, right in pairs),
+                 maximumDifferenceLsb=max(abs(left[i] - right[i]) for left, right in pairs))
+            for i, channel in enumerate(CHANNELS)]
+
 
 def target_state(snapshot, card_number, card_sysfs):
     card = select_device(snapshot, card_number, card_sysfs)
@@ -222,16 +330,17 @@ def stop_private_processes(session):
 def run(ready_path, output, physical_parent, *, adjust_owned_rear_unity=False):
     require(adjust_owned_rear_unity, "Explicit --adjust-owned-rear-unity opt-in required")
     session = ConsumerSession(ready_path, output, physical_parent)
-    original = applied = pre_controls = None
+    original = applied = pre_controls = original_precise = None
     process = manager = None
     mutation_attempted = False
     graph_restored = hardware_restored = False
+    authorized_raw = []
     try:
         with session:
             session.result.update(scope="owned-private-pipewire-gain-experiment", result="failed", phases=[],
                                   productionPolicyModified=False, defaultDesktopStackValidated=False,
                                   physicalGainValidated=False, graphMutationAttempted=False)
-            for program in ("pw-play", "pw-cli", "pipewire", "wireplumber", "amixer"):
+            for program in ("pw-play", "pw-cli", "pipewire", "wireplumber", "wpexec", "amixer"):
                 require(shutil.which(program), f"Missing guest prerequisite: {program}")
             cards = list(Path("/sys/class/sound").glob("card[0-9]*"))
             require(session.card is not None and len(cards) == 1 and cards[0].name == f"card{session.card}",
@@ -279,10 +388,27 @@ def run(ready_path, output, physical_parent, *, adjust_owned_rear_unity=False):
                 _, current = snapshot(label + "-before")
                 same_target(current, state)
                 request = route_request(state, volumes)
+                # Record before the command; a failed client can still have
+                # delivered its write. Rollback only recognizes our requests.
+                authorized_raw.append(list(volumes))
                 session.result.setdefault("routeRequests", []).append(dict(label=label, request=request))
                 session.save()
                 session.command(label, ["pw-cli", "--remote", session.env["PIPEWIRE_REMOTE"], "set-param",
                     str(state["identity"]["cardId"]), "Route", json.dumps(request)])
+
+            def precise_state(label, state):
+                _, before = snapshot(label + "-before")
+                require(before == state, "Graph changed before precise volume observation")
+                identity = state["identity"]
+                _, raw = session.command(label, ["wpexec", precise_script] +
+                    [f"{key}={identity[key]}" for key in
+                     ("cardId", "cardSerial", "nodeId", "nodeSerial", "routeIndex", "routeDevice")], timeout=10)
+                record = exact_volumes(json.loads(raw), state)
+                _, after = snapshot(label + "-after")
+                require(after == state, "Graph changed during precise volume observation")
+                session.result.setdefault("preciseVolumes", []).append(dict(label=label, values=record))
+                session.save()
+                return record
 
             def play(label, state, source_path, marker):
                 session.check_device()
@@ -380,6 +506,13 @@ def run(ready_path, output, physical_parent, *, adjust_owned_rear_unity=False):
                 route_request(original, original["routeProps"]["channelVolumes"])
                 session.result["original"] = original
                 session.result["alsaBeforeAdjustment"] = controls("alsa-before-adjustment")
+                script = session.output / "exact-volumes.lua"
+                script.write_text(EXACT_VOLUMES_LUA, encoding="utf-8")
+                session.result["preciseVolumeReaderSha256"] = hashlib.sha256(script.read_bytes()).hexdigest()
+                precise_script = session.stage(script)
+                original_precise = precise_state("precise-original", original)
+                authorized_raw.append(original_precise["routeRaw"])
+                corrected_wanted = front_preserving_request(original, original_precise)
                 marker = marked_pcm(secrets.randbits(64))
                 source_path = session.output / "gain-source.wav"
                 with wave.open(str(source_path), "wb") as stream:
@@ -388,27 +521,55 @@ def run(ready_path, output, physical_parent, *, adjust_owned_rear_unity=False):
                 session.result["sourceSha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
                 staged = session.stage(source_path)
                 baseline_pcm = play("baseline", original, staged, marker)
-                wanted = list(original["routeProps"]["channelVolumes"]); wanted[2:] = [1.0, 1.0]
+                require(precise_state("precise-after-baseline", original) == original_precise,
+                        "Exact gains changed during baseline playback")
+                wanted = original_precise["routeRaw"][:2] + [1.0, 1.0]
                 mutation_attempted = True
                 session.result["graphMutationAttempted"] = True; session.save()
                 set_route("set-owned-rear-unity", original, wanted)
-                _, applied = wait_state("adjustment", lambda state: state["routeProps"]["channelVolumes"] == wanted)
+                _, applied = wait_state("adjustment", lambda state: state["routeProps"]["channelVolumes"] == dump_volumes(wanted))
                 same_target(applied, original)
                 session.result["applied"] = applied
                 session.result["volumeAdjustmentPerformed"] = True
                 session.result["alsaAfterAdjustment"] = controls("alsa-after-adjustment")
-                play("adjusted", applied, staged, marker)
+                adjusted_precise = precise_state("precise-adjusted", applied)
+                require(adjusted_precise["routeRaw"] == wanted, "ACP did not retain the exact rear-only request")
+                adjusted_pcm = play("adjusted", applied, staged, marker)
+                require(precise_state("precise-after-adjusted", applied) == adjusted_precise,
+                        "Exact gains changed during rear-only playback")
+                session.result["adjustedVersusBaseline"] = compare_pcm_channels(baseline_pcm, adjusted_pcm)
+                # With the shared hardware master at unity, request the original
+                # front software coefficients explicitly as the new raw values.
+                # No PCM-derived fitting or write to softVolumes is involved.
+                set_route("set-owned-four-channel-gains", applied, corrected_wanted)
+                _, corrected = wait_state("front-preserving", lambda state:
+                    state["routeProps"]["channelVolumes"] == dump_volumes(corrected_wanted))
+                same_target(corrected, original)
+                session.result["frontPreserving"] = corrected
+                session.result["alsaAfterFrontPreserving"] = controls("alsa-after-front-preserving")
+                corrected_precise = precise_state("precise-front-preserving", corrected)
+                require(corrected_precise["routeRaw"] == corrected_wanted,
+                        "ACP did not retain the exact four-channel request")
+                session.result["frontSoftwareGainsPreserved"] = corrected_precise["nodeSoft"][:2] == original_precise["nodeSoft"][:2]
+                corrected_pcm = play("front-preserving", corrected, staged, marker)
+                require(precise_state("precise-after-front-preserving", corrected) == corrected_precise,
+                        "Exact gains changed during four-channel playback")
+                comparison = compare_pcm_channels(baseline_pcm, corrected_pcm)
+                session.result["frontPreservingVersusBaseline"] = comparison
+                session.result["frontPcmEqualsBaseline"] = all(row["differingSamples"] == 0 for row in comparison[:2])
+                session.result["frontPreservingRearUnityPcmExact"] = session.result["phases"][-1]["measurement"]["rearUnityPcmExact"]
                 _, before_restore = snapshot("restore-preflight")
                 same_target(before_restore, original)
-                require(before_restore == applied, "Policy state changed outside the recorded adjustment; no blind graph restore")
-                set_route("restore-owned-route", original, original["routeProps"]["channelVolumes"])
+                require(before_restore == corrected, "Policy state changed outside the recorded adjustment; no blind graph restore")
+                set_route("restore-owned-route", original, original_precise["routeRaw"])
                 _, restored = wait_state("restore", lambda state: state == original)
-                graph_restored = True
+                require(precise_state("precise-restored", restored) == original_precise, "Exact original gains were not restored")
                 restored_pcm = play("restored", restored, staged, marker)
                 _, final_state = snapshot("restored-final")
-                graph_restored = final_state == original
+                graph_restored = final_state == original and precise_state("precise-restored-final", final_state) == original_precise
                 require(graph_restored, "Restored graph changed during the final PCM measurement")
                 session.result.update(result="measured", liveGraphRestored=True,
+                    restoredVersusBaseline=compare_pcm_channels(baseline_pcm, restored_pcm),
                     restoredMarkedPcmEqualsBaseline=restored_pcm == baseline_pcm,
                     rearUnityPcmExact=session.result["phases"][1]["measurement"]["rearUnityPcmExact"])
             finally:
@@ -420,10 +581,12 @@ def run(ready_path, output, physical_parent, *, adjust_owned_rear_unity=False):
                     try:
                         _, observed = snapshot("failure-restore-preflight")
                         same_target(observed, original)
-                        require(observed["routeProps"]["channelVolumes"] in
-                                (original["routeProps"]["channelVolumes"], wanted), "Unexpected route volume during restore")
-                        set_route("failure-restore-owned-route", original, original["routeProps"]["channelVolumes"])
+                        precise_observed = precise_state("precise-failure-restore", observed)
+                        require(precise_observed["routeRaw"] in authorized_raw, "Unexpected exact route volume during restore")
+                        set_route("failure-restore-owned-route", original, original_precise["routeRaw"])
                         wait_state("failure-restore", lambda state: state == original)
+                        require(precise_state("precise-failure-restored", original) == original_precise,
+                                "Exact original gains were not restored after failure")
                         graph_restored = True
                     except Exception as error:
                         restore_errors.append("graph: " + str(error))
@@ -471,11 +634,15 @@ def optional_result(result_path, expected_ready):
     require(result.get("result") in ("measured", "failed"), "Unknown gain experiment collection result")
     if result["result"] == "measured":
         require(mutated and [phase.get("label") for phase in result.get("phases", [])] ==
-                ["baseline", "adjusted", "restored"] and type(result.get("rearUnityPcmExact")) is bool
-                and type(result.get("restoredMarkedPcmEqualsBaseline")) is bool,
-                "Measured gain experiment lacks all three PCM phases")
+                ["baseline", "adjusted", "front-preserving", "restored"] and
+                all(type(result.get(key)) is bool for key in ("rearUnityPcmExact", "frontSoftwareGainsPreserved",
+                    "frontPcmEqualsBaseline", "frontPreservingRearUnityPcmExact", "restoredMarkedPcmEqualsBaseline")),
+                "Measured gain experiment lacks all four PCM phases/comparisons")
     return dict(result=result["result"], cleanupVerified=True, resultSha256=hashlib.sha256(raw).hexdigest(),
                 rearUnityPcmExact=result.get("rearUnityPcmExact"),
+                frontSoftwareGainsPreserved=result.get("frontSoftwareGainsPreserved"),
+                frontPcmEqualsBaseline=result.get("frontPcmEqualsBaseline"),
+                frontPreservingRearUnityPcmExact=result.get("frontPreservingRearUnityPcmExact"),
                 restoredMarkedPcmEqualsBaseline=result.get("restoredMarkedPcmEqualsBaseline"),
                 error=result.get("error"), gatesConsumerCompatibility=False,
                 productionPolicyModified=False, physicalGainValidated=False)
@@ -499,5 +666,6 @@ if __name__ == "__main__":
     parser.add_argument("--adjust-owned-rear-unity", action="store_true")
     args = parser.parse_args()
     result = run(args.ready, args.output, args.physical_parent, adjust_owned_rear_unity=args.adjust_owned_rear_unity)
-    print(json.dumps({key: result.get(key) for key in ("result", "rearUnityPcmExact", "experimentCleanupVerified", "error")}))
+    print(json.dumps({key: result.get(key) for key in ("result", "rearUnityPcmExact", "frontPcmEqualsBaseline",
+        "frontPreservingRearUnityPcmExact", "experimentCleanupVerified", "error")}))
     raise SystemExit(0 if result.get("result") == "measured" and result["experimentCleanupVerified"] else 1)

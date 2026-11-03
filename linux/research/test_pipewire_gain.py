@@ -10,7 +10,8 @@ import unittest
 from unittest.mock import patch
 
 from pipewire_defaults import PREFIX
-from pipewire_gain import (CHANNELS, control_snapshot, marked_pcm, measure_pcm,
+from pipewire_gain import (CHANNELS, compare_pcm_channels, control_snapshot, dump_volumes, exact_volumes,
+                           front_preserving_request, marked_pcm, measure_pcm,
                            optional_result, restore_values, route_request, run_optional,
                            require_route_restorable, same_target, stream_binding, target_state)
 
@@ -190,6 +191,33 @@ class GainEvidenceTests(unittest.TestCase):
 
 
 class PcmGainTests(unittest.TestCase):
+    def test_rear_unity_alone_does_not_preserve_front_pcm(self):
+        source = marked_pcm(9123, 2048)
+        baseline = b''.join(struct.pack('<hhhh', *(round(value * .9) for value in row))
+                            for row in struct.iter_unpack('<hhhh', source))
+        rear_only = b''.join(struct.pack('<hhhh', round(a * .064), round(b * .064), c, d)
+                             for a, b, c, d in struct.iter_unpack('<hhhh', source))
+        corrected = b''.join(struct.pack('<hhhh', a, b, c, d) for (a, b, _, _), (_, _, c, d) in
+                             zip(struct.iter_unpack('<hhhh', baseline), struct.iter_unpack('<hhhh', source)))
+        self.assertTrue(measure_pcm(source, rear_only)[0]['rearUnityPcmExact'])
+        self.assertTrue(all(row['differingSamples'] > 0 for row in compare_pcm_channels(baseline, rear_only)[:2]))
+        comparisons = compare_pcm_channels(baseline, corrected)
+        self.assertEqual([row['differingSamples'] for row in comparisons[:2]], [0, 0])
+        self.assertTrue(measure_pcm(source, corrected)[0]['rearUnityPcmExact'])
+        # One changed sample, including after the anchor, cannot be tolerated.
+        changed = bytearray(corrected)
+        value = struct.unpack_from('<h', changed, 1700 * 8)[0]
+        struct.pack_into('<h', changed, 1700 * 8, value + 1)
+        result = compare_pcm_channels(baseline, changed)
+        self.assertEqual((result[0]['differingSamples'], result[0]['maximumDifferenceLsb']), (1, 1))
+        self.assertEqual(compare_pcm_channels(baseline, baseline),
+                         [dict(channel=c, samples=2048, differingSamples=0, maximumDifferenceLsb=0) for c in CHANNELS])
+
+    def test_channel_comparison_cannot_ignore_missing_or_partial_frames(self):
+        for left, right in ((b'', b''), (bytes(8), bytes(16)), (bytes(9), bytes(9))):
+            with self.subTest(sizes=(len(left), len(right))), self.assertRaises(RuntimeError):
+                compare_pcm_channels(left, right)
+
     def test_independent_channel_gains_and_exact_rear_are_measured_in_one_alignment(self):
         source = marked_pcm(123, 2048)
         gained = b''.join(struct.pack('<hhhh', round(a*.25), round(b*.5), c, d)
@@ -248,6 +276,43 @@ numid=7,iface=CARD,name='Headphone Jack'
         with self.assertRaises(RuntimeError): control_snapshot(self.text.replace('type=INTEGER', 'type=BYTES'))
 
 
+class PreciseVolumeTests(unittest.TestCase):
+    def setUp(self):
+        self.state = dict(identity=dict(cardId=38, cardSerial=40, nodeId=35, nodeSerial=41, routeIndex=2, routeDevice=4),
+                          routeProps=dict(channelVolumes=[.063997]*4, softVolumes=[.904004]*4),
+                          nodeProps=dict(channelVolumes=[.063997]*4, softVolumes=[.904004]*4))
+        # Exact float32 values for ACP's integer levels 26214 and 63368;
+        # both lose digits in pw-dump's text representation.
+        self.raw, self.soft = 0.0639970675110817, 0.9040036797523499
+        self.record = self.state['identity'] | dict(routeRaw=[self.raw]*4, routeSoft=[self.soft]*4,
+                                                  nodeRaw=[self.raw]*4, nodeSoft=[self.soft]*4)
+
+    def test_preserves_exact_original_software_front_not_rounded_raw_front(self):
+        data = json.loads(json.dumps(self.record))
+        self.assertEqual(exact_volumes(data, self.state), self.record)
+        wanted = front_preserving_request(self.state, data)
+        self.assertEqual(wanted, [self.soft, self.soft, 1., 1.])
+        self.assertNotEqual(wanted[0], .904004)
+        self.assertNotEqual(struct.pack('<f', wanted[0]), struct.pack('<f', .904004))
+        self.assertEqual(dump_volumes(wanted), [.904004, .904004, 1., 1.])
+
+    def test_exact_reader_rejects_replacement_nonfloat32_unbounded_and_graph_disagreement(self):
+        for change in (dict(cardSerial=41), dict(nodeSerial=42), dict(routeDevice=3), dict(nodeId=True),
+                       dict(extra='unknown'), dict(routeSoft=[.904004]*4), dict(nodeRaw=[float('nan')]*4),
+                       dict(routeRaw=[True]*4), dict(nodeSoft=[1.01]*4), dict(nodeRaw=[1.0]*4)):
+            with self.subTest(change=change), self.assertRaises(RuntimeError):
+                exact_volumes(self.record | change, self.state)
+
+    def test_distinct_float32_values_hidden_by_dump_rounding_cannot_restore_one_baseline(self):
+        bits = struct.unpack('<I', struct.pack('<f', self.soft))[0]
+        adjacent = struct.unpack('<f', struct.pack('<I', bits + 1))[0]
+        self.assertEqual(dump_volumes([adjacent]), dump_volumes([self.soft]))
+        changed = self.record | dict(nodeSoft=[adjacent]*4)
+        exact_volumes(changed, self.state)  # Text alone cannot distinguish it.
+        with self.assertRaisesRegex(RuntimeError, 'Route-only rollback'):
+            front_preserving_request(self.state, changed)
+
+
 class OptionalGainTests(unittest.TestCase):
     ready = dict(ownedGuestToken="owned-guest", usbParent="/sys/devices/platform/vhci_hcd.0/usb1/1-2")
 
@@ -271,10 +336,14 @@ class OptionalGainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "result.json"
             record = self.record() | dict(result="measured", phases=[dict(label=x) for x in
-                ("baseline", "adjusted", "restored")], rearUnityPcmExact=False, restoredMarkedPcmEqualsBaseline=True)
+                ("baseline", "adjusted", "front-preserving", "restored")], rearUnityPcmExact=False,
+                frontSoftwareGainsPreserved=True, frontPcmEqualsBaseline=False,
+                frontPreservingRearUnityPcmExact=True, restoredMarkedPcmEqualsBaseline=True)
             path.write_text(json.dumps(record))
             summary = optional_result(path, self.ready)
             self.assertFalse(summary["rearUnityPcmExact"])
+            self.assertFalse(summary["frontPcmEqualsBaseline"])
+            self.assertTrue(summary["frontPreservingRearUnityPcmExact"])
             self.assertFalse(summary["gatesConsumerCompatibility"])
             self.assertFalse(summary["physicalGainValidated"])
             self.assertEqual(summary["resultSha256"], hashlib.sha256(path.read_bytes()).hexdigest())
