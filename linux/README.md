@@ -16,10 +16,25 @@ virtual y el aislamiento temporal del mando físico requieren un componente de
 permisos limitado. Un grab de evdev por sí solo no bloquea hidraw y no basta
 para anunciar que se evita la entrada duplicada o los escritores en competencia.
 
-Esta rama está en integración: el shell compila y sus vistas de prueba no abren
+Esta rama está en integración: hay paquetes de desarrollo autocontenidos para
+x64 y ARM64, comprobados después de extraerlos. Sus vistas de prueba no abren
 mandos. La conexión permanece bloqueada hasta verificar el componente de acceso;
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
+
+En la revisión `1dd841f`, el
+[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41604139572)
+pasó en ambas arquitecturas: 380 pruebas compartidas, 82 de plataforma y 15 de
+aplicación, las seis interfaces y el ciclo de escritorio de los paquetes extraídos.
+Las [tres pruebas del kernel](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41604139381)
+pasaron con DualSense, Edge y Xbox; las dos Sony conservaron las 48.000 muestras
+por canal en la reproducción ALSA y el audio ISO IN sintético. El workflow global
+falló en una compilación independiente de SDL3, que se conserva como fallo.
+El [servicio nativo](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41604139844)
+pasó diez casos de aislamiento/recuperación y dos reinstalaciones en reposo; la
+etapa posterior del motor falló al preparar el dispositivo sintético, antes de
+ejecutar C#. La corrección y las pruebas de la aplicación completa son la
+siguiente etapa. Ninguno de estos resultados sustituye un mando o un juego real.
 
 El motor de la app ya conecta la sesión del broker con el servicio de emulación,
 los ajustes originales y el forwarder Bluetooth. Pausar cancela una adquisición

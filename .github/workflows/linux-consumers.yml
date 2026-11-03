@@ -1,0 +1,77 @@
+name: Linux consumer observer compilation
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/linux]
+    paths:
+      - '.github/workflows/linux-consumers.yml'
+      - 'linux/research/consumer-build/**'
+      - 'linux/research/build_consumers.sh'
+      - 'linux/research/consumer_*'
+      - 'linux/research/consumer-NOTICES.txt'
+      - 'linux/research/CONSUMERS.md'
+      - 'linux/research/ff_probe.c'
+      - 'linux/research/run_consumers.py'
+      - 'linux/research/ci_environment.py'
+      - 'linux/research/wine_consumer.cpp'
+      - 'linux/research/build_wine_consumer.sh'
+      - 'linux/research/WINE-CONSUMER.md'
+      - 'LICENSE'
+permissions:
+  contents: read
+jobs:
+  windows-api-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare MinGW Windows compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y g++-mingw-w64-x86-64
+      - name: Compile Windows API observer without executing it
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p dist
+          bash linux/research/build_wine_consumer.sh dist/wine-consumer 2>&1 | tee dist/wine-consumer-build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-api-consumer-build
+          path: |
+            dist/wine-consumer/**
+            dist/wine-consumer-build.log
+          retention-days: 14
+          if-no-files-found: warn
+  consumers-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare consumer compiler and distribution SDL2
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential cmake pkg-config libsdl2-dev libudev-dev curl ca-certificates
+      - name: Compile independent SDL2 SDL3 and Xbox force-feedback observers
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p dist
+          bash linux/research/build_consumers.sh dist/linux-consumers 2>&1 | tee dist/linux-consumers-build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-consumers-build
+          path: |
+            dist/linux-consumers/bin/**
+            dist/linux-consumers/notices/**
+            dist/linux-consumers/source/**
+            dist/linux-consumers/SDL3.tar.gz
+            dist/linux-consumers/provenance.txt
+            dist/linux-consumers/binary-sha256.txt
+            dist/linux-consumers/build/CMakeCache.txt
+            dist/linux-consumers/build/CMakeFiles/CMakeConfigureLog.yaml
+            dist/linux-consumers-build.log
+          retention-days: 14
+          if-no-files-found: warn

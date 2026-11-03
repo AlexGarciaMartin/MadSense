@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from broker_core import (BrokerError, DEVICE_PATH, HID_NAME, MAX_LINE, MAX_REPORT,
-                         foreign_hidraw_owners, identity, process_start, request,
+                         foreign_device_owners, identity, process_start, request,
                          require, same_node, validate_journal, neutral_report)
 
 RUN = Path("/run/madsense")
@@ -36,6 +36,8 @@ TOOLS = {}
 IO_READ = 2
 IO_WRITE = 1
 EVIOCGRAB = 0x40044590
+EVIOCGBIT_TYPES = 0x80044520  # EVIOCGBIT(0, sizeof(uint32_t)); EV_MAX is 31.
+OUTPUT_EVENT_TYPES = (1 << 0x11) | (1 << 0x12) | (1 << 0x15)  # EV_LED, EV_SND, EV_FF.
 
 
 class RecoveryRequired(RuntimeError):
@@ -545,8 +547,14 @@ class Lease:
                 require(stat.S_ISCHR(current.st_mode), "isolation_unverified", "An input node changed type")
                 acl = command("getfacl", ["--omit-header", "/proc/self/fd/" + str(node_fd)], fds=(node_fd,)).decode()
                 require(len(acl) <= 8192, "isolation_unverified", "ACL exceeds the supported bound")
+                event_types = 0
+                if "/event" in node:
+                    capabilities = bytearray(4)
+                    fcntl.ioctl(node_fd, EVIOCGBIT_TYPES, capabilities, True)
+                    event_types = int.from_bytes(capabilities, sys.byteorder)
                 self.saved["nodes"].append({"path": node, **identity(current), "uid": current.st_uid,
-                                            "gid": current.st_gid, "mode": stat.S_IMODE(current.st_mode), "acl": acl})
+                                            "gid": current.st_gid, "mode": stat.S_IMODE(current.st_mode), "acl": acl,
+                                            "eventTypes": event_types, "outputCapable": bool(event_types & OUTPUT_EVENT_TYPES)})
             finally:
                 os.close(node_fd)
         self.rule = (f'# MadSense temporary lease; exact validated HID parent only.\n'
@@ -578,6 +586,7 @@ class Lease:
         self.verify()
         self.initial_audit()
         self.saved["storedGrabs"] = []
+        self.saved["systemdStart"] = process_start(1)
         for index, grabbed in enumerate(self.grabs):
             name = f"madsense-grab-{self.lease_id}-{index}"
             self.grab_names.append(name)
@@ -586,6 +595,7 @@ class Lease:
         for name, grabbed in zip(self.grab_names, self.grabs):
             store_descriptor(grabbed, name)
         descriptor_barrier()
+        require(process_start(1) == self.saved["systemdStart"], "isolation_unverified", "The descriptor-store owner changed")
         self.saved["isolationVerified"] = True
         atomic_json(JOURNAL, self.saved)
         self.active = True
@@ -622,9 +632,15 @@ class Lease:
 
     def audit_foreign(self):
         targets = {node["rdev"] for node in self.saved["nodes"] if node["path"].startswith("/dev/hidraw")}
+        writers = {node["rdev"] for node in self.saved["nodes"] if node["path"].startswith("/dev/input/event") and node.get("outputCapable")}
+        force_feedback = {node["rdev"] for node in self.saved["nodes"] if node["path"].startswith("/dev/input/event")
+                          and node.get("eventTypes", 0) & (1 << 0x15)}
         require(targets, "isolation_unverified", "No physical hidraw interfaces were identified")
-        require(not foreign_hidraw_owners(targets, os.getpid()),
-                "physical_device_busy", "Another process already has a physical hidraw interface open; close it and retry")
+        require(not foreign_device_owners(targets, os.getpid(), writable_targets=writers,
+                    force_feedback_targets=force_feedback,
+                    systemd_grabs=self.saved.get("storedGrabs", ()) if self.active else (),
+                    systemd_start=self.saved.get("systemdStart") if self.active else None),
+                "physical_device_busy", "Another process has a physical hidraw/force-feedback interface or evdev output writer open; close it and retry")
 
     def start_audit(self):
         # The initial audit completes before ACTIVE. Later full /proc scans never

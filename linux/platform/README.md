@@ -68,8 +68,15 @@ parent. The complete rule is fsynced in an ignored temporary file, then installe
 atomically without replacing an existing rule. It applies final root ownership and mode 0600 and removes `uaccess` and
 `seat` tags between the standard seat rules and their ACL application. Existing
 ACLs are removed, every evdev child is grabbed, and the helper audits all other
-processes for open descriptors to any corresponding hidraw interface. An existing
-foreign hidraw reader or an inaccessible live process causes acquisition to fail
+processes for open descriptors to any corresponding hidraw or force-feedback
+evdev interface, and writable descriptors to children with LED or sound output.
+The latter matters because `EVIOCGRAB` does not exclude another already-open evdev
+writer. Event capabilities come from each opened node's `EVIOCGBIT(0)` result;
+access modes come from bounded `/proc/PID/fdinfo/FD` reads with node identity
+rechecked. Read-only input/sensor/touchpad descriptors without force feedback are
+allowed. An existing foreign hidraw or force-feedback reader, other output-capable
+evdev writer, unavailable descriptor metadata or inaccessible live
+process causes acquisition to fail
 and roll back. The user can close the application holding the controller and retry;
 the broker never closes another application's descriptor or unbinds a driver.
 
@@ -79,14 +86,25 @@ descriptor audits run off the report loop; a failed audit or an audit that has n
 completed in two seconds ends isolation. The initial audit has the same two-second
 deadline and completes before
 acquisition succeeds. A disconnected device, new child node, permission change,
-foreign reader, owner exit or stalled client permanently ends that lease. The
+foreign reader or output writer, owner exit or stalled client permanently ends that lease. The
 service does not silently reacquire a reconnected controller.
 
 These checks cover ordinary applications, including evdev users and hidraw users.
 They are not a security boundary against root, kernel code, or cooperating
 processes passing previously open descriptors between one another during a
 process-table scan. Mode and ACL changes do not revoke an existing descriptor.
-`EVIOCGRAB` controls input routing and does not seize hidraw. Recent kernels offer
+`EVIOCGRAB` controls input routing and does not seize hidraw or revoke other evdev
+writers. This follows from Linux's
+[`evdev_write`](https://github.com/torvalds/linux/blob/6628e7d4c6b25c8d18f1345e3a20d21829aae7e4/drivers/input/evdev.c)
+and [`input_inject_event`](https://github.com/torvalds/linux/blob/6628e7d4c6b25c8d18f1345e3a20d21829aae7e4/drivers/input/input.c):
+evdev clients share the input handle used for the grab check. Read-only descriptors
+can own force-feedback effects played through a separate writable descriptor.
+Closing that writer does not necessarily cancel the reader's effects; a delayed
+effect may still play and `EVIOCSFF` can change it. This follows from
+[`input_ff_event`, effect ownership and flush](https://github.com/torvalds/linux/blob/v6.8/drivers/input/ff-core.c)
+and [`ml_ff_upload`/`ml_ff_playback`](https://github.com/torvalds/linux/blob/v6.8/drivers/input/ff-memless.c).
+Therefore every foreign descriptor to a force-feedback node blocks acquisition.
+Recent kernels offer
 `HIDIOCREVOKE`, but it acts on the calling open-file description rather than every
 reader of a device; the broker does not pretend it supplies a device-wide revoke.
 Already delivered or queued input cannot be taken back. A monitor also cannot
@@ -126,6 +144,13 @@ an active grab. Recovery explicitly releases each grab only after owned transpor
 shutdown, disappearance checks and the physical reset attempt. The selected
 hidraw descriptor is not stored; crash recovery reopens only a matching saved
 node and rechecks its Bluetooth HID identity.
+
+After the store barrier, ongoing descriptor audits exempt only PID 1's read-only
+descriptors matching the stored grabs' exact device/inode/rdev identities and
+the recorded PID 1 process start. The initial audit has no such exception. This
+relies on systemd/PID 1 within the stated root-trusted boundary; it is not a claim
+to distinguish malicious root descriptor substitution. Other processes and
+writable PID 1 descriptors remain conflicts.
 
 The root-only journal and descriptor store survive service failure and an
 explicit stop until cleanup succeeds. Normal release shuts down the exact owned

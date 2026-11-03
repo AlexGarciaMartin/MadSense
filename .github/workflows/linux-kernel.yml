@@ -6,43 +6,22 @@ on:
     paths:
       - '.github/workflows/linux-kernel.yml'
       - 'linux/probe/**'
-      - 'linux/research/**'
+      - 'linux/research/host_probe.c'
+      - 'linux/research/kernel_probe.py'
+      - 'linux/research/test_kernel_probe.py'
+      - 'linux/research/ci_environment.py'
+      - 'linux/research/test_ci_environment.py'
+      - 'linux/research/prepare_kernel.sh'
+      - 'linux/research/qemu_kernel.py'
+      - 'linux/research/run_guest.sh'
+      - 'linux/research/kvm_inventory.py'
+      - 'linux/research/kvm_acceleration.py'
+      - 'linux/research/test_kvm_acceleration.py'
       - 'vendor/DualSenseClient/DualSenseClient.Emulation/**'
       - 'tests/DualSenseClient.Tests/Emulation/**'
 permissions:
   contents: read
 jobs:
-  consumers-build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - name: Prepare consumer compiler and distribution SDL2
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y build-essential cmake pkg-config libsdl2-dev libudev-dev curl ca-certificates
-      - name: Compile independent SDL2 SDL3 and Xbox force-feedback observers
-        shell: bash
-        run: |
-          set -o pipefail
-          mkdir -p dist
-          bash linux/research/build_consumers.sh dist/linux-consumers 2>&1 | tee dist/linux-consumers-build.log
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: linux-consumers-build
-          path: |
-            dist/linux-consumers/bin/**
-            dist/linux-consumers/notices/**
-            dist/linux-consumers/source/**
-            dist/linux-consumers/SDL3.tar.gz
-            dist/linux-consumers/provenance.txt
-            dist/linux-consumers/binary-sha256.txt
-            dist/linux-consumers/build/CMakeCache.txt
-            dist/linux-consumers/build/CMakeFiles/CMakeConfigureLog.yaml
-            dist/linux-consumers-build.log
-          retention-days: 14
-          if-no-files-found: warn
   kernel:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -66,7 +45,7 @@ jobs:
       - name: Prepare official-image guest tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client
+          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client acl
           test -r /usr/share/keyrings/ubuntu-cloudimage-keyring.gpg
       - name: Record existing KVM capability without changing host permissions
         run: |

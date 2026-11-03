@@ -104,9 +104,21 @@ def process_start(pid, proc=Path("/proc")):
     return int(tail[19])
 
 
-def foreign_hidraw_owners(target_rdev, own_pid, proc=Path("/proc")):
-    """Permission denial must precede this scan. Never treat inaccessible processes as clear."""
+def foreign_device_owners(target_rdev, own_pid, proc=Path("/proc"), *, writable_targets=(),
+                          force_feedback_targets=(), systemd_grabs=(), systemd_start=None):
+    """Find existing hidraw/force-feedback users and other evdev output writers.
+
+    Permission denial must precede this scan. EVIOCGRAB routes input events but
+    does not exclude writes from another already-open evdev file. A read-only
+    force-feedback descriptor can own effects started through a now-closed
+    writer, and can still change them. Only our read-only PID 1 stored grabs
+    are exempt after the store barrier, within the explicit root-trusted scope.
+    Never treat inaccessible process/descriptor metadata as clear.
+    """
     targets = set(target_rdev) if isinstance(target_rdev, (tuple, list, set, frozenset)) else {target_rdev}
+    writable_targets = set(writable_targets)
+    force_feedback_targets = set(force_feedback_targets)
+    stored = {tuple(node[key] for key in ("dev", "inode", "rdev")) for node in systemd_grabs}
     owners = []
     for entry in proc.iterdir():
         if not entry.name.isdecimal() or int(entry.name) == own_pid:
@@ -117,10 +129,33 @@ def foreign_hidraw_owners(target_rdev, own_pid, proc=Path("/proc")):
             for fd in fds:
                 try:
                     info = fd.stat()
+                    if not stat.S_ISCHR(info.st_mode):
+                        continue
+                    if info.st_rdev in targets:
+                        owners.append((int(entry.name), start, fd.name))
+                    elif info.st_rdev in writable_targets or info.st_rdev in force_feedback_targets:
+                        with (entry / "fdinfo" / fd.name).open() as metadata:
+                            text = metadata.read(8193)
+                        flags = re.findall(r"^flags:[ \t]*([0-7]+)[ \t]*$", text, re.MULTILINE)
+                        require(len(text) <= 8192 and len(flags) == 1,
+                                "isolation_unverified", "Cannot determine an existing evdev descriptor's access mode")
+                        after = fd.stat()
+                        require(stat.S_ISCHR(after.st_mode) and identity(after) == identity(info),
+                                "isolation_unverified", "An output descriptor changed during inspection")
+                        # Linux O_ACCMODE/WRONLY/RDWR are 3/1/2; keep this pure
+                        # metadata validator runnable on the Windows dev host.
+                        access = int(flags[0], 8) & 3
+                        trusted_grab = (int(entry.name) == 1 and start == systemd_start and access == 0
+                                        and (info.st_dev, info.st_ino, info.st_rdev) in stored)
+                        if ((info.st_rdev in force_feedback_targets and not trusted_grab)
+                                or access in (1, 2)):
+                            owners.append((int(entry.name), start, fd.name))
                 except FileNotFoundError:
-                    continue  # A descriptor was closed during enumeration.
-                if stat.S_ISCHR(info.st_mode) and info.st_rdev in targets:
-                    owners.append((int(entry.name), start, fd.name))
+                    try:
+                        fd.stat()
+                    except (FileNotFoundError, ProcessLookupError):
+                        continue  # A descriptor was closed during enumeration.
+                    raise BrokerError("isolation_unverified", "A live descriptor's metadata is unavailable") from None
         except (FileNotFoundError, ProcessLookupError):
             if entry.exists():
                 raise BrokerError("isolation_unverified", "A live process could not be inspected") from None

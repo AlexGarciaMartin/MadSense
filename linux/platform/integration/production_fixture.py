@@ -63,7 +63,12 @@ def features():
     struct.pack_into("<hhhhhh", calibration, 7, 16000, -16000, 16000, -16000, 16000, -16000)
     struct.pack_into("<hh", calibration, 19, 1024, 1024)
     struct.pack_into("<hhhhhh", calibration, 23, 8192, -8192, 8192, -8192, 8192, -8192)
-    return {0x20: bytes(firmware), 9: bytes(pairing), 5: bytes(calibration)}
+    reports = {0x20: firmware, 9: pairing, 5: calibration}
+    # Linux hid-playstation ps_get_report checks the final four bytes of each
+    # Bluetooth feature with PS_FEATURE_CRC32_SEED (0xA3).
+    for report in reports.values():
+        struct.pack_into("<I", report, len(report) - 4, binascii.crc32(b"\xa3" + report[:-4]))
+    return {key: bytes(value) for key, value in reports.items()}
 
 
 def manifest():
@@ -105,10 +110,13 @@ class SyntheticDualSense:
                            if (p / "device").resolve().is_relative_to(self.parent)]
                     events = [p for p in Path("/sys/class/input").glob("event*")
                               if (p / "device").resolve().is_relative_to(self.parent)]
-                    if len(raw) == 1 and events:
-                        if (self.parent / "driver").resolve().name != "hid-generic":
+                    # The production Sony driver creates a gamepad, motion and
+                    # touchpad evdev node. Wait for all three, not its early
+                    # hidraw registration before the feature handshake.
+                    if len(raw) == 1 and len(events) >= 3 and {5, 9, 0x20}.issubset(self.feature_requests):
+                        if (self.parent / "driver").resolve().name != "playstation":
                             self.close()
-                            raise RuntimeError("Synthetic fixture must bind generic HID, not hardware firmware driver")
+                            raise RuntimeError("Synthetic fixture must bind hid-playstation")
                         self.hidraw = Path("/dev", raw[0].name)
                         self.events = [Path("/dev/input", p.name) for p in events]
                         return
@@ -117,7 +125,7 @@ class SyntheticDualSense:
                 raise self.error
             time.sleep(.05)
         self.close()
-        raise TimeoutError("UHID generic gamepad nodes")
+        raise TimeoutError("UHID hid-playstation gamepad, motion and touchpad nodes")
 
     def send(self, kind, payload=b""):
         data = struct.pack("=I", kind) + payload

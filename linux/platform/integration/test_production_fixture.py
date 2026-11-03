@@ -51,6 +51,13 @@ class FixtureTests(unittest.TestCase):
             self.assertGreater(high - low, 0)
         self.assertNotEqual(reports[9][1:7], reports[9][10:16])
 
+    def test_bluetooth_features_carry_kernel_a3_crc(self):
+        for report in features().values():
+            crc = struct.unpack_from("<I", report, len(report) - 4)[0]
+            self.assertEqual(crc, binascii.crc32(b"\xa3" + report[:-4]))
+            self.assertNotEqual(crc, binascii.crc32(b"\xa1" + report[:-4]))
+            self.assertNotEqual(crc, binascii.crc32(b"\xa2" + report[:-4]))
+
     def test_south_only_fixture_changes_only_button_and_crc(self):
         neutral, south = input_report(), input_report(south_only=True)
         self.assertEqual(south[9], 0x28)

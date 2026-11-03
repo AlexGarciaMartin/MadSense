@@ -5,7 +5,6 @@ the cloud-init seed and disk images stay in work, never in collected evidence.
 """
 import hashlib
 import json
-import os
 from pathlib import Path
 import socket
 import subprocess
@@ -16,6 +15,7 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "research"))
 from ci_environment import validate_environment
 from qemu_kernel import IMAGE_BASE, IMAGE_NAME, IMAGE_SHA256, KEYRING
+from kvm_acceleration import AcceleratedQemu
 
 
 def fresh_directories(output, work):
@@ -55,7 +55,7 @@ class OwnedQemu:
         self.output, self.work = fresh_directories(output, work)
         self.token = str(uuid.uuid4())
         self.process = None
-        self.stderr = None
+        self.acceleration = None
         self.provenance = dict(schema=1, instance=self.token, result="failed",
             imageUrl=f"{IMAGE_BASE}/{IMAGE_NAME}", imageSha256=IMAGE_SHA256,
             physicalDevicePassthrough=False, radioPassthrough=False,
@@ -105,19 +105,19 @@ class OwnedQemu:
             port = endpoint.getsockname()[1]
         known = self.work / "known_hosts"
         known.write_text(f"[127.0.0.1]:{port} " + host_key.with_suffix(".pub").read_text())
-        accelerator = "kvm" if os.access("/dev/kvm", os.R_OK | os.W_OK) else "tcg"
-        self.provenance.update(accelerator=accelerator, virtualCpus=2, memoryMiB=2048,
+        self.provenance.update(virtualCpus=2, memoryMiB=2048,
                                sshBind="127.0.0.1", sshPort=port)
-        argv = ["qemu-system-x86_64", "-machine", f"q35,accel={accelerator}",
+        def arguments(accelerator):
+            return ["qemu-system-x86_64", "-machine", f"q35,accel={accelerator}",
             "-cpu", "host" if accelerator == "kvm" else "max", "-smp", "2", "-m", "2048", "-uuid", self.token,
             "-nodefaults", "-display", "none", "-monitor", "none", "-serial", f"file:{self.output / 'guest-console.log'}", "-no-reboot",
             "-drive", f"file={self.work / 'guest.qcow2'},format=qcow2,if=virtio",
             "-drive", f"file={self.work / 'seed.img'},format=raw,if=virtio,readonly=on",
             "-netdev", f"user,id=net0,hostfwd=tcp:127.0.0.1:{port}-:22",
             "-device", "virtio-net-pci,netdev=net0", "-device", "virtio-rng-pci"]
-        (self.output / "qemu-arguments.json").write_text(json.dumps(argv, indent=2) + "\n")
-        self.stderr = (self.output / "qemu.stderr").open("wb")
-        self.process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=self.stderr)
+        self.acceleration = AcceleratedQemu(self.output, self.provenance)
+        accelerator = self.acceleration.start(arguments)
+        self.process = self.acceleration.process
         common = ["-i", str(user_key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
             "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={known}"]
         self.ssh = ["ssh", *common, "-p", str(port), "ubuntu@127.0.0.1"]
@@ -126,13 +126,15 @@ class OwnedQemu:
         self.run("cloud-init", "sudo -n cloud-init status --wait", timeout=180)
 
     def wait_ready(self, accelerator):
-        deadline = time.monotonic() + (180 if accelerator == "kvm" else 420)
+        started = time.monotonic()
+        deadline = started + (180 if accelerator == "kvm" else 420)
         while True:
             if self.process.poll() is not None:
                 raise RuntimeError("Owned QEMU exited before SSH readiness")
             try:
                 attempt = self.run("ssh-ready", "true", timeout=8, required=False)
                 if attempt.returncode == 0:
+                    self.provenance["guestSshReadySeconds"] = time.monotonic() - started
                     break
             except subprocess.TimeoutExpired:
                 pass  # A slow TCG guest can accept TCP before sshd can answer.
@@ -156,16 +158,5 @@ class OwnedQemu:
             f"ubuntu@127.0.0.1:/home/ubuntu/madsense/{name}", self.output / name], required=False)
 
     def close(self):
-        try:
-            if self.process is not None:
-                if self.process.poll() is None:
-                    self.process.terminate()
-                    try:
-                        self.process.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        self.process.kill()
-                        self.process.wait(timeout=5)
-                self.provenance["ownedQemuStopped"] = True
-        finally:
-            if self.stderr is not None:
-                self.stderr.close()
+        if self.acceleration is not None:
+            self.acceleration.close()

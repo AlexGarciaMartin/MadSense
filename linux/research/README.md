@@ -94,8 +94,35 @@ of zero words. Linux's
 prints unpadded native unsigned-long words from high to low (32-bit words for a
 compat reader). The corrected parser retains that width, with regression tests
 for BTN_SOUTH at bit 304 in both 32- and 64-bit views. Subsequent runs also retain
-the owned input/hidraw/sound node inventory before detachment. A rerun is still
-required to validate the later assertions.
+the owned input/hidraw/sound node inventory before detachment.
+
+The three **kernel jobs passed** in
+[41604139381](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41604139381),
+commit `1dd841f`, on the same signed Ubuntu image and `6.8.0-147-generic` kernel.
+DualSense and Edge passed exact USB/HID descriptors, features `09/20/05`, neutral
+raw input/evdev and the RGB output round trip. Both delivered all 48,000 source
+frames unchanged through ALSA four-channel playback, with exact rear-channel
+haptics extraction. Both captured 48,000 synthetic microphone frames as a
+contiguous unpadded sequence of the emitted ISO IN bytes. Xbox passed exact USB
+descriptors and its eight-axis/ten-button neutral evdev assertions. Each test
+detached its own port and exited the exporter cleanly. The overall workflow was
+red only because the independent SDL3 compilation needed its documented
+`SDL_UNIX_CONSOLE_BUILD` option; that failure does not invalidate the three
+completed kernel results.
+
+The PCM evidence hashes are identical for the two Sony personas:
+
+| Evidence | SHA256 |
+|---|---|
+| Four-channel source, 48,000 frames | `d0f411dc6b1329a3031b75b8a42d2567ac9e69717c3082a90c5ef2d72d1a5d04` |
+| Rear haptics source, 48,000 frames | `12ac690b823aff5a818e1b4443b803db11008915f8739e772539ce40ca57b18d` |
+| Received synthetic ISO IN, 48,000 frames | `e58d003738333a42c280e58ca26c24015b2a851e998304f4dd5d1ee1011f67ff` |
+
+This run used TCG, not KVM. Its read-only KVM inventory found an existing
+`10:232` node with a base `0660` ACL, runner `EACCES` and root API version 12;
+that establishes a permission difference, not usable VM acceleration. Nothing
+in this neutral experiment establishes physical Bluetooth, physical output,
+real-game compatibility, a physical microphone or physical latency.
 
 The independent next-stage SDL2/SDL3, Xbox force-feedback and Wine/Proton plan is
 documented in [CONSUMERS.md](CONSUMERS.md). Those consumer probes do not alter

@@ -6,13 +6,25 @@ on:
     paths:
       - '.github/workflows/linux-platform.yml'
       - 'linux/platform/**'
+      - 'linux/tests/app-integration/**'
+      - 'linux/app/**'
       - 'linux/probe/**'
-      - 'linux/research/**'
+      - 'linux/research/ci_environment.py'
+      - 'linux/research/kernel_probe.py'
+      - 'linux/research/prepare_kernel.sh'
+      - 'linux/research/qemu_kernel.py'
+      - 'linux/research/host_probe.c'
+      - 'linux/research/kvm_inventory.py'
+      - 'linux/research/kvm_acceleration.py'
+      - 'linux/research/test_kvm_acceleration.py'
+      - 'macos/backend/ActivityHidDevice.cs'
+      - 'src/Localization*'
+      - 'src/Localization/**'
       - 'vendor/DualSenseClient/DualSenseClient.Hid/**'
       - 'vendor/DualSenseClient/DualSenseClient.Controllers/**'
       - 'vendor/DualSenseClient/DualSenseClient.Emulation/**'
   pull_request:
-    paths: ['linux/platform/**', '.github/workflows/linux-platform.yml']
+    paths: ['linux/platform/**', 'linux/tests/app-integration/**', 'linux/app/**', 'linux/research/kvm_acceleration.py', 'linux/research/test_kvm_acceleration.py', 'macos/backend/ActivityHidDevice.cs', 'src/Localization*', '.github/workflows/linux-platform.yml']
 permissions:
   contents: read
 concurrency:
@@ -44,10 +56,13 @@ jobs:
           dotnet test linux/platform/tests/MadSense.Linux.Platform.Tests.csproj -c Release --logger 'trx;LogFileName=platform.trx' --results-directory dist/linux-platform-portable
           python3 -m unittest discover -s linux/platform/tests -p 'test_*.py' -v 2>&1 | tee dist/linux-platform-portable/python-tests.txt
           python3 -m unittest discover -s linux/platform/integration -p 'test_*.py' -v 2>&1 | tee dist/linux-platform-portable/core-fixture-tests.txt
+          python3 -m unittest discover -s linux/tests/app-integration -p 'test_*.py' -v 2>&1 | tee dist/linux-platform-portable/app-payload-tests.txt
+          python3 -m unittest discover -s linux/research -p 'test_kvm_acceleration.py' -v 2>&1 | tee dist/linux-platform-portable/kvm-tests.txt
           dotnet restore linux/platform/integration/MadSense.Linux.CoreProbe.csproj --locked-mode
           dotnet run --project linux/platform/integration/MadSense.Linux.CoreProbe.csproj -c Release --no-restore -- --verify-fixtures linux/platform/integration/fixtures.json | tee dist/linux-platform-portable/core-parser.txt
-          python3 -m py_compile linux/platform/broker.py linux/platform/broker_core.py linux/platform/tests/*.py linux/platform/integration/*.py
-          for script in linux/platform/install.sh linux/platform/tests/run_native_broker_guest.sh linux/platform/tests/run_broker_experiment.sh linux/platform/integration/run_core_experiment.sh; do bash -n "$script"; done
+          dotnet build linux/tests/app-integration/MadSense.Linux.AppProbe.csproj -c Release -p:RestoreLockedMode=true
+          python3 -m py_compile linux/platform/broker.py linux/platform/broker_core.py linux/platform/tests/*.py linux/platform/integration/*.py linux/tests/app-integration/*.py linux/research/kvm_acceleration.py
+          for script in linux/platform/install.sh linux/platform/tests/run_native_broker_guest.sh linux/platform/tests/run_broker_experiment.sh linux/platform/integration/run_core_experiment.sh linux/tests/app-integration/run_app_experiment.sh; do bash -n "$script"; done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -58,7 +73,7 @@ jobs:
   native:
     needs: portable
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -68,19 +83,22 @@ jobs:
         run: dotnet publish linux/probe/MadSense.Linux.Probe.csproj -c Release -r linux-x64 --self-contained true -o dist/linux-platform-probe
       - name: Publish production core integration actor
         run: dotnet publish linux/platform/integration/MadSense.Linux.CoreProbe.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o dist/linux-core-probe
+      - name: Publish production application controller integration actor
+        run: dotnet publish linux/tests/app-integration/MadSense.Linux.AppProbe.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o dist/linux-app-probe
       - name: Install official-image guest tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client
+          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client acl
           test -r /usr/share/keyrings/ubuntu-cloudimage-keyring.gpg
       - name: Record existing KVM capability without changing host permissions
         run: |
           python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-runner.json
           sudo -n python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-root.json
-      - name: Native broker baseline, idle upgrade and production core over UHID
+      - name: Native broker baseline, idle upgrade, production core and application over UHID
         run: >-
           python3 linux/platform/integration/qemu_core.py
           --neutral-probe-directory dist/linux-platform-probe --core-probe-directory dist/linux-core-probe
+          --app-probe-directory dist/linux-app-probe
           --output dist/linux-platform-guest --work dist/platform-qemu-private
       - uses: actions/upload-artifact@v4
         if: always()

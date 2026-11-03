@@ -1,7 +1,7 @@
 # Consumer experiments after kernel enumeration
 
 These observers are prepared separately from the kernel baseline. The independent
-`consumers-build` job in `linux-kernel.yml` compiles them without executing them or
+`consumers-build` job in `linux-consumers.yml` compiles them without executing them or
 accessing devices. Its first Linux compilation and all consumer runtime results
 are still pending. It does not change the baseline guest's proof steps.
 

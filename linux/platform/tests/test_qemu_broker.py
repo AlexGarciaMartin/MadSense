@@ -53,6 +53,7 @@ class GuestLifecycleTests(unittest.TestCase):
     def test_transient_ssh_timeout_retries_until_the_guest_boot_deadline(self):
         guest = owned_qemu.OwnedQemu.__new__(owned_qemu.OwnedQemu)
         guest.process = MagicMock(); guest.process.poll.return_value = None
+        guest.provenance = {}
         guest.run = MagicMock(side_effect=[subprocess.TimeoutExpired("ssh", 8), subprocess.CompletedProcess("ssh", 0)])
         with patch.object(owned_qemu.time, "sleep"), patch.object(owned_qemu.time, "monotonic", return_value=0):
             guest.wait_ready("tcg")
@@ -70,12 +71,18 @@ class GuestLifecycleTests(unittest.TestCase):
         guest = owned_qemu.OwnedQemu.__new__(owned_qemu.OwnedQemu)
         guest.process = MagicMock(); guest.process.poll.return_value = None
         guest.process.wait.side_effect = [subprocess.TimeoutExpired("owned qemu", 10), 0]
-        guest.stderr = MagicMock(); guest.provenance = {}
+        guest.provenance = {}
+        owner = owned_qemu.AcceleratedQemu.__new__(owned_qemu.AcceleratedQemu)
+        owner.process, owner.provenance = guest.process, guest.provenance
+        owner.stderr, owner.qmp, owner.access, owner.directory = MagicMock(), None, MagicMock(), MagicMock()
+        stream = owner.stderr
+        guest.acceleration = owner
         guest.close()
         guest.process.terminate.assert_called_once_with()
         guest.process.kill.assert_called_once_with()
         self.assertTrue(guest.provenance["ownedQemuStopped"])
-        guest.stderr.close.assert_called_once_with()
+        stream.close.assert_called_once_with()
+        owner.access.restore.assert_called_once_with()
 
 
 class EvidenceTests(unittest.TestCase):

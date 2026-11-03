@@ -6,6 +6,7 @@ never part of the production installer. No application UI coverage is implied.
 """
 import argparse
 import binascii
+import errno
 import fcntl
 import hashlib
 import json
@@ -25,8 +26,10 @@ from production_fixture import SyntheticDualSense, features, input_report, manif
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "research"))
+sys.path.insert(0, str(ROOT / "platform/tests"))
 from ci_environment import validate_environment
 from kernel_probe import contains_exact, owned_nodes, ports, sysfs_bitmap, wait_for
+from native_broker_integration import Actor, EVIOCGRAB
 
 
 def require(condition, message):
@@ -72,7 +75,7 @@ def main():
     user = "madsense-core-ci"
     process, fixture, log, baseline, usb = None, None, None, None, None
     created_files, created_user = [], False
-    started_module = Path("/sys/module/hid_playstation").exists()
+    observers = []
 
     def save(name, value):
         (output / name).write_text(json.dumps(value, indent=2) + "\n")
@@ -132,15 +135,9 @@ def main():
                      'polkit.addRule(function(action, subject) {\n'
                      'if (action.id === "org.madsense.bridge.acquire" && subject.user === "madsense-core-ci") return polkit.Result.YES;\n});\n')
         command("restart-polkit", ["systemctl", "restart", "polkit.service"])
-        if started_module:
-            command("unload-playstation-for-fixture", ["modprobe", "-r", "hid_playstation"])
-        block = Path("/run/modprobe.d/madsense-core-ci.conf")
-        fixture_file(block, "# Owned disposable QEMU fixture only\nblacklist hid_playstation\ninstall hid_playstation /bin/false\n")
+        command("load-playstation-for-fixture", ["modprobe", "hid_playstation"])
         command("load-uhid", ["modprobe", "uhid"])
         fixture = SyntheticDualSense("madsense-core-" + uuid.uuid4().hex[:12], output)
-        block.unlink()
-        command("load-playstation-for-virtual", ["modprobe", "hid_playstation"])
-        require((fixture.parent / "driver").resolve().name == "hid-generic", "Fixture unexpectedly rebound")
         fixture_file(Path("/run/udev/rules.d/71-madsense-core-ci.rules"),
                      f'SUBSYSTEM=="hidraw|input", KERNELS=="{fixture.parent.name}", OWNER="root", '
                      f'GROUP="{user}", MODE="0660", TAG-="uaccess", TAG-="seat"\n')
@@ -149,6 +146,43 @@ def main():
         command("settle-fixture", ["udevadm", "settle", "--timeout=5"])
         baseline = snapshot()
         save("physical-fixture.json", dict(parent=str(fixture.parent), hidraw=str(fixture.hidraw), baseline=baseline, **manifest()))
+        actor_script = actor_root / "rpc-actor.py"
+        shutil.copyfile(ROOT / "platform/tests/native_broker_integration.py", actor_script)
+        event_caps = {node: sysfs_bitmap((Path("/sys/class/input", node.name) / "device/capabilities/ev").read_text())
+                      for node in fixture.events}
+        writer_node = next((node for node, caps in event_caps.items()
+                            if caps & ((1 << 0x11) | (1 << 0x12) | (1 << 0x15))), None)
+        require(writer_node is not None, "Real synthetic controller has no output-capable evdev interface")
+        writer = os.open(writer_node, os.O_RDWR | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            client = Actor(user, output, "foreign-evdev-writer", actor_script)
+            try:
+                client.rpc("acquire", expected="physical_device_busy", path=str(fixture.hidraw))
+            finally:
+                client.close()
+            wait_for(cleanup_done, 20)
+        finally:
+            os.close(writer)
+        passed("preexisting_output_capable_evdev_writer_refused")
+        ff_node = next((node for node, caps in event_caps.items() if caps & (1 << 0x15)), None)
+        require(ff_node is not None, "Real synthetic controller has no force-feedback interface")
+        reader = os.open(ff_node, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            client = Actor(user, output, "foreign-ff-reader", actor_script)
+            try:
+                client.rpc("acquire", expected="physical_device_busy", path=str(fixture.hidraw))
+            finally:
+                client.close()
+            wait_for(cleanup_done, 20)
+        finally:
+            os.close(reader)
+        passed("preexisting_readonly_force_feedback_descriptor_refused")
+        # Read-only sensor/touchpad observers are legitimate. Force-feedback
+        # descriptors can upload effects even when opened read-only, so none
+        # are retained here. Verify their stored grab identities without opening.
+        observer_nodes = [node for node, caps in event_caps.items() if not caps & (1 << 0x15)]
+        require(len(observer_nodes) >= 2, "Motion and touchpad observers are required")
+        observers = [os.open(node, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC) for node in observer_nodes]
         log = (output / "core-probe.log").open("wb")
         process = subprocess.Popen([str(actor_root / "probe/MadSense.Linux.CoreProbe"),
             "--owned-guest-token", args.owned_guest_token, "--device", str(fixture.hidraw),
@@ -186,6 +220,38 @@ def main():
              localBusId=usb.name, hidrawPath=str(hidraw), evdevPath=str(Path("/dev/input", event.name)),
              vendorId=ready["vendorId"], productId=ready["productId"], actorPid=process.pid))
         require({5, 9, 0x20}.issubset(fixture.feature_requests), "Production constructor/calibration feature RPC missing")
+        for observer in observers:
+            try:
+                fcntl.ioctl(observer, EVIOCGRAB, 1)
+            except OSError as error:
+                require(error.errno == errno.EBUSY, "Unexpected grab error for read-only evdev observer")
+            else:
+                fcntl.ioctl(observer, EVIOCGRAB, 0)
+                raise AssertionError("Production broker failed to grab a physical evdev interface")
+        journal = read_json(Path("/run/madsense/lease.json"))
+        expected_grabs = {(info.st_dev, info.st_ino, info.st_rdev) for node in fixture.events for info in [node.stat()]}
+        require(journal and journal.get("isolationVerified") is True, "No completed descriptor-store barrier")
+        stored_grabs = {(row["dev"], row["inode"], row["rdev"]) for row in journal.get("storedGrabs", [])}
+        require(stored_grabs == expected_grabs, "Descriptor store journal does not cover every physical evdev")
+        retained = set()
+        for descriptor in Path("/proc/1/fd").iterdir():
+            try:
+                info = descriptor.stat()
+                identity = (info.st_dev, info.st_ino, info.st_rdev)
+                if identity not in expected_grabs:
+                    continue
+                flags = next(line.split()[1] for line in Path("/proc/1/fdinfo", descriptor.name).read_text().splitlines()
+                             if line.startswith("flags:"))
+                require(int(flags, 8) & os.O_ACCMODE == os.O_RDONLY, "PID 1 retained a writable input descriptor")
+                retained.add(identity)
+            except FileNotFoundError:
+                continue
+        require(retained == expected_grabs, "PID 1 does not retain every physical input descriptor")
+        store_count = int(command("active-descriptor-store", ["systemctl", "show", "madsense-broker.service",
+                              "--property=NFileDescriptorStore", "--value"]).stdout)
+        require(store_count == len(expected_grabs) + 1, "Expected all physical grabs plus the owned import socket")
+        passed("readonly_sensor_observers_allow_acquire_and_all_grabs_are_stored", sensorObservers=len(observers),
+               storedGrabs=len(retained), descriptorStoreCount=store_count)
         passed("production_hid_enumeration_features_parser_attach")
         command("host-hid", [args.host_probe, "hid", hidraw, actor_output / "hid-descriptor.bin", output / "host-hid.json"])
         observed = read_json(output / "host-hid.json")
@@ -232,9 +298,24 @@ def main():
         (actor_output / "stop").touch()
         require(process.wait(timeout=30) == 0, "Core actor failed during orderly disposal")
         wait_for(cleanup_done, 20)
+        for observer in observers:
+            fcntl.ioctl(observer, EVIOCGRAB, 1)
+            fcntl.ioctl(observer, EVIOCGRAB, 0)
         stopped = read_json(actor_output / "stopped.json")
         require(stopped and stopped["completed"] and stopped["inputs"] > 0, "Core did not confirm clean completion")
         require(stopped["metrics"]["inputOverflows"] == 0, "Production proxy input overflowed")
+        neutral = json.loads((ROOT / "platform/tests/neutral-reports.json").read_text())
+        def reset_delivered():
+            last = fixture.outputs[-3:]
+            if len(last) != 3 or any(len(data) != 78 or data[0] != 0x31 for data in last):
+                return False
+            sequence = last[0][1] >> 4
+            expected = [bytes.fromhex(next(row["hex"] for row in neutral
+                        if row["kind"] == kind and row["sequence"] == (sequence + index) % 16))
+                        for index, kind in enumerate(("rumble_legacy", "rumble_v2", "triggers_off"))]
+            return last == expected
+        wait_for(reset_delivered, 5)
+        save("final-neutral-reports.json", [data.hex() for data in fixture.outputs[-3:]])
         passed("production_core_dispose_detach_reset_and_physical_restore")
         result["result"] = "passed"
     except BaseException as error:
@@ -249,18 +330,19 @@ def main():
                     process.kill(); process.wait(timeout=5)
             if fixture is not None and baseline is not None:
                 wait_for(cleanup_done, 20)
-            if actor_output.exists():
-                shutil.copytree(actor_output, output / "core", dirs_exist_ok=True)
-                # Actor output is 0700 while active; make only the copied test
-                # evidence readable to the unprivileged SSH collector.
-                for item in [output / "core", *(output / "core").rglob("*")]:
-                    item.chmod(0o755 if item.is_dir() else 0o644)
         except BaseException as error:
             result["cleanupError"] = str(error)
             result["result"] = "failed"
         finally:
+            # Keep diagnostics even if ordered recovery above failed.
+            if actor_output.exists():
+                shutil.copytree(actor_output, output / "core", dirs_exist_ok=True)
+                for item in [output / "core", *(output / "core").rglob("*")]:
+                    item.chmod(0o755 if item.is_dir() else 0o644)
             if log is not None:
                 log.close()
+            for observer in observers:
+                os.close(observer)
             if fixture is not None:
                 fixture.close()
             for path, content in reversed(created_files):

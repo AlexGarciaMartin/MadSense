@@ -184,11 +184,11 @@ class IdentityTests(unittest.TestCase):
                         return types.SimpleNamespace(st_mode=stat.S_IFCHR, st_rdev=55)
                     return original(path, *args, **kwargs)
                 with patch.object(Path, "stat", fake_stat):
-                    self.assertEqual(core.foreign_hidraw_owners(55, 9, root), [(7, 123, "3")])
-                    self.assertEqual(core.foreign_hidraw_owners({54, 55}, 9, root), [(7, 123, "3")])
+                    self.assertEqual(core.foreign_device_owners(55, 9, root), [(7, 123, "3")])
+                    self.assertEqual(core.foreign_device_owners({54, 55}, 9, root), [(7, 123, "3")])
                 with patch.object(Path, "stat", side_effect=PermissionError()):
                     with self.assertRaises(core.BrokerError):
-                        core.foreign_hidraw_owners(55, 9, root)
+                        core.foreign_device_owners(55, 9, root)
 
     def test_journal_boot_and_path_guards(self):
         node = {"path": "/dev/hidraw1", "dev": 1, "inode": 2, "rdev": 3,
@@ -503,11 +503,13 @@ class RecoveryTests(unittest.TestCase):
 
     def test_all_hidraw_interfaces_are_audited(self):
         lease = broker.Lease.__new__(broker.Lease)
+        lease.active = False
         lease.saved = {"nodes": [{"path": "/dev/hidraw1", "rdev": 1}, {"path": "/dev/hidraw2", "rdev": 2},
                                   {"path": "/dev/input/event1", "rdev": 3}]}
-        with patch.object(broker, "foreign_hidraw_owners", return_value=[]) as audit:
+        with patch.object(broker, "foreign_device_owners", return_value=[]) as audit:
             lease.audit_foreign()
-        audit.assert_called_once_with({1, 2}, os.getpid())
+        audit.assert_called_once_with({1, 2}, os.getpid(), writable_targets=set(),
+                                      force_feedback_targets=set(), systemd_grabs=(), systemd_start=None)
 
     def test_audit_failure_and_timeout_end_verification(self):
         lease = broker.Lease.__new__(broker.Lease)
@@ -537,7 +539,7 @@ class RecoveryTests(unittest.TestCase):
         rule = MagicMock(); rule.read_bytes.return_value = b"rule"
         with patch.object(broker, "RULE", rule), patch.object(os, "stat", return_value=current), \
              patch.object(os, "getxattr", side_effect=OSError(errno.ENODATA, "No ACL"), create=True), \
-             patch.object(broker, "command") as command, patch.object(broker, "foreign_hidraw_owners") as scan:
+             patch.object(broker, "command") as command, patch.object(broker, "foreign_device_owners") as scan:
             lease.verify()
         command.assert_not_called(); scan.assert_not_called()
 

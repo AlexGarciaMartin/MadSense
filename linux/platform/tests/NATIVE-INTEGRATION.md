@@ -117,9 +117,27 @@ empty and the owned QEMU process stopped. This is incomplete recovery evidence,
 not a passing native run. The native artifact ZIP digest is
 `3db87abf08e33bd26de1f0dfcac9ef3f3b6c30de0819addaaed0ae228db0b37a`.
 
+The subsequent [run 41604139844](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41604139844)
+at `1dd841f50929b500758d48fd805b7d4304ed0f80` passed all ten native baseline
+assertions. It recorded nine samples with the killed broker PID gone while its
+USB import and stored grabs remained alive, then verified exact neutral reports,
+owned import removal, restored physical nodes, preservation of the independent
+device/import and no automatic reacquisition of a replacement. The two idle
+installer restarts also passed with different PIDs, explicit idle preflight and
+empty FDSTORE. All 39 payload source files and four installed files matched the
+commit. Portable x64/ARM each passed 82 C#, 55 Python and six fixture tests.
+
+The workflow still failed because its new core stage stopped before starting
+C#: loading hid-playstation rebound the generic fixture, then rejected the
+Bluetooth feature09 CRC. The corrected full-protocol fixture now supports that
+driver and remains pending native verification. The successful baseline does not
+validate the C# application or pre-existing evdev force-feedback writers. Native
+artifact digest:
+`25612832078c0e35ea2d841ff77f1a8e181654f4cba9375c5b9227bf5048fa14`.
+
 The workflow now gates the separate `integration/qemu_core.py` stage on this
 baseline, then checks two idle installer restarts and the production C# core on a
-full synthetic UHID fixture in the same guest. Those new stages are not yet
+full synthetic UHID fixture in the same guest. The core stage is not yet
 natively validated. This experiment does not
 prove real Bluetooth ownership, firmware reset acceptance, effects on a physical
 controller, game compatibility or latency. It does not exercise C# bridge/UI

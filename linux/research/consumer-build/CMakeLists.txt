@@ -24,6 +24,9 @@ set(SDL_VIDEO OFF CACHE BOOL "" FORCE)
 set(SDL_RENDER OFF CACHE BOOL "" FORCE)
 set(SDL_GPU OFF CACHE BOOL "" FORCE)
 set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
+# The observer intentionally creates no windows. SDL's Unix summary otherwise
+# rejects a build without X11/Wayland even when SDL_VIDEO is disabled.
+set(SDL_UNIX_CONSOLE_BUILD ON CACHE BOOL "" FORCE)
 set(SDL_HIDAPI_LIBUSB OFF CACHE BOOL "" FORCE)
 add_subdirectory("${SDL_SOURCE_DIRECTORY}" sdl3 EXCLUDE_FROM_ALL)
 add_executable(consumer_sdl3 ../consumer_sdl.c)
