@@ -64,12 +64,15 @@ def main():
     parser.add_argument("--consumer-binaries", type=Path)
     parser.add_argument("--wine-consumer", type=Path)
     parser.add_argument("--observe-audio-defaults", action="store_true")
+    parser.add_argument("--observe-pipewire-defaults", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     require(args.wine_consumer is None or args.consumer_binaries is not None,
             "Wine consumer requires the optional consumer binary directory")
     require(not args.observe_audio_defaults or args.consumer_binaries is not None,
             "Audio defaults observation requires the optional consumer suite")
+    require(not args.observe_pipewire_defaults or args.consumer_binaries is not None,
+            "PipeWire defaults observation requires the optional consumer suite")
     require(os.geteuid() == 0, "Run only as root inside the owned test guest")
     scope = validate_environment(args.owned_guest_token)
     require(scope["kind"] == "owned-qemu-guest", "Owned QEMU guest required")
@@ -272,6 +275,8 @@ def main():
         observed = read_json(output / "host-hid.json")
         for key, value in ready["features"].items():
             require(observed["features"][key]["hex"].lower() == value.lower(), "Virtual feature mismatch: " + key)
+        require(observed["features"]["05"]["hex"].lower() == features()[5].hex(),
+                "Physical fixture calibration did not reach the host's virtual feature 05")
         passed("kernel_virtual_descriptor_features_neutral_input")
         wait_for(lambda: any((payload := state_payload(data)) is not None and payload[44:47] == bytes.fromhex("123456")
                              for data in fixture.outputs))
@@ -321,7 +326,8 @@ def main():
                 fixture.south_only = state == "south"
             result["consumers"] = run_suite(output / "consumer-ready.json", args.consumer_binaries,
                 args.wine_consumer, consumer_state, output / "consumer-suite", fixture.parent,
-                observe_audio_defaults=args.observe_audio_defaults)
+                observe_audio_defaults=args.observe_audio_defaults,
+                observe_pipewire_defaults=args.observe_pipewire_defaults)
             require(result["consumers"].get("result") == "passed"
                     and result["consumers"].get("accountProcessesAndFilesRemoved") is True
                     and not result["consumers"].get("cleanupErrors"), "Consumer suite or scoped cleanup failed")

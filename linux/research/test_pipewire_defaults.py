@@ -1,15 +1,20 @@
 import copy
+import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from pipewire_defaults import (PREFIX, check_peer, default_sink, describe_nodes, observe_defaults,
-                               select_device, summarize, supported_versions, volume_evidence)
+                               optional_result, run_optional, select_device, summarize, supported_versions, volume_evidence)
+from qemu_consumers import stage_consumer_research
 
 
 def version_output(name, version):
@@ -149,6 +154,71 @@ class PipeWireEvidenceTests(unittest.TestCase):
                 thread.join(6)
                 self.assertFalse(thread.is_alive())
                 self.assertFalse(failures)
+
+
+class OptionalPipeWireTests(unittest.TestCase):
+    ready = dict(ownedGuestToken="owned-test-uuid", usbParent="/sys/devices/platform/vhci_hcd.0/usb1/1-2")
+
+    def record(self, **changes):
+        return dict(scope="owned-private-pipewire-default-observer", ready=self.ready,
+                    result="failed", accountProcessesAndFilesRemoved=True, **changes)
+
+    def test_failed_collection_continues_only_with_exact_cleanup_record_and_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); ready = root / "ready.json"; ready.write_text(json.dumps(self.ready))
+            evidence = root / "pipewire-defaults"
+            def fail(*_):
+                evidence.mkdir()
+                (evidence / "result.json").write_text(json.dumps(self.record(error="No supported profile")))
+                raise RuntimeError("No supported profile")
+            with patch("pipewire_defaults.run", side_effect=fail):
+                summary = run_optional(ready, evidence, "fixture")
+            self.assertEqual(summary["result"], "failed")
+            self.assertTrue(summary["cleanupVerified"])
+            self.assertFalse(summary["gatesConsumerCompatibility"])
+            self.assertEqual(summary["resultSha256"], hashlib.sha256((evidence / "result.json").read_bytes()).hexdigest())
+
+    def test_cleanup_error_or_missing_removal_proof_blocks_the_next_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = Path(directory) / "result.json"
+            for change in (dict(accountProcessesAndFilesRemoved=False), dict(accountProcessesAndFilesRemoved=None),
+                           dict(cleanupErrors=["ACL changed"]), dict(result="passed")):
+                result.write_text(json.dumps(self.record() | change))
+                with self.subTest(change=change), self.assertRaises(RuntimeError):
+                    optional_result(result, self.ready)
+
+    def test_stale_or_missing_result_cannot_satisfy_a_new_invocation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); ready = root / "ready.json"; ready.write_text(json.dumps(self.ready))
+            evidence = root / "pipewire-defaults"
+            with patch("pipewire_defaults.run", side_effect=RuntimeError("early failure")), self.assertRaises(RuntimeError):
+                run_optional(ready, evidence, "fixture")
+            evidence.mkdir(); (evidence / "result.json").write_text(json.dumps(self.record()))
+            with patch("pipewire_defaults.run") as run, self.assertRaises(RuntimeError):
+                run_optional(ready, evidence, "fixture")
+            run.assert_not_called()
+
+    def test_other_guest_or_virtual_device_cleanup_is_not_reused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = Path(directory) / "result.json"
+            result.write_text(json.dumps(self.record()))
+            for change in (dict(ownedGuestToken="another-guest"), dict(usbParent=self.ready["usbParent"] + "x")):
+                with self.subTest(change=change), self.assertRaises(RuntimeError):
+                    optional_result(result, self.ready | change)
+
+    def test_actual_staged_observer_and_consumer_modules_import_without_repository_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stage_consumer_research(root)
+            research = root / "linux/research"
+            code = ("import pathlib,sys; root=pathlib.Path(sys.argv[1]); sys.path.insert(0,str(root)); "
+                    "import pipewire_defaults,audio_defaults,consumer_session,run_wine_consumer,qemu_consumers; "
+                    "assert all(pathlib.Path(m.__file__).parent==root for m in "
+                    "(pipewire_defaults,audio_defaults,consumer_session,run_wine_consumer,qemu_consumers)); "
+                    "assert callable(pipewire_defaults.run_optional)")
+            completed = subprocess.run([sys.executable, "-I", "-c", code, str(research)], cwd=root,
+                                       capture_output=True, text=True, timeout=15)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 if __name__ == "__main__":

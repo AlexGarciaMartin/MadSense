@@ -11,6 +11,27 @@ from qemu_core import REQUIRED_CORE_CASES, verify_core_result
 
 
 class FixtureTests(unittest.TestCase):
+    def test_host_calibration_gate_rejects_self_consistent_virtual_defaults(self):
+        # Run the independent fixture comparison from the real guest runner.
+        # Merely comparing host and refreshed virtual snapshots could miss a
+        # production failure to apply the physical calibration to the persona.
+        path = Path(__file__).with_name("run_core_guest.py")
+        tree = ast.parse(path.read_text())
+        call = next(node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name) and node.func.id == "require"
+                    and len(node.args) == 2 and isinstance(node.args[1], ast.Constant)
+                    and node.args[1].value == "Physical fixture calibration did not reach the host's virtual feature 05")
+        def require(condition, message):
+            if not condition:
+                raise AssertionError(message)
+        scope = dict(require=require, features=features,
+                     observed={"features": {"05": {"hex": features()[5].hex()}}})
+        check = compile(ast.Expression(call), str(path), "eval")
+        eval(check, scope)
+        scope["observed"]["features"]["05"]["hex"] = "05000000000000002000e0002000e0002000e0f401f401002000e0002000e0002000e00b0000000000"
+        with self.assertRaisesRegex(AssertionError, "Physical fixture calibration"):
+            eval(check, scope)
+
     def test_native_pass_record_accepts_and_preserves_actual_observer_evidence(self):
         # Execute the runner's real recorder and callsite without importing its
         # Linux-only host operations. py_compile alone cannot catch this error.

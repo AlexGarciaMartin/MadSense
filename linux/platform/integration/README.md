@@ -147,6 +147,17 @@ The recorder now preserves those fields, with a portable regression executing
 that actual callsite. Remaining core cases, the application-controller stage and
 consumers were not reached; Ready alone is not a complete integration pass.
 
+Run 41625317138 at `71bed73` reached the next four core assertions and Ready,
+with 20 setup reports drained, 95 received/read, no overflows and acknowledged
+cleanup. The host read the fixture's exact physical feature 05, but the observer
+had recorded the persona's default calibration during creation, before production
+`EmulationService` installed physical calibration. Feature snapshots now occur
+after Running. The host comparison additionally requires exact fixture bytes for
+05, independently of that snapshot, so fallback defaults cannot produce a pass.
+The portable actor check exercises distinct default/seeded calibration on the
+real persona and verifies that pairing and firmware remain unchanged. Remaining
+native core/app cases are still pending.
+
 Portable preparation:
 
 ```sh

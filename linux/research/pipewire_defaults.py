@@ -5,6 +5,7 @@ Owned synthetic VM only. No policy overrides, profile/volume/default changes,
 playback, global services, package installation or production helper changes.
 """
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -15,7 +16,7 @@ import struct
 import time
 
 from audio_defaults import digest, inventory, private_dbus, wait_socket
-from consumer_session import ConsumerSession, require
+from consumer_session import ConsumerSession, bounded_bytes, require
 
 
 PREFIX = "PipeWire:Interface:"
@@ -291,6 +292,40 @@ def run(ready_path, evidence, physical_parent):
         session.result["result"] = "observed"
         session.save()
     return session.result
+
+
+def optional_result(result_path, expected_ready):
+    """The guest and host both require cleanup evidence bound to this exact USB."""
+    path = Path(result_path)
+    require(path.is_file() and not path.is_symlink(), "PipeWire observation has no regular cleanup record")
+    raw = bounded_bytes(path)
+    result = json.loads(raw)
+    require(result.get("scope") == "owned-private-pipewire-default-observer" and result.get("ready") == expected_ready,
+            "PipeWire observation belongs to another scope or virtual-device contract")
+    require(result.get("accountProcessesAndFilesRemoved") is True and not result.get("cleanupErrors"),
+            "PipeWire observer cleanup was not verified; consumers were not started")
+    require(result.get("result") in ("observed", "failed"), "Unknown PipeWire collection result")
+    return dict(result=result["result"], cleanupVerified=True,
+                resultSha256=hashlib.sha256(raw).hexdigest(), error=result.get("error"),
+                gatesConsumerCompatibility=False, defaultDesktopStackValidated=False)
+
+
+def run_optional(ready_path, evidence, physical_parent):
+    """Collect independently; only a verified cleanup permits later consumers."""
+    path = Path(evidence)
+    require(not path.exists() and not path.is_symlink(), "Fresh PipeWire evidence directory required")
+    ready = json.loads(bounded_bytes(Path(ready_path)))
+    failure = None
+    try:
+        run(ready_path, path, physical_parent)
+    except Exception as error:
+        failure = f"{type(error).__name__}: {error}"
+    summary = optional_result(path / "result.json", ready)
+    require(failure is None or summary["result"] == "failed", "PipeWire failed without recording a failed collection")
+    if failure is not None:
+        summary["error"] = failure
+    summary["evidenceDirectory"] = str(path)
+    return summary
 
 
 def main():

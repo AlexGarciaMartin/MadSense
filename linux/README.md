@@ -138,6 +138,18 @@ toda distribución incluya los módulos.
 - [UHID](https://docs.kernel.org/hid/uhid.html) permite HID virtual en espacio de
   usuario, pero no crea por sí solo la función de audio USB. Sigue siendo una
   alternativa HID; un sink PipeWire separado no acredita identidad compuesta.
+- [uinput](https://docs.kernel.org/input/uinput.html) permite publicar eventos de
+  entrada y capacidades evdev. Es una alternativa para controles y vibración;
+  de esa interfaz no se obtiene el dispositivo compuesto HID/audio ni el
+  intercambio de informes de características de DualSense.
+- [FunctionFS](https://docs.kernel.org/usb/functionfs.html) permite implementar
+  funciones USB en espacio de usuario, pero necesita el lado gadget/UDC. El
+  bucle local `dummy_hcd` parece atractivo para evitar el transporte USB/IP;
+  sin embargo, [el código de Linux 6.8](https://github.com/torvalds/linux/blob/v6.8/drivers/usb/gadget/udc/dummy_hcd.c)
+  excluye las transferencias isócronas. Por eso no sustituye directamente la
+  ruta de audio UAC de este port. Añadir ese soporte sería otro desarrollo de
+  kernel, no una mejora de latencia demostrada. Un gadget sobre un UDC físico
+  es otro escenario y requiere hardware; no lo hemos ejecutado.
 - [Wine de Proton, revisión b8fdff8](https://github.com/ValveSoftware/wine/tree/b8fdff8e1f855b5276ec4ddca0f31b2792554322):
   `winebus.sys/bus_udev.c` transporta hidraw y `winepulse.drv/pulse.c` obtiene
   identidad USB y ContainerId del árbol del sistema. Esto favorece la vía USB
@@ -150,3 +162,8 @@ La versión Windows no expone captura de audio por aplicación ni inyección de
 micrófono: no se presentan esas capacidades internas de la biblioteca como
 funciones del producto ya portadas. Tampoco se anuncia «latencia mínima» a
 partir de un temporizador de 1 ms; hacen falta colas, percentiles y medidas físicas.
+USB/IP es la ruta con evidencia de HID y audio compuesto en este trabajo, no una
+afirmación de que sea el único enfoque posible. Los adaptadores preparados de
+[PipeWire](research/PIPEWIRE-DEFAULTS-OBSERVER.md) y
+[GE-Proton/UMU](research/GE-UMU.md) conservan versiones, fuentes y resultados
+separados; sus pruebas de preparación no equivalen a compatibilidad en juegos.

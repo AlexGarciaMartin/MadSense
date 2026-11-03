@@ -99,6 +99,9 @@ try
             throw new InvalidOperationException("Production core did not attach: " + emulation.GetStatus(pad));
         await Task.Delay(50, deadline.Token);
     }
+    // EmulationService seeds physical calibration after Create and before
+    // attachment. Snapshot the final feature surface only once Running.
+    factory.CaptureFeatures();
     string? virtualMac = mode == "xbox" ? null : new PairingInfo(Convert.FromHexString(factory.Features["09"])).ClientMac;
     if (virtualMac is not null) FixtureChecks.VerifyMacSeparation(physicalMac, virtualMac);
     evidence.Atomic("ready.json", new
@@ -226,7 +229,22 @@ sealed class ObservedFactory(Evidence evidence) : IVirtualControllerFactory
 {
     readonly VirtualControllerFactory production = new();
     public VirtualUsbDevice? Last { get; private set; }
-    public Dictionary<string, string> Features { get; } = [];
+    public Dictionary<string, string> Features { get; private set; } = [];
+    public void CaptureFeatures() => Features = ReadFeatures(Last as Persona);
+    internal static Dictionary<string, string> ReadFeatures(Persona? pad)
+    {
+        Dictionary<string, string> features = [];
+        if (pad is null) return features;
+        foreach (var (id, size) in new (byte, int)[] { (9, 20), (0x20, 64), (5, 41) })
+        {
+            byte[] data = new byte[size];
+            int length = pad.HandleControlRequest(new UsbSetupPacket
+            { RequestType = 0xA1, Request = 1, Value = (ushort)(0x0300 | id), Index = 3, Length = (ushort)size }, [], data);
+            if (length != size) throw new InvalidDataException("Production persona feature missing.");
+            features[id.ToString("x2")] = Convert.ToHexString(data);
+        }
+        return features;
+    }
     public VirtualControllerCreation? Create(EmulationServer server, EmulationMode mode, IDualSenseOutputs outputs,
         bool vibrationV2, bool edge = false, DualShock4Variant ds4Variant = DualShock4Variant.V2)
     {
@@ -235,14 +253,6 @@ sealed class ObservedFactory(Evidence evidence) : IVirtualControllerFactory
         if (Last?.Descriptors.HidReportDescriptor is { } descriptor) evidence.Bytes("hid-descriptor.bin", descriptor.Span);
         if (Last is Persona pad)
         {
-            foreach (var (id, size) in new (byte, int)[] { (9, 20), (0x20, 64), (5, 41) })
-            {
-                byte[] data = new byte[size];
-                int length = pad.HandleControlRequest(new UsbSetupPacket
-                { RequestType = 0xA1, Request = 1, Value = (ushort)(0x0300 | id), Index = 3, Length = (ushort)size }, [], data);
-                if (length != size) throw new InvalidDataException("Production persona feature missing.");
-                Features[id.ToString("x2")] = Convert.ToHexString(data);
-            }
             pad.OutputReportReceived += report => evidence.Event("virtual-output", report);
             pad.AudioOutReceived += data => evidence.Bytes("audio-ingress.pcm", data.Span);
             pad.RealtimeHapticsReceived += data => evidence.Bytes("haptics-ingress.pcm", data.Span);
@@ -309,6 +319,17 @@ static class FixtureChecks
                 throw new InvalidDataException("Production typed input parser mismatch.");
         }
         var features = root.GetProperty("features");
+        byte[] physicalCalibration = Convert.FromHexString(features.GetProperty("05").GetString()!);
+        var persona = new Persona(new DualSenseClient.Emulation.Devices.DualSense.DualSenseIdentity());
+        var beforeCalibration = ObservedFactory.ReadFeatures(persona);
+        if (beforeCalibration["05"] == Convert.ToHexString(physicalCalibration) ||
+            !persona.TrySetMotionCalibration(physicalCalibration))
+            throw new InvalidDataException("Calibration regression requires distinct accepted physical data.");
+        var afterCalibration = ObservedFactory.ReadFeatures(persona);
+        if (afterCalibration["05"] != Convert.ToHexString(physicalCalibration) ||
+            beforeCalibration["05"] == afterCalibration["05"] ||
+            beforeCalibration["09"] != afterCalibration["09"] || beforeCalibration["20"] != afterCalibration["20"])
+            throw new InvalidDataException("Feature observation retained stale calibration or changed identity.");
         var firmware = new FirmwareInfo(Convert.FromHexString(features.GetProperty("20").GetString()!));
         var pairing = new PairingInfo(Convert.FromHexString(features.GetProperty("09").GetString()!));
         if (!firmware.IsValid || firmware.UpdateVersionValue != 0x0224 || !pairing.IsValid || pairing.ClientMac != "02:FA:11:22:33:44")

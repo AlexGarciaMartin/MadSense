@@ -448,13 +448,19 @@ def run_audio_defaults_observer(ready_path, evidence, physical_parent):
 
 
 def run_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
-              observe_audio_defaults=False):
+              observe_audio_defaults=False, observe_pipewire_defaults=False):
     """Fixture callback accepts 'south' or 'neutral'; it must not replace the device."""
-    observation = None
+    observation = pipewire_observation = None
+    if observe_pipewire_defaults:
+        from pipewire_defaults import run_optional
+        pipewire_observation = run_optional(ready_path, Path(evidence).parent / "pipewire-defaults", physical_parent)
     if observe_audio_defaults:
         observation = run_audio_defaults_observer(ready_path, evidence, physical_parent)
     with ConsumerSession(ready_path, evidence, physical_parent) as session:
         session.result["audioDefaultsObservation"] = observation
+        session.result["pipewireDefaultsObservation"] = pipewire_observation
+        session.result["privateAudioObserverOrder"] = (["pipewire"] if observe_pipewire_defaults else []) + (
+            ["pulseaudio"] if observe_audio_defaults else [])
         session.result["wineRequested"] = wine_exe is not None
         programs = ["consumer_sdl2", "consumer_sdl3"]
         if session.ready["vendorId"] == 0x045e:

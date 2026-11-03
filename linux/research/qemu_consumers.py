@@ -46,6 +46,17 @@ def verify_consumer_result(result):
         raise RuntimeError("Wine result lacks the complete default-runtime Sony/WASAPI assertions")
 
 
+def stage_consumer_research(payload):
+    research = Path(__file__).resolve().parent
+    target = Path(payload) / "linux/research"
+    target.mkdir(parents=True, exist_ok=True)
+    for name in ("host_probe.c", "run_consumers.py", "consumer_session.py", "run_wine_consumer.py",
+                 "test_consumer_session.py", "qemu_consumers.py", "run_consumer_guest.sh",
+                 "audio_defaults.py", "test_audio_defaults.py", "pipewire_defaults.py", "test_pipewire_defaults.py",
+                 "consumer_phases.py", "test_consumer_phases.py"):
+        shutil.copy2(research / name, target / name)
+
+
 def main():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "platform/tests"))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "platform/integration"))
@@ -58,6 +69,7 @@ def main():
     parser.add_argument("--native-artifact", type=Path, required=True)
     parser.add_argument("--windows-artifact", type=Path, required=True)
     parser.add_argument("--observe-audio-defaults", action="store_true")
+    parser.add_argument("--observe-pipewire-defaults", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     args = parser.parse_args()
@@ -67,7 +79,8 @@ def main():
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         provenance.update(experiment="linux-production-core-consumers", sourceCommit=commit,
                           persona="dualsense", protonValidated=False,
-                          audioDefaultsObservationRequested=args.observe_audio_defaults)
+                          audioDefaultsObservationRequested=args.observe_audio_defaults,
+                          pipewireDefaultsObservationRequested=args.observe_pipewire_defaults)
         native = verify_build(args.native_artifact, ("consumer_sdl2", "consumer_sdl3", "ff_probe"), commit)
         windows = verify_build(args.windows_artifact, ("wine_consumer.exe",), commit)
         provenance["consumerBuildDigests"] = native | windows
@@ -83,12 +96,7 @@ def main():
         shutil.copytree(args.core_probe_directory, payload / "core-probe")
         shutil.copytree(args.native_artifact / "bin", payload / "consumer-bin")
         shutil.copy2(args.windows_artifact / "bin/wine_consumer.exe", payload / "consumer-bin")
-        research = Path(__file__).resolve().parent
-        for name in ("host_probe.c", "run_consumers.py", "consumer_session.py", "run_wine_consumer.py",
-                     "test_consumer_session.py", "qemu_consumers.py", "run_consumer_guest.sh"):
-            shutil.copy2(research / name, payload / "linux/research" / name)
-        for name in ("audio_defaults.py", "test_audio_defaults.py"):
-            shutil.copy2(research / name, payload / "linux/research" / name)
+        stage_consumer_research(payload)
         hashes = {path.relative_to(payload).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in sorted(payload.rglob("*")) if path.is_file() and path.name != "PAYLOAD-SHA256SUMS"}
         (payload / "PAYLOAD-SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for name, digest in hashes.items()))
@@ -103,7 +111,8 @@ def main():
             if baseline.returncode == 0:
                 consumer = guest.run("consumer-run", "bash /home/ubuntu/madsense/linux/research/run_consumer_guest.sh "
                                      + shlex.quote(guest.token)
-                                     + (" --observe-audio-defaults" if args.observe_audio_defaults else ""),
+                                     + (" --observe-audio-defaults" if args.observe_audio_defaults else "")
+                                     + (" --observe-pipewire-defaults" if args.observe_pipewire_defaults else ""),
                                      timeout=900, required=False)
                 provenance["consumerExit"] = consumer.returncode
         finally:
@@ -121,6 +130,12 @@ def main():
             provenance["audioDefaultsObservationResult"] = observation.get("result")
             provenance["audioDefaultsCleanupVerified"] = (observation.get("accountProcessesAndFilesRemoved") is True
                                                           and not observation.get("cleanupErrors"))
+        pipewire_path = guest.output / "result/core-experiment/pipewire-defaults/result.json"
+        if pipewire_path.exists():
+            pipewire_observation = json.loads(pipewire_path.read_text())
+            provenance["pipewireDefaultsObservationResult"] = pipewire_observation.get("result")
+            provenance["pipewireDefaultsCleanupVerified"] = (pipewire_observation.get("accountProcessesAndFilesRemoved") is True
+                                                             and not pipewire_observation.get("cleanupErrors"))
         if provenance.get("consumerExit") != 0 or not core_path.exists() or not consumer_path.exists():
             raise RuntimeError("Core/consumer execution failed; inspect retained partial logs and results")
         verify_core_result(json.loads(core_path.read_text()), guest.token)
@@ -131,6 +146,18 @@ def main():
             if not observation or observation.get("cleanupVerified") is not True:
                 raise RuntimeError("Requested audio-default observation lacks verified cleanup")
             provenance["audioDefaultsObservationResult"] = observation.get("result")
+        if args.observe_pipewire_defaults:
+            from pipewire_defaults import optional_result
+            ready = result.get("ready", {})
+            if ready.get("ownedGuestToken") != guest.token:
+                raise RuntimeError("PipeWire observer contract has a different guest owner")
+            checked = optional_result(pipewire_path, ready)
+            observation = result.get("pipewireDefaultsObservation", {})
+            if any(observation.get(key) != checked[key] for key in
+                   ("result", "cleanupVerified", "resultSha256", "gatesConsumerCompatibility", "defaultDesktopStackValidated")):
+                raise RuntimeError("Requested PipeWire observation differs from its retained cleanup evidence")
+            provenance["pipewireDefaultsObservationResult"] = checked["result"]
+            provenance["pipewireDefaultsResultSha256"] = checked["resultSha256"]
         provenance.update(result="passed", coreResultSha256=hashlib.sha256(core_path.read_bytes()).hexdigest(),
                           consumerResultSha256=hashlib.sha256(consumer_path.read_bytes()).hexdigest())
     except BaseException as error:

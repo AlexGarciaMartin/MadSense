@@ -3,7 +3,9 @@
  * orchestrator to correlate output markers with exporter/physical-fixture logs.
  */
 #define _XOPEN_SOURCE 700
+#include <inttypes.h>
 #include <stdint.h>
+#include <time.h>
 #include "consumer_guard.h"
 #if CONSUMER_SDL_MAJOR == 3
 #include <SDL3/SDL.h>
@@ -39,6 +41,25 @@ typedef SDL_GameController Pad;
 #define PAD_LED(p, r, g, b) (SDL_GameControllerSetLED(p, r, g, b) == 0)
 #endif
 
+/* CLOCK_MONOTONIC shares the Linux guest clock used by the fixture. These
+ * boundaries describe API phases, not a hardware-latency measurement. Keep
+ * an immediate stderr copy even if a later API call prevents final JSON. */
+struct Phase { const char *name; uint64_t nanoseconds; };
+static struct Phase phases[16];
+static unsigned phase_count;
+
+static uint64_t phase(const char *name)
+{
+    struct timespec now;
+    uint64_t ns = clock_gettime(CLOCK_MONOTONIC, &now) == 0
+        ? (uint64_t)now.tv_sec * UINT64_C(1000000000) + (uint64_t)now.tv_nsec : 0;
+    if (phase_count < sizeof(phases) / sizeof(phases[0]))
+        phases[phase_count++] = (struct Phase){name, ns};
+    fprintf(stderr, "{\"sdlPhase\":\"%s\",\"monotonicNs\":%" PRIu64 "}\n", name, ns);
+    fflush(stderr);
+    return ns;
+}
+
 static void pump(unsigned milliseconds)
 {
     for (unsigned elapsed = 0; elapsed < milliseconds; elapsed += 10) {
@@ -70,6 +91,8 @@ int main(int argc, char **argv)
     bool expect_south = !strcmp(argv[7], "south");
     bool rumble = false, led = false, trigger_rumble = false, gyro = false, accel = false;
     bool rumble_sent = false, rumble_stopped = false, led_sent = false;
+    const uint32_t rumble_duration_ms = 60000; /* Longer than the harness's 45s command timeout. */
+    uint64_t rumble_before = 0, stop_before = 0;
     char version[40] = {0};
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
 #if CONSUMER_SDL_MAJOR == 3
@@ -136,11 +159,24 @@ int main(int argc, char **argv)
             if (!input_matches) error = "SDL input did not match the selected fixture state";
             else if (!rumble) error = "SDL reports no rumble capability";
             else {
-                rumble_sent = PAD_RUMBLE(pad, 0x1234, 0x5678, 500);
+                rumble_before = phase("rumble-call-before");
+                rumble_sent = PAD_RUMBLE(pad, 0x1234, 0x5678, rumble_duration_ms);
+                phase("rumble-call-after");
                 pump(200);
+                stop_before = phase("stop-call-before");
                 rumble_stopped = PAD_RUMBLE(pad, 0, 0, 0);
-                if (led) led_sent = PAD_LED(pad, 0x12, 0x34, 0x56);
+                phase("stop-call-after");
+                /* Give the explicit stop its own delivery interval. No LED or
+                 * close operation can explain packets in this interval. */
+                pump(300);
+                phase("stop-observation-end");
+                if (led) {
+                    phase("led-call-before");
+                    led_sent = PAD_LED(pad, 0x12, 0x34, 0x56);
+                    phase("led-call-after");
+                }
                 pump(100);
+                phase("output-observation-end");
                 if (!rumble_sent || !rumble_stopped || (led && !led_sent)) error = "SDL output API failed";
             }
         }
@@ -158,10 +194,22 @@ int main(int argc, char **argv)
            pressed, axes[0], axes[1], axes[2], axes[3], axes[4], axes[5]);
     printf(",\"capabilities\":{\"rumble\":%s,\"rgbLed\":%s,\"triggerRumble\":%s,\"gyro\":%s,\"accelerometer\":%s}",
            rumble ? "true" : "false", led ? "true" : "false", trigger_rumble ? "true" : "false", gyro ? "true" : "false", accel ? "true" : "false");
-    printf(",\"marker\":{\"lowFrequency\":4660,\"highFrequency\":22136,\"rgb\":[18,52,86],\"rumbleAccepted\":%s,\"stopAccepted\":%s,\"ledAccepted\":%s},\"outputDeliveryVerified\":false,\"gamesValidated\":false,\"physicalLatencyValidated\":false}\n",
+    printf(",\"marker\":{\"lowFrequency\":4660,\"highFrequency\":22136,\"rgb\":[18,52,86],\"rumbleAccepted\":%s,\"stopAccepted\":%s,\"ledAccepted\":%s},\"outputDeliveryVerified\":false,\"gamesValidated\":false,\"physicalLatencyValidated\":false",
            rumble_sent ? "true" : "false", rumble_stopped ? "true" : "false", led_sent ? "true" : "false");
     SDL_free(mapping);
-    if (pad) PAD_CLOSE(pad);
-    if (initialized) SDL_Quit();
+    if (pad) { phase("close-before"); PAD_CLOSE(pad); phase("close-after"); }
+    if (initialized) { phase("quit-before"); SDL_Quit(); phase("quit-after"); }
+    bool timing_valid = phase_count > 0;
+    for (unsigned i = 0; i < phase_count; ++i)
+        if (!phases[i].nanoseconds || (i && phases[i].nanoseconds < phases[i-1].nanoseconds)) timing_valid = false;
+    bool before_expiry = rumble_before && stop_before >= rumble_before &&
+        stop_before - rumble_before < (uint64_t)rumble_duration_ms * UINT64_C(1000000);
+    printf(",\"phaseClock\":\"CLOCK_MONOTONIC\",\"phaseTimingValid\":%s,\"rumbleDurationMs\":%u,\"explicitStopBeforeAutoExpiry\":%s,\"phases\":[",
+           timing_valid ? "true" : "false", (unsigned)rumble_duration_ms, before_expiry ? "true" : "false");
+    for (unsigned i = 0; i < phase_count; ++i) {
+        if (i) putchar(',');
+        printf("{\"name\":\"%s\",\"monotonicNs\":%" PRIu64 "}", phases[i].name, phases[i].nanoseconds);
+    }
+    fputs("]}\n", stdout);
     return error ? 1 : 0;
 }

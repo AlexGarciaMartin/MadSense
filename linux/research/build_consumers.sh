@@ -34,6 +34,7 @@ cp /usr/share/doc/libsdl2-2.0-0/copyright "$output/notices/Ubuntu-SDL2-copyright
 cp "$source_dir/consumer_guard.h" "$source_dir/consumer_sdl.c" "$source_dir/ff_probe.c" \
   "$source_dir/build_consumers.sh" "$source_dir/consumer-NOTICES.txt" "$source_dir/CONSUMERS.md" \
   "$source_dir/run_consumers.py" "$source_dir/ci_environment.py" \
+  "$source_dir/consumer_phases.py" "$source_dir/test_consumer_phases.py" "$source_dir/consumer_session.py" \
   "$output/source/linux/research/"
 cp "$source_dir/consumer-build/CMakeLists.txt" "$output/source/linux/research/consumer-build/"
 cmake -S "$source_dir/consumer-build" -B "$output/build" -DCMAKE_BUILD_TYPE=Release \

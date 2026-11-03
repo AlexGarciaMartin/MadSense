@@ -1,10 +1,11 @@
 # Private PipeWire and WirePlumber policy observer
 
-`pipewire_defaults.py` is a separate, prepared adapter for the attributed virtual
-USB card in the owned QEMU fixture. It has not run natively and no workflow invokes
-it. Thirteen portable evidence tests pass; the fourteenth exercises real Linux
-`SO_PEERCRED` and is skipped on Windows. These tests establish reporting and
-identity checks, not installed audio-stack behavior.
+`pipewire_defaults.py` observes the attributed virtual USB card in the owned QEMU
+fixture. The optional `--observe-pipewire-defaults` flag defaults to false in the
+launchers; the consumer workflow explicitly requests it. Native execution remains
+pending. Eighteen portable tests pass; the nineteenth exercises real Linux
+`SO_PEERCRED` and is skipped on Windows. These tests establish reporting, identity,
+cleanup evidence and staged imports, not installed audio-stack behavior.
 
 The first supported configuration family is PipeWire 1.0 with WirePlumber 0.4.
 Ubuntu's Noble package indexes currently list
@@ -56,12 +57,25 @@ sudo python3 linux/research/pipewire_defaults.py \
 
 Required guest tools are `pipewire`, `wireplumber`, `pw-dump`, `pw-config`, `wpctl`,
 `dbus-daemon`, `amixer`, `udevadm`, `dpkg-query` and the existing ConsumerSession
-prerequisites. Dependency installation belongs to a separately reviewed owned-VM
-payload; do not install or enable a desktop meta-package on the host. A future
-hook must close this account before any other consumer starts. A failed
-collection may be retained as an independent observation only when the result
-proves `accountProcessesAndFilesRemoved=true` and no cleanup errors; otherwise the
-outer run must stop. This adapter does not currently add such a hook.
+prerequisites. When requested, `run_consumer_guest.sh` installs the explicit Noble
+packages `pipewire`, `pipewire-bin`, `wireplumber` and `alsa-utils` inside the owned
+guest with `--no-install-recommends`. It does not install a desktop meta-package or
+change host services. The guest payload includes the adapter and its tests, with
+the same full-payload hash verification as the consumers.
+
+`run_suite` starts PipeWire after the functional core assertions and before the
+optional Pulse observer, then starts SDL/Wine. Each has a separate account and
+must close before the next begins. The result records `privateAudioObserverOrder`.
+They share the existing virtual card: a fresh account does not reset its mixer
+controls, so these sequential observations do not establish factory defaults.
+Each observer captures those controls before and after its own session.
+
+A failed collection may remain an independent observation only when the saved
+result proves `accountProcessesAndFilesRemoved=true`, no cleanup errors and the
+exact ready/USB contract. Missing, stale or mismatched records stop the outer run.
+The host independently checks that record and its SHA-256 against the consumer
+summary. An `observed` profile and a safely cleaned-up `failed` collection are both
+separate from the unchanged consumer compatibility gate.
 
 ## Evidence and exact attribution
 
@@ -123,10 +137,10 @@ therefore records versions/configuration, then refuses an unsupported family
 before starting PipeWire/WirePlumber. It does not write compatibility fragments
 or quietly disable policy features.
 
-The first native run should use the existing Noble fixture after its functional
-gates, install distribution tools in that guest's build step and collect this
-observer separately. Inspect actual socket/registry identity, profile/route
-schemas, UCM contents, default metadata and cleanup before adding a runtime hook.
+The next native consumer run requests this observer on the existing Noble fixture
+after its functional core assertions and retains its evidence separately. Inspect
+actual socket/registry identity, profile/route schemas, UCM contents, default
+metadata and cleanup before treating any distribution behavior as established.
 A separately pinned modern guest should then retain its exact 0.5 config and
 version, validate the same read-only object joins against actual dumps, and gain
 an explicit supported adapter family. Its UCM/kernel jack-control behavior must
@@ -134,8 +148,9 @@ also be identified; passing Noble does not validate that newer combination.
 
 ## Sources and licenses
 
-No upstream implementation or configuration is vendored or installed by these
-files. Runtime artifact copies retain installed headers and package notices.
+No upstream implementation or configuration is vendored here. The optional guest
+step installs distribution packages; runtime artifact copies retain their headers
+and package notices.
 WirePlumber's referenced files use its
 [MIT license](https://github.com/PipeWire/wireplumber/blob/0.4.17/LICENSE).
 PipeWire's [license summary](https://github.com/PipeWire/pipewire/blob/1.0.5/LICENSE)

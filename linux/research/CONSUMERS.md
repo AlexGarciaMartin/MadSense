@@ -93,6 +93,48 @@ firmware halves them. Correlate the exact expected bytes with feature report
 including enable flags, instead of accepting either value opportunistically.
 SDL2's distribution build/version is recorded separately.
 
+### Explicit SDL stop phase
+
+The observer requests rumble for 60000 ms, longer than the owning session's
+45-second process timeout. After 200 ms it explicitly requests zero rumble,
+pumps events for a separate 300 ms interval, and only then changes the LED.
+Closing the controller and quitting SDL are separate later phases. The actual
+monotonic timestamps and whether stop preceded automatic expiry are retained;
+a stalled or incomplete observation cannot silently claim this separation.
+Each boundary is written immediately to stderr and retained in the final JSON.
+
+`consumer_phases.py` correlates those intervals with the core's decoded USB
+report `0x02` events and complete Bluetooth fixture output packets (including
+CRC validation). It reports selected nonzero/zero rumble separately from zero
+motor fields with selectors clear, and excludes later LED/close packets from
+the explicit-stop interval. It does not change the existing stop assertion or
+turn selector-clear/absent output into verified motor cessation. Complete USB
+wire bytes are not available from the current core observer; decoded fields
+are labelled accordingly. No exact one-to-one causal mapping or latency follows
+from two packets appearing in the same interval.
+
+Run after collecting the full artifact, with paths to that single guest:
+
+```sh
+python3 linux/research/consumer_phases.py \
+  --suite /capture/core-experiment/consumer-suite/result.json \
+  --core-ready /capture/core-experiment/core/ready.json \
+  --core-events /capture/core-experiment/core/events.jsonl \
+  --uhid-events /capture/core-experiment/uhid-events.jsonl \
+  --output /capture/new-sdl-phase-correlation.json
+python3 -m unittest discover -s linux/research -p test_consumer_phases.py
+```
+
+The parser verifies matching guest tokens, the phase sequence, command bounds,
+the minimum stop-only interval, and the core's nanosecond frequency. The Linux
+[.NET 10 timestamp implementation](https://github.com/dotnet/runtime/blob/v10.0.0/src/native/minipal/time.c)
+uses `CLOCK_MONOTONIC`, as do the C boundaries and the fixture's Python clock.
+Another clock/frequency or older artifact without phases is explicitly
+unavailable. Eight portable tests cover phase contamination by LED/close,
+selector-clear versus selected stop, motor quantization, corrupt CRC, incomplete
+decoded selectors, expiry/timing claims and clock mismatches. Native compilation
+and execution of this new phase instrumentation are still pending CI.
+
 `result: passed` means the observer's identity, neutral state, capabilities and
 API operations passed. Its JSON deliberately retains
 `outputDeliveryVerified: false`. The owning production-bridge harness must
