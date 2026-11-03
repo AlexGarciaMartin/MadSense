@@ -12,7 +12,7 @@ cp "$upstream"/LICENSE*.txt "$output/notices/"
 cp "$source_dir/../../LICENSE" "$output/notices/MadSense-GPL-3.0.txt"
 cp /usr/share/doc/mingw-w64-common/copyright "$output/notices/MinGW-w64-copyright.txt"
 cp /usr/share/doc/gcc-mingw-w64-base/copyright "$output/notices/GCC-MinGW-copyright.txt"
-cp "$source_dir/hidapi_windows_consumer.cpp" "$source_dir/hidapi_windows_source.py" \
+cp "$source_dir/hidapi_windows_consumer.cpp" "$source_dir/consumer_scope.hpp" "$source_dir/hidapi_windows_source.py" \
    "$source_dir/build_hidapi_windows_consumer.sh" "$source_dir/HIDAPI-WINDOWS.md" \
    "$source_dir/hidapi_windows_evidence.py" "$source_dir/run_hidapi_windows.py" \
    "$source_dir/test_hidapi_windows.py" "$source_dir/test_hidapi_windows_runtime.py" "$output/source/linux/research/"

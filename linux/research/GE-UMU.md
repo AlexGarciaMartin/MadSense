@@ -203,10 +203,10 @@ remains mandatory. Do not overlap this session with distribution Wine or the
 default-audio observers. The caller supplies a private authenticated display and
 an explicitly labelled audio stack if needed.
 
-Still pending: confirmed Windows PE execution, ordinary container device
+Still pending: successful PE scope validation, ordinary container device
 visibility, the PE assertions, SDL comparison under GE, audio and licensing work
-for any redistribution. The Debian attempt below started pressure-vessel and
-Proton and verified cleanup, but did not produce a PE result.
+for any redistribution. The latest Debian attempt below reached the PE scope
+check and retained its explicit failure in a Proton log.
 Neither games, physical latency nor official Valve Proton compatibility is
 validated by this acquisition or the hook's implementation.
 
@@ -305,13 +305,70 @@ routes Unix executable paths through `umu.exe`. Its
 [helper implementation](https://github.com/GloriousEggroll/proton-ge-custom/blob/c0c2ee35e6d4d3bff4d39c6246ac46636434feb8/umu_helper/umu.c)
 selects `CREATE_NEW_CONSOLE` for console PEs and calls `CreateProcessW` with handle
 inheritance disabled. That path does not preserve the redirected output contract
-required by these observers. The next experiment passes the same resolved,
+required by these observers. The subsequent experiment passed the same resolved,
 session-owned PE as a canonical Windows `Z:` path, using Proton's existing direct
 Wine-launch branch. UMU, the pinned pressure-vessel runtime, ordinary UID,
 offline namespace and all consumer assertions remain in place. No runtime is
 patched or bypassed. The launch intent is recorded separately; a native rerun
-must establish whether it recovers diagnostic output and what the consumer then
-reports. This change alone is not a compatibility result.
+must establish the full observer output contract. This change alone is not a
+compatibility result.
+
+## Windows-path launch and the original VM marker
+
+[Run 41661637630](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41661637630)
+at `032e1cc382b80d4f1c9088adc9c8a0ed4b0b4954` retained runtime artifact SHA-256
+`9863352a64677629fb2b754ec823eca644e81cff105b03afffc3eab683d673e4`
+(3118937 bytes). The independent audit matched 99 payload sources and four
+installed files to that commit, 28 retained build sources, both observer PEs and
+all 519 guest payload checks. Published core/probe binaries are represented by
+the checked guest manifest; their bytes were not included in the runtime artifact.
+The baseline passed ten broker and nine core cases. The second actor retained
+eight cases, confirmed cleanup and delivered the final three neutralization
+reports byte for byte. It read all 4519 reports received, with zero queue entries,
+overflow or lost-isolation reason. All five consumer ACLs, the disposable account,
+QEMU and the temporary KVM ACL were restored. The failed GE result stays failed.
+
+All four Proton commands used the intended `Z:` path and loaded the exact PE.
+The launcher pipe remained empty and each process returned exit 1. Unlike the
+preceding run, their complete bounded Proton logs contain the observer's own
+final failure JSON: the Win32 cases report `Open QEMU scope marker (Win32=2)`;
+the HIDAPI cases report `Cannot read owned VM marker`. This occurs before runtime
+identity, HID capabilities or ContainerId enumeration. No device compatibility
+or audio result follows from those diagnostics. The existing parser correctly
+did not promote mixed Proton log text into functional stdout evidence.
+
+Two independent harness assumptions need correction. The pinned Proton
+launcher's `run_proc` sends stdout and stderr to `self.log_file` when
+`PROTON_LOG=1`. Functional invocations now explicitly use `PROTON_LOG=0` while
+retaining the Windows path, ordinary account, network namespace and runtime.
+The bounded log reader remains diagnostic-only; the historical logs are retained,
+and a fresh functional invocation need not create a Proton log file.
+
+Pressure-vessel also supplies its own `/etc`. In the exact source version
+`0.20261007.0`, `pressure-vessel/wrap.c` lines 432–434 already mount the original
+host `/etc` read-only at `/run/host/etc`; `pressure-vessel/bwrap.c` lines 394–409
+provide `/sys` read-only for this non-development invocation. Here “host” means
+the owned QEMU guest outside the nested runtime, not the CI host. User-requested
+exports cannot override `/etc`: it is reserved in `utils.c` and checked in
+`wrap-context.c`. Adding `PRESSURE_VESSEL_FILESYSTEMS_RO` would not fix this path.
+
+Only GE supplies `MADSENSE_CONSUMER_SCOPE_LAYOUT=pressure-vessel`. The shared PE
+selector maps that exact value to `Z:\run\host\etc\madsense-ci-owner`; an absent
+variable retains distribution Wine's `Z:\etc\madsense-ci-owner`. Empty, unknown
+or path-like values fail, and a failed read never falls back. Both paths still
+require the original UUID and `Z:\sys\class\dmi\id\sys_vendor` equal to `QEMU`,
+the orchestrator's isolated-account token and Wine's runtime entry point. No
+marker is copied or fabricated, no extra mount is requested, and no guard is
+disabled. Ten portable selector cases are wired into the Windows API build before
+cross-compiling the PEs. Their Linux execution and real execution of the corrected
+layout/stdout contract remain pending; no local C++ compiler was available.
+
+The [exact Valve source archive](https://repo.steampowered.com/steamrt4/images/4.0.20261021.265997/sources/steam-runtime-tools_0.20261007.0.tar.xz)
+is 1324028 bytes with SHA-256
+`2779b4a978c565e5262e27615884293e77d53b3a87387a844d1e30806b849175`, verified
+against the fixed runtime's SHA256SUMS and source manifest. The source retains its
+copyright notices; these harness changes do not copy pressure-vessel code or
+redistribute its runtime. Existing GE/UMU/runtime licensing limitations still apply.
 
 ## Primary references
 

@@ -15,6 +15,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include "consumer_scope.hpp"
 
 static void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
 static std::string utf8(const wchar_t *value)
@@ -63,7 +64,7 @@ static std::string scope(const std::wstring &token)
     wchar_t isolated[64]{};
     require(token.size() == 36 && GetEnvironmentVariableW(L"MADSENSE_CONSUMER_ISOLATED", isolated, 64) == 36
             && token == isolated, "Owned ordinary-account orchestration required");
-    require(marker(L"Z:\\etc\\madsense-ci-owner") == utf8(token.c_str())
+    require(marker(owned_scope::marker_path_from_environment()) == utf8(token.c_str())
             && marker(L"Z:\\sys\\class\\dmi\\id\\sys_vendor") == "QEMU", "Owned QEMU identity mismatch");
     return version();
 }

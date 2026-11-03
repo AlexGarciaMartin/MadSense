@@ -81,6 +81,7 @@ on:
       - 'linux/research/wine_consumer.cpp'
       - 'linux/research/wine_overlapped.hpp'
       - 'linux/research/test_wine_overlapped.cpp'
+      - 'linux/research/test_consumer_scope.cpp'
       - 'linux/research/build_wine_consumer.sh'
       - 'linux/research/WINE-CONSUMER.md'
       - 'LICENSE'

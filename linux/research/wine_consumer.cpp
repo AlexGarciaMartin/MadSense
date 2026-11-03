@@ -34,6 +34,7 @@ extern "C" {
 #include <vector>
 #include <utility>
 #include "wine_overlapped.hpp"
+#include "consumer_scope.hpp"
 
 static std::string utf8(const std::wstring &s)
 {
@@ -120,7 +121,7 @@ static std::string validate_scope(const std::wstring &token)
     wchar_t isolated[64]{};
     require(GetEnvironmentVariableW(L"MADSENSE_CONSUMER_ISOLATED", isolated, 64) == 36 && token == isolated,
             "Linux orchestrator must confirm the isolated consumer account");
-    require(read_marker(L"Z:\\etc\\madsense-ci-owner") == utf8(token)
+    require(read_marker(owned_scope::marker_path_from_environment()) == utf8(token)
             && read_marker(L"Z:\\sys\\class\\dmi\\id\\sys_vendor") == "QEMU", "Owned QEMU marker mismatch");
     return wine_version();
 }

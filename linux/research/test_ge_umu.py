@@ -124,6 +124,9 @@ class AcquisitionTests(unittest.TestCase):
         self.assertEqual(env["WINEPREFIX"], str(home / "ge-prefix"))
         self.assertEqual(env["UMU_RUNTIME_UPDATE"], "0")
         self.assertEqual(env["UMU_HTTP_RETRIES"], "0")
+        self.assertEqual(env["PROTON_LOG"], "0")
+        self.assertEqual(env["MADSENSE_CONSUMER_SCOPE_LAYOUT"], "pressure-vessel")
+        self.assertFalse(any(key.startswith("PRESSURE_VESSEL_FILESYSTEMS") for key in env))
         self.assertNotIn("UMU_NO_RUNTIME", env)
         self.assertNotIn("UMU_NO_PROTON", env)
         self.assertFalse(any("BWRAP" in key or "SANDBOX" in key for key in env))
@@ -158,6 +161,27 @@ class AcquisitionTests(unittest.TestCase):
                 run_consumer(session,dict(launcher='umu',environment={}),program,[],label='case')
             self.assertIs(caught.exception,original)
             self.assertIn('Diagnostic unavailable',session.result['protonLogSnapshots'][0]['unavailable'])
+
+    def test_functional_stdout_survives_an_empty_diagnostic_log_snapshot(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);program=root/'consumer.exe';program.write_bytes(b'MZ-owned-test')
+            stdout=b'{"kind":"result","result":"failed","error":"scope guard"}\n'
+            record=dict(exitCode=1)
+            env=private_environment(root/'home',root/'ge')
+            session=SimpleNamespace(root=root,output=root,uid=1001,result={"geUmuSession":{}},save=lambda:None,
+                command=Mock(side_effect=[(record,stdout),({},json.dumps(dict(schema=1,uid=1001,logs=[])).encode())]))
+            with patch('ge_umu_session.offline_command',return_value=['unshare','--user','--map-current-user',
+                    '--net','--','python3','umu','Z:\\owned\\consumer.exe']):
+                actual_record,actual_stdout=run_consumer(session,dict(launcher='umu',environment=env),program,[],label='case')
+            self.assertIs(actual_record,record)
+            self.assertEqual(actual_stdout,stdout)
+            self.assertEqual(session.command.call_args_list[0].kwargs['env']['PROTON_LOG'],'0')
+            self.assertEqual(session.command.call_args_list[0].kwargs['env']['MADSENSE_CONSUMER_SCOPE_LAYOUT'],
+                             'pressure-vessel')
+            self.assertEqual(session.result['protonLogSnapshots'][0]['snapshot']['logs'],[])
+            self.assertEqual(session.result['geUmuSession']['lastRawOutputSha256'],hashlib.sha256(stdout).hexdigest())
 
     def test_collected_log_bytes_stay_outside_result_json_and_paths_are_fixed(self):
         import base64

@@ -116,7 +116,10 @@ def private_environment(home, proton):
         XDG_CONFIG_HOME=str(home / ".config"), XDG_DATA_HOME=str(home / ".local/share"),
         XDG_CACHE_HOME=str(home / ".cache"), XDG_STATE_HOME=str(home / ".local/state"),
         UMU_RUNTIME_UPDATE="0", UMU_HTTP_TIMEOUT="2", UMU_HTTP_RETRIES="0",
-        PROTONFIXES_DISABLE="1", PROTON_LOG="1", PROTON_LOG_DIR=str(home),
+        # PROTON_LOG=1 redirects the PE's stdout into the Proton log. Functional
+        # JSON must remain on the original pipe, separate from bounded logs.
+        PROTONFIXES_DISABLE="1", PROTON_LOG="0", PROTON_LOG_DIR=str(home),
+        MADSENSE_CONSUMER_SCOPE_LAYOUT="pressure-vessel",
         UMU_LOG="debug")
 
 
@@ -198,7 +201,9 @@ def prepare(session, cache):
     session.command("ge-runtime-install-marker", ["python3", "-c", WRITE_MARKER_PROGRAM,
                                                   runtime / ".installed.ok"], timeout=10)
     session.result["geUmuSession"].update(geVersionFile=version, runtimeVersions=versions,
-        runtimeMtreeVerified=True, environment=env, sourceArchivesRetained=True)
+        runtimeMtreeVerified=True, environment=env, sourceArchivesRetained=True,
+        functionalOutput="launcher-stdout-pipe", protonFileLoggingRequested=False,
+        scopeMarkerLayout="pressure-vessel-readonly-host-etc", scopeMarkerCopied=False)
     session.save()
     # The version option does not run Proton; preserve that distinction.
     _, output = session.command("ge-umu-launcher-version", ["python3", launcher, "--version"], env=env)
