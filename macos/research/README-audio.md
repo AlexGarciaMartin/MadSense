@@ -2,8 +2,8 @@
 
 This opt-in executable measures the existing four-channel HAL output endpoint
 and its authenticated custom-property reader. It is not shipped in the app.
-The production plugin, queue limits, authentication and native consumer ABI
-remain unchanged. The research workflow builds an instrumented source copy
+The production plugin's queue limits, authentication and native consumer ABI
+are preserved. The research workflow builds an instrumented source copy
 with the ingress observer described below. It uses no controller, microphone, input
 IOProc, process tap, system-default audio selection or physical speaker.
 
@@ -28,8 +28,8 @@ Artifacts include the chosen period, source digests, SDK version/header digest
 and extracted minimum instead of redistributing the full SDK header. Separate
 VMs run each variant, so between-host variation still limits timing comparisons.
 
-The current matrix keeps the corrected **16384** period and compares the
-unchanged `observe` behavior with an isolated `reject` recovery policy. On a
+The current matrix keeps the corrected **16384** period and compares an
+`observe` control with recovery disabled against the production `reject` policy. On a
 documented cycle counter of one after any prior value greater than one in the stream,
 the latter observes and retains the incoming source failure, rejects the entire
 WriteMix operation, counts its frames and conditionally advances its captured
@@ -42,9 +42,13 @@ epochs, so consecutive cycle-one operations are all rejected; an external owner,
 lease or start generation change clears it. No PCM value is used to decide what
 to reject.
 
-This policy exists only in generated source/header copies under `.build`.
-The generated ring adds rejected-frame accounting and an acquiring loss-counter
-accessor; its existing queue algorithm and limits are unchanged. Native fake-host tests verify the old
+The observer exists only in the generated source copy under `.build`. Both
+variants copy the same production ring, policy and read-commit headers, with
+their SHA-256 digests retained in `ingress-source.json`. For the same timestamp
+period, their generated sources differ only in `kRecoverHostResync`; the control
+disables that branch. Both retain the final read-commit check. The production
+ring provides rejected-frame accounting and an acquiring loss-counter accessor;
+its queue algorithm and limits are unchanged. Native fake-host tests verify the old
 pending frame count, rejected count, surviving fresh payload and unchanged
 clock seed. The deterministic cycle sequence `{2, 1, 1, 2}` includes distinct
 timestamps and an old prefix in each reset operation. Its 384 total frames stay
@@ -75,6 +79,18 @@ records. Together with the environment's timebase numerator/denominator, they
 separate warmup, measured-window and stop-tail events reproducibly.
 `host_cycle_resets` counts every cycle-one operation after stream establishment,
 including consecutive ones, and keeps that state across the policy's own epochs.
+
+The corrected isolated experiment at commit `fc5908e`,
+[run 41571508286](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41571508286),
+passed all four ARM/Intel native fake-host builds. Its 12 rejection trials had
+zero repeated reader frames, while two of 12 control trials delivered 992 repeated
+frames. Six reset operations rejected 6144 frames. The observer retained 4096
+bad source frames in the rejection trials, including 1024 after the measured
+window; affected measurements remained invalid. No consecutive resets occurred
+in this sampled run, so that case is established by the deterministic fake-host
+test, not by the live sample. These findings motivated promoting the same recovery
+and read-commit code into the native audio target, with direct production tests.
+They do not establish uninterrupted audio or physical latency.
 
 The managed backend currently calls full forwarder `Flush` on every generation
 or dropped-frame change. That resets Bluetooth priming and can require eight
@@ -160,14 +176,17 @@ installing its disposable HAL bundle. `instrument_audio_plugin.py` generates
 a source copy under `.build`, requiring every injection site to match exactly
 once. It records production/copy SHA-256 digests; no production source, normal
 CMake target or shipped bundle enables this observer. The generated copy
-retains the original `ring.push` and observes its unchanged input after the
-normal lease/running checks. It stores up to 32 anomalous WriteMix blocks,
+retains the production recovery branch and `ring.push`, and observes the input
+after the normal lease/running checks and before any recovery rejection. It
+stores up to 32 anomalous WriteMix blocks,
 their preceding block, first eight and last bad markers, frame counts,
 client/operation, cycle ordinal, and current/input/output sample and host
 timestamps. The timestamp flags indicate which fields CoreAudio supplied.
 Per-generation ordering/counters reset when the stream restarts. An atomic
 try-guard counts overlapping plugin callbacks; it never waits, allocates or
-logs on the realtime thread and does not skip the original audio write.
+logs on the realtime thread and does not disable the production recovery branch.
+The ring and recovery policy still require one HAL mix producer; the observer
+detects a violated assumption without making either component multiproducer-safe.
 Any overlap invalidates subsequent diagnostic trials.
 
 After StopIO, the same authenticated owner can read the bounded trace through

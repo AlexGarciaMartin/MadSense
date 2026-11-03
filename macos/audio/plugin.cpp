@@ -1,4 +1,6 @@
 #include "AudioProtocol.hpp"
+#include "AudioResyncPolicy.hpp"
+#include "AudioRecoveryRead.hpp"
 #include <CoreFoundation/CFPlugInCOM.h>
 #include <mach/mach_time.h>
 #include <os/log.h>
@@ -24,6 +26,8 @@ double ticksPerFrame = 1;
 uint64_t leaseTicks = 1;
 std::mutex stateMutex;
 AudioRing ring;
+ResyncPolicy resyncPolicy; // Single HAL mix producer, like the SPSC ring.
+constexpr bool kRecoverHostResync = true;
 struct Identity { pid_t pid = 0; uid_t uid = 0; uint64_t seconds = 0, microseconds = 0; };
 struct Client { Identity identity; bool active = false; };
 Identity owner;
@@ -293,7 +297,7 @@ OSStatus getProperty(AudioServerPlugInDriverRef, AudioObjectID id, pid_t pid,
             packet.version = kProtocolVersion;
             packet.generation = pcmGeneration.load(std::memory_order_acquire);
             packet.frames = ring.popLatest(packet.samples, kReadFrames, packet.generation);
-            packet.droppedFrames = ring.dropped();
+            finishCapturedRead(ring, pcmGeneration, packet.generation, packet.frames, packet.droppedFrames);
             packet.activeClients = running.load(std::memory_order_acquire);
             CFDataRef data = CFDataCreate(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(&packet),
                 kPacketHeaderSize + packet.frames * kChannels * sizeof(float));
@@ -430,7 +434,7 @@ OSStatus beginEnd(AudioServerPlugInDriverRef, AudioObjectID id, UInt32, UInt32, 
     return id == kDevice ? noErr : kAudioHardwareBadObjectError;
 }
 OSStatus doIO(AudioServerPlugInDriverRef, AudioObjectID id, AudioObjectID stream, UInt32, UInt32 op,
-               UInt32 frames, const AudioServerPlugInIOCycleInfo*, void* main, void*) {
+               UInt32 frames, const AudioServerPlugInIOCycleInfo* cycle, void* main, void*) {
     // Capture before checking the lease/running state. A concurrent transition
     // may admit this callback under a renewed lease, but its old PCM tag remains
     // rejectable even if publication finishes after the transition's discard.
@@ -438,8 +442,20 @@ OSStatus doIO(AudioServerPlugInDriverRef, AudioObjectID id, AudioObjectID stream
     if (id != kDevice || stream != kStream) return kAudioHardwareBadObjectError;
     if (op != kAudioServerPlugInIOOperationWriteMix) return noErr;
     if (!main && frames) return kAudioHardwareIllegalOperationError;
-    if (running.load(std::memory_order_acquire) && mach_absolute_time() < leaseDeadline.load(std::memory_order_acquire))
+    if (running.load(std::memory_order_acquire) && mach_absolute_time() < leaseDeadline.load(std::memory_order_acquire)) {
+        if (kRecoverHostResync && resyncPolicy.reject(generation, cycle ? cycle->mIOCycleCounter : 0) && frames) {
+            // Resynchronization may carry an old PCM prefix. Reject the whole
+            // operation and invalidate pending frames without touching the
+            // consumer's cursor or revoking a concurrent owner/start transition.
+            uint64_t expected = generation;
+            const bool advanced = pcmGeneration.compare_exchange_strong(expected, generation + 1,
+                std::memory_order_acq_rel, std::memory_order_acquire);
+            ring.rejectFrames(frames);
+            if (advanced) resyncPolicy.adoptGeneration(generation + 1);
+            return noErr;
+        }
         ring.push(static_cast<const float*>(main), frames, generation);
+    }
     return noErr;
 }
 HRESULT query(void*, REFIID uuid, LPVOID* out) {

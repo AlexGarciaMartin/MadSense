@@ -28,6 +28,11 @@ class AudioRing {
     // Plain per-slot tags are safe under the same SPSC ownership as the samples.
     std::array<uint64_t, kRingFrames> generations_{};
 public:
+    // Account for an operation rejected before publication, or for candidates
+    // invalidated at read commit. Publish after the producer's recovery epoch.
+    void rejectFrames(uint32_t frames) noexcept {
+        dropped_.fetch_add(frames, std::memory_order_release);
+    }
     uint32_t push(const float* samples, uint32_t frames, uint64_t generation) noexcept {
         const uint64_t write = write_.load(std::memory_order_relaxed);
         const uint64_t read = read_.load(std::memory_order_acquire);
@@ -82,7 +87,7 @@ public:
     // Consumer-only flush; the caller also advances the accepted generation so
     // an in-flight producer cannot repopulate this queue with the previous epoch.
     void discard() noexcept { read_.store(write_.load(std::memory_order_acquire), std::memory_order_release); }
-    uint64_t dropped() const noexcept { return dropped_.load(std::memory_order_relaxed); }
+    uint64_t dropped() const noexcept { return dropped_.load(std::memory_order_acquire); }
 };
 static_assert(std::atomic<uint64_t>::is_always_lock_free, "Realtime queue requires lock-free 64-bit atomics.");
 }

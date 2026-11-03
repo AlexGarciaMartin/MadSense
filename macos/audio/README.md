@@ -22,8 +22,8 @@ ctest --test-dir .build/macos-audio --output-on-failure
 ```
 
 Build outputs are `MadSenseAudio.driver`, `libmadsense_audio.dylib`, and the test
-executables. The ring test is also portable C++17. The plugin contract test invokes
-the real plugin's COM/HAL interface through an in-process host; it does not prove
+executables. The ring and recovery tests are also portable C++17. The plugin
+contract test invokes the real plugin's COM/HAL interface through an in-process host; it does not prove
 the operating system will load the driver. `madsense-audio-installed-probe` is an
 additional, opt-in end-to-end test against the installed HAL driver. It sends a
 small test signal only to this virtual endpoint and needs no controller.
@@ -96,6 +96,21 @@ PCM generations are separate from the HAL clock seed: owner/lease transitions
 flush PCM without resetting that clock; the first IO start advances both. Queue
 frames carry their generation so an old producer completing after a flush cannot
 publish stale PCM into the new stream.
+Once a host cycle counter greater than one has established a stream,
+every subsequent cycle-one WriteMix operation is rejected in full, including
+consecutive cycle-one operations. Initial cycle-one operations remain accepted
+until establishment. A successful compare/exchange advances only the producer's
+captured PCM generation; an intervening owner, lease or start transition is never
+overwritten. Recovery preserves the established state and the HAL clock seed;
+an external generation change clears that state. Each rejected operation
+increments the dropped-frame count; the reader also counts older queued frames
+that it filters out.
+After copying a read's candidates and acquiring its drop snapshot, a final
+generation check counts and suppresses those candidates if recovery changed
+their epoch. It does not relabel old samples as a new generation. This final
+check completes the read; a later transition cannot revoke an already completed
+packet. Recovery deliberately loses frames and does not repair the source's
+resynchronization or establish uninterrupted delivery.
 An increased dropped-frame count denotes a queue discontinuity and likewise
 requires flushing partially assembled PCM before accepting subsequent frames.
 The CFData packet protocol is version 2; package the matching plugin, consumer
@@ -106,9 +121,12 @@ NullAudio example and exceeding the SDK's documented 10,923-frame minimum.
 The same constant controls the clock calculation. This is clock granularity,
 not PCM queue capacity or a requested client buffer size. It does not eliminate
 CoreAudio resynchronization under load; the isolated research probe retains
-those repeated-frame failures for further recovery work.
+source failures and recovery losses separately from reader integrity.
 
-The plugin's realtime callback only copies into a lock-free bounded SPSC queue.
+The plugin's realtime callback uses a bounded SPSC queue and lock-free generation
+and drop counters. The queue and recovery policy require one serialized HAL
+WriteMix producer; they are not safe for concurrent producers. Control paths
+advance the atomic generation rather than accessing the producer's policy state.
 The ordinary CoreAudio property thread serializes reads and marshals supported
 `CFData` property lists. Each read returns at most 480 frames (10 ms), in FIFO order.
 Normal 512- and 1024-frame HAL blocks are preserved across successive reads,
@@ -149,8 +167,13 @@ and [AudioServerPlugInDriverInterface](https://developer.apple.com/documentation
 
 ## Remaining validation
 
-Mac CI must compile the driver and run the ring/contract tests. An installed-driver
-test must validate HAL discovery, IO start, custom-property marshalling, privacy
+Mac CI must compile the driver and run the ring/recovery/contract tests. The native
+contract test exercises `{2, 1, 1, 2}` host cycles with distinct timestamps and old
+prefixes below the backlog threshold, verifies exact rejection/drop counts and
+fresh surviving PCM, and checks that an owner transition accepts initial cycle
+one again. Portable tests cover a late old-generation publication and a read
+racing recovery, including delivered-plus-dropped frame accounting. An
+installed-driver test must validate HAL discovery, IO start, custom-property marshalling, privacy
 checks, reconnects, and owner exit. Real controller tests must then establish
 channel mapping, Bluetooth continuity, latency, and game compatibility. These are
 separate from compiling the library and must not be reported as completed by the

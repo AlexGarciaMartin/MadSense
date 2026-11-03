@@ -22,6 +22,8 @@ def instrument(source: str, timestamp_period: int = 256, reject_resync: bool = F
             'copyValue<UInt32>(kResearchTimestampPeriod, capacity, written, out)')
     replace('ticksPerFrame * kTimestampPeriodFrames', 'ticksPerFrame * kResearchTimestampPeriod')
     replace('*sample = periods * kTimestampPeriodFrames;', '*sample = periods * kResearchTimestampPeriod;')
+    replace('constexpr bool kRecoverHostResync = true;',
+            f'constexpr bool kRecoverHostResync = {str(reject_resync).lower()};')
     replace('const AudioServerPlugInCustomPropertyInfo customProperties[] = {',
             'const AudioServerPlugInCustomPropertyInfo customProperties[] = {\n'
             '    {audio_probe::kIngressProperty, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, '
@@ -42,14 +44,10 @@ def instrument(source: str, timestamp_period: int = 256, reject_resync: bool = F
             return copyValue(data, capacity, written, out);
         }
         case kRead: {''')
-    replace('UInt32 frames, const AudioServerPlugInIOCycleInfo*, void* main, void*) {',
-            'UInt32 frames, const AudioServerPlugInIOCycleInfo* cycle, void* main, void*) {')
     replace('AudioObjectID stream, UInt32, UInt32 op,',
             'AudioObjectID stream, UInt32 client, UInt32 op,')
-    replace('''    if (running.load(std::memory_order_acquire) && mach_absolute_time() < leaseDeadline.load(std::memory_order_acquire))
-        ring.push(static_cast<const float*>(main), frames, generation);''',
-            '''    if (running.load(std::memory_order_acquire) && mach_absolute_time() < leaseDeadline.load(std::memory_order_acquire)) {
-        audio_probe::TraceCycle trace{};
+    recovery_site = '        if (kRecoverHostResync && resyncPolicy.reject(generation, cycle ? cycle->mIOCycleCounter : 0) && frames) {'
+    replace(recovery_site, '''        audio_probe::TraceCycle trace{};
         trace.entered = mach_absolute_time(); trace.frames = frames;
         trace.operation = op; trace.client = client;
         if (cycle) {
@@ -62,44 +60,17 @@ def instrument(source: str, timestamp_period: int = 256, reject_resync: bool = F
             trace.output = stamp(cycle->mOutputTime);
         }
         const bool observed = ingressTrace.begin(static_cast<const float*>(main), frames, generation, trace);
-        ring.push(static_cast<const float*>(main), frames, generation);
-        if (observed) ingressTrace.end();
-    }''')
-    if reject_resync:
-        replace('#include "AudioIngressTrace.hpp"', '#include "AudioIngressTrace.hpp"\n#include "AudioResyncPolicy.hpp"\n#include "AudioRecoveryRead.hpp"')
-        replace('audio_probe::IngressTrace ingressTrace;',
-                'audio_probe::IngressTrace ingressTrace;\naudio_probe::ResyncPolicy resyncPolicy;')
-        replace('        ring.push(static_cast<const float*>(main), frames, generation);', '''        if (observed && resyncPolicy.reject(generation, cycle ? cycle->mIOCycleCounter : 0) && frames) {
-            uint64_t expected = generation;
-            const bool advanced = pcmGeneration.compare_exchange_strong(expected, generation + 1,
-                std::memory_order_acq_rel, std::memory_order_acquire);
-            ring.rejectFrames(frames);
-            if (advanced) resyncPolicy.adoptGeneration(generation + 1);
-            ingressTrace.recordRecovery(frames, advanced ? generation + 1 : 0);
-            ingressTrace.end();
-            return noErr;
-        }
-        ring.push(static_cast<const float*>(main), frames, generation);''')
-        replace('            packet.droppedFrames = ring.dropped();',
-                '            audio_probe::finishCapturedRead(ring, pcmGeneration, packet.generation, packet.frames, packet.droppedFrames);')
+''' + recovery_site)
+    replace('            if (advanced) resyncPolicy.adoptGeneration(generation + 1);',
+            '''            if (advanced) resyncPolicy.adoptGeneration(generation + 1);
+            if (observed) {
+                ingressTrace.recordRecovery(frames, advanced ? generation + 1 : 0);
+                ingressTrace.end();
+            }''')
+    replace('        ring.push(static_cast<const float*>(main), frames, generation);',
+            '''        ring.push(static_cast<const float*>(main), frames, generation);
+        if (observed) ingressTrace.end();''')
     return source
-
-
-def instrument_ring(source: str, reject_resync: bool) -> str:
-    if not reject_resync:
-        return source
-    site = 'public:\n    uint32_t push('
-    if source.count(site) != 1:
-        raise ValueError('Expected exactly one ring injection site')
-    result = source.replace(site, '''public:
-    void rejectFrames(uint32_t frames) noexcept {
-        dropped_.fetch_add(frames, std::memory_order_release);
-    }
-    uint32_t push(''')
-    getter = 'dropped_.load(std::memory_order_relaxed)'
-    if result.count(getter) != 1:
-        raise ValueError('Expected exactly one loss counter accessor')
-    return result.replace(getter, 'dropped_.load(std::memory_order_acquire)')
 
 
 def main() -> None:
@@ -114,19 +85,20 @@ def main() -> None:
     result = instrument(source, args.timestamp_period, args.reject_resync).encode('utf-8')
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(result)
-    # Quoted includes resolve these exact generated copies first. Write both
-    # variants every time so a reused build directory cannot retain a stale ring.
-    protocol = (args.source.parent / 'AudioProtocol.hpp').read_bytes()
-    ring_raw = (args.source.parent / 'AudioRing.hpp').read_bytes()
-    ring = instrument_ring(ring_raw.decode('utf-8').replace('\r\n', '\n'), args.reject_resync).encode('utf-8')
-    (args.output.parent / 'AudioProtocol.hpp').write_bytes(protocol)
-    (args.output.parent / 'AudioRing.hpp').write_bytes(ring)
+    # Both variants compile the same production headers, with no queue/helper
+    # patches. Rewrite every copy so reused build directories cannot retain one.
+    header_hashes = {}
+    for name in ('AudioProtocol.hpp', 'AudioRing.hpp', 'AudioResyncPolicy.hpp', 'AudioRecoveryRead.hpp'):
+        raw_header = (args.source.parent / name).read_bytes()
+        (args.output.parent / name).write_bytes(raw_header)
+        header_hashes[name] = hashlib.sha256(raw_header).hexdigest()
     print(json.dumps({'production_source_sha256': hashlib.sha256(raw).hexdigest(),
                       'instrumented_source_sha256': hashlib.sha256(result).hexdigest(),
                       'timestamp_period_frames': args.timestamp_period,
                       'reject_resync': args.reject_resync,
-                      'production_ring_sha256': hashlib.sha256(ring_raw).hexdigest(),
-                      'instrumented_ring_sha256': hashlib.sha256(ring).hexdigest(),
+                      'production_ring_sha256': header_hashes['AudioRing.hpp'],
+                      'instrumented_ring_sha256': header_hashes['AudioRing.hpp'],
+                      'production_header_sha256': header_hashes,
                       'production_source_changed': False}))
 
 

@@ -1224,11 +1224,20 @@ public class DualSenseAudioForwarderTests
 
         WaitUntil(() => fake.ReportCount >= 8 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
 
-        forwarder.UpdateGameHaptics(gamePcm);
-        WaitUntil(() => fake.LastHapticsFrame is { Length: 64 } && fake.LastHapticsFrame.All(b => b == 0x10), TimeSpan.FromSeconds(3));
+        // This checks conversion of a fresh variable-sized write, not the
+        // scheduler's ability to run both threads inside its 100 ms lifetime.
+        // Retain emitted packets: a later silence packet must not erase proof
+        // of the correctly converted payload before the assertion runs.
+        bool HasConvertedFrame() => fake.HapticsFrames.Any(frame =>
+            frame.Length == DualSenseBtAudioPipeline.HapticsBytes && frame.All(b => b == 0x10));
+        WaitUntil(() =>
+        {
+            forwarder.UpdateGameHaptics(gamePcm);
+            return HasConvertedFrame();
+        }, TimeSpan.FromSeconds(3));
 
-        Assert.That(fake.LastHapticsFrame.All(b => b == 0x10), Is.True,
-            "variable-length rear PCM must decimate to the s8 payload");
+        Assert.That(HasConvertedFrame(), Is.True,
+            "a fresh variable-length rear PCM write must be emitted as the expected s8 payload");
 
         forwarder.Stop();
     }

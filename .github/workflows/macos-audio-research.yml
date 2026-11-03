@@ -8,8 +8,7 @@ on:
       - 'macos/research/*audio*'
       - 'macos/research/AudioProbeSignal.hpp'
       - 'macos/research/AudioIngressTrace.hpp'
-      - 'macos/research/AudioResyncPolicy.hpp'
-      - 'macos/research/AudioRecoveryRead.hpp'
+      - 'macos/audio/**'
 permissions:
   contents: read
 concurrency:

@@ -1,6 +1,11 @@
+import hashlib
+import json
 import pathlib
+import subprocess
+import sys
+import tempfile
 import unittest
-from instrument_audio_plugin import instrument, instrument_ring
+from instrument_audio_plugin import instrument
 
 
 class InstrumentationTests(unittest.TestCase):
@@ -45,27 +50,32 @@ class InstrumentationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             instrument(self.source, 512)
 
-    def test_recovery_is_opt_in_and_observes_before_rejecting(self):
+    def test_observe_disables_only_production_recovery_and_observes_before_rejecting(self):
         baseline = instrument(self.source, 16384)
         recovery = instrument(self.source, 16384, True)
-        self.assertNotIn('compare_exchange_strong(expected, generation + 1', baseline)
-        self.assertIn('compare_exchange_strong(expected, generation + 1', recovery)
+        self.assertEqual(baseline.replace('kRecoverHostResync = false;', 'kRecoverHostResync = true;'), recovery)
+        self.assertEqual(recovery.count('compare_exchange_strong(expected, generation + 1'), 1)
+        self.assertEqual(recovery.count('ResyncPolicy resyncPolicy;'), 1)
+        self.assertEqual(recovery.count('finishCapturedRead('), 1)
         self.assertLess(recovery.index('ingressTrace.begin('), recovery.index('resyncPolicy.reject('))
         self.assertIn('resyncPolicy.reject(generation, cycle ? cycle->mIOCycleCounter : 0) && frames', recovery)
+        self.assertNotIn('observed && resyncPolicy', recovery) # Observer failure cannot disable production policy.
         self.assertLess(recovery.index('ring.rejectFrames(frames)'), recovery.index('ring.push('))
         self.assertLess(recovery.index('packet.generation = pcmGeneration.load'), recovery.index('ring.popLatest('))
-        self.assertLess(recovery.index('ring.popLatest('), recovery.index('audio_probe::finishCapturedRead('))
+        self.assertLess(recovery.index('ring.popLatest('), recovery.index('finishCapturedRead('))
 
-    def test_ring_changes_are_counting_and_acquire_accessor(self):
-        source = (self.path.parent / 'AudioRing.hpp').read_text(encoding='utf-8')
-        self.assertEqual(instrument_ring(source, False), source)
-        result = instrument_ring(source, True)
-        addition = '''    void rejectFrames(uint32_t frames) noexcept {
-        dropped_.fetch_add(frames, std::memory_order_release);
-    }
-'''
-        self.assertEqual(result.replace(addition, '').replace('dropped_.load(std::memory_order_acquire)',
-                                                             'dropped_.load(std::memory_order_relaxed)'), source)
+    def test_variants_copy_identical_production_headers_and_record_digests(self):
+        generator = pathlib.Path(__file__).with_name('instrument_audio_plugin.py')
+        with tempfile.TemporaryDirectory() as temporary:
+            output = pathlib.Path(temporary) / 'plugin-ingress.cpp'
+            for arguments in (['--reject-resync'], []):
+                metadata = json.loads(subprocess.check_output(
+                    [sys.executable, str(generator), str(self.path), str(output), *arguments], text=True))
+                for name, digest in metadata['production_header_sha256'].items():
+                    source = (self.path.parent / name).read_bytes()
+                    self.assertEqual((output.parent / name).read_bytes(), source)
+                    self.assertEqual(digest, hashlib.sha256(source).hexdigest())
+                self.assertEqual(metadata['production_ring_sha256'], metadata['instrumented_ring_sha256'])
 
 
 if __name__ == '__main__':

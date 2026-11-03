@@ -25,7 +25,7 @@ xcrun clang++ -std=c++17 -O2 -mmacosx-version-min=15.0 \
 "$build/audio-ingress-plugin-test" "$period" "$recovery"
 if [[ "$recovery" == reject ]]; then
   xcrun clang++ -std=c++17 -O2 -Wall -Wextra -Werror -mmacosx-version-min=15.0 \
-    -I "$build" "$root/macos/research/audio_resync_test.cpp" -o "$build/audio-resync-test"
+    -I "$build" "$root/macos/audio/resync_test.cpp" -o "$build/audio-resync-test"
   "$build/audio-resync-test"
   cp "$root/macos/audio/ring_test.cpp" "$build/ring_test.cpp"
   xcrun clang++ -std=c++17 -O2 -mmacosx-version-min=15.0 "$build/ring_test.cpp" -o "$build/existing-ring-test"

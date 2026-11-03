@@ -1,6 +1,6 @@
 #include "AudioResyncPolicy.hpp"
 #include "AudioRecoveryRead.hpp"
-#include "AudioRing.hpp" // The generated research copy, selected by -I build.
+#include "AudioRing.hpp"
 #include <atomic>
 #include <cstdlib>
 #include <iostream>
@@ -17,7 +17,7 @@ void fill(float* samples, unsigned frames, uint64_t generation, uint32_t sequenc
 }
 }
 int main() {
-    audio_probe::ResyncPolicy policy;
+    madsense::ResyncPolicy policy;
     require(!policy.reject(1, 1)); require(!policy.reject(1, 1));
     require(!policy.reject(1, 0)); require(!policy.reject(1, 2));
     require(policy.reject(1, 1)); policy.adoptGeneration(2);
@@ -34,7 +34,7 @@ int main() {
     float block[96 * 4], output[480 * 4];
     // Regression for consecutive host resets. No queue trim can mask an
     // accepted second cycle-one operation in this sub-threshold sequence.
-    audio_probe::ResyncPolicy consecutivePolicy;
+    madsense::ResyncPolicy consecutivePolicy;
     madsense::AudioRing consecutive;
     uint64_t recoveryGeneration = 1;
     uint32_t sequence = 0;
@@ -75,11 +75,11 @@ int main() {
     uint32_t candidateFrames = concurrentRead.popLatest(output, 480, captured);
     uint64_t dropSnapshot = 0;
     require(candidateFrames == 64);
-    require(!audio_probe::finishCapturedRead(concurrentRead, epoch, captured, candidateFrames, dropSnapshot));
+    require(!madsense::finishCapturedRead(concurrentRead, epoch, captured, candidateFrames, dropSnapshot));
     require(candidateFrames == 0 && dropSnapshot == 192);
     fill(block, 64, 2, 64); concurrentRead.push(block, 64, 2);
     candidateFrames = concurrentRead.popLatest(output, 480, 2);
-    require(audio_probe::finishCapturedRead(concurrentRead, epoch, 2, candidateFrames, dropSnapshot));
+    require(madsense::finishCapturedRead(concurrentRead, epoch, 2, candidateFrames, dropSnapshot));
     require(candidateFrames == 64 && dropSnapshot == 192 && output[0] == 2);
 
     madsense::AudioRing ring;
@@ -109,7 +109,7 @@ int main() {
         const auto generation = epoch.load(std::memory_order_acquire);
         uint32_t count = ring.popLatest(output, 480, generation);
         uint64_t drops = 0;
-        audio_probe::finishCapturedRead(ring, epoch, generation, count, drops);
+        madsense::finishCapturedRead(ring, epoch, generation, count, drops);
         for (unsigned i = 0; i < count; ++i) {
             require(output[i * 4] == generation && output[i * 4 + 1] > previous);
             require(output[i * 4 + 2] == .25f && output[i * 4 + 3] == -.25f);

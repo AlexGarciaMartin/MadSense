@@ -172,6 +172,66 @@ int main() {
     require(packet.frames == 64 && packet.generation == resumedGeneration && packet.samples[0] == 0.75f,
         "lease renewal must recover without repeated generation changes");
     require(clockSeed() == restartedClockSeed, "steady IO must retain the HAL clock seed");
+    auto readRecoveryPacket = [&]() {
+        auto recoveryAddress = address(kRead);
+        CFDataRef recoveryData = nullptr; UInt32 recoveryWritten = 0;
+        require((*driver)->GetPropertyData(driver, kDevice, getpid(), &recoveryAddress, 0, nullptr,
+            sizeof(recoveryData), &recoveryWritten, &recoveryData) == noErr && recoveryData &&
+            recoveryWritten == sizeof(recoveryData), "recovery packet read");
+        const auto bytes = CFDataGetLength(recoveryData);
+        AudioPacket result{};
+        require(bytes >= static_cast<CFIndex>(kPacketHeaderSize) &&
+            bytes <= static_cast<CFIndex>(sizeof(result)), "recovery packet size");
+        std::memcpy(&result, CFDataGetBytePtr(recoveryData), bytes); CFRelease(recoveryData);
+        require(result.frames <= kReadFrames && bytes == static_cast<CFIndex>(kPacketHeaderSize +
+            result.frames * kChannels * sizeof(float)), "recovery packet frame count");
+        return result;
+    };
+    // Exact binary-fraction markers are local to this production contract test.
+    // Both reset operations repeat the preceding block's last 48 frames.
+    auto encodeRecoveryFrame = [](unsigned callback, unsigned offset, float* destination) {
+        destination[0] = static_cast<float>(callback) / 16;
+        destination[1] = static_cast<float>(offset) / 128;
+        destination[2] = .25f; destination[3] = -.25f;
+    };
+    const auto beforeRecovery = readRecoveryPacket();
+    require(beforeRecovery.frames == 0, "recovery starts with an empty queue");
+    const auto recoveryClockSeed = clockSeed();
+    float recoveryFrames[96 * kChannels];
+    unsigned operation = 0;
+    // All 384 frames fit below the backlog threshold, so queue trimming cannot
+    // hide an incorrectly accepted second cycle-one operation.
+    for (unsigned ordinal : {2u, 1u, 1u, 2u}) {
+        for (unsigned i = 0; i < 96; ++i) {
+            const bool oldPrefix = (operation == 1 || operation == 2) && i < 48;
+            encodeRecoveryFrame(2 + operation - (oldPrefix ? 1 : 0),
+                oldPrefix ? 48 + i : i, recoveryFrames + i * kChannels);
+        }
+        cycle.mIOCycleCounter = ordinal;
+        cycle.mCurrentTime.mSampleTime = 1000 + operation * 96;
+        cycle.mCurrentTime.mHostTime = 10000 + operation * 100;
+        cycle.mCurrentTime.mFlags = kAudioTimeStampSampleTimeValid | kAudioTimeStampHostTimeValid;
+        cycle.mOutputTime.mSampleTime = 2000 + operation * 96;
+        cycle.mOutputTime.mHostTime = 20000 + operation * 100;
+        cycle.mOutputTime.mFlags = kAudioTimeStampSampleTimeValid | kAudioTimeStampHostTimeValid;
+        require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
+            kAudioServerPlugInIOOperationWriteMix, 96, &cycle, recoveryFrames, nullptr) == noErr,
+            "consecutive host resynchronization write");
+        ++operation;
+    }
+    const auto recovered = readRecoveryPacket();
+    require(recovered.generation == beforeRecovery.generation + 2 && recovered.frames == 96 &&
+        recovered.activeClients == 1, "every established cycle-one operation must advance the PCM epoch");
+    require(recovered.droppedFrames - beforeRecovery.droppedFrames == 288,
+        "recovery must count 192 rejected frames and 96 pending old frames exactly once");
+    for (unsigned i = 0; i < 96; ++i) {
+        float expectedFrame[kChannels]; encodeRecoveryFrame(5, i, expectedFrame);
+        for (unsigned channel = 0; channel < kChannels; ++channel)
+            require(recovered.samples[i * kChannels + channel] == expectedFrame[channel],
+                "only the fresh block may survive consecutive host resets");
+    }
+    require(clockSeed() == recoveryClockSeed, "host resynchronization recovery must preserve the HAL clock seed");
+    resumedGeneration = recovered.generation;
     // Transfer the live same-user stream to another actual process. This starts
     // a new PCM generation but does not change the running device's clock.
     require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
@@ -198,6 +258,27 @@ int main() {
     require((*driver)->SetPropertyData(driver, kDevice, getpid(), &addr, 0, nullptr,
         sizeof(claim), &claim) == noErr, "reclaim original owner");
     require(clockSeed() == restartedClockSeed, "owner reclaim must not reset the HAL clock");
+    const auto beforeInitial = readRecoveryPacket();
+    require(beforeInitial.frames == 0 && beforeInitial.generation != recovered.generation,
+        "owner transition must start an empty external PCM generation");
+    cycle.mIOCycleCounter = 1;
+    for (unsigned initial = 0; initial < 2; ++initial) {
+        for (unsigned i = 0; i < 96; ++i)
+            encodeRecoveryFrame(6 + initial, i, recoveryFrames + i * kChannels);
+        require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
+            kAudioServerPlugInIOOperationWriteMix, 96, &cycle, recoveryFrames, nullptr) == noErr,
+            "initial cycle-one write after owner transition");
+    }
+    const auto initial = readRecoveryPacket();
+    require(initial.generation == beforeInitial.generation && initial.frames == 192 &&
+        initial.droppedFrames == beforeInitial.droppedFrames,
+        "initial cycle-one operations must remain accepted after an external generation change");
+    for (unsigned i = 0; i < 192; ++i) {
+        float expectedFrame[kChannels]; encodeRecoveryFrame(6 + i / 96, i % 96, expectedFrame);
+        for (unsigned channel = 0; channel < kChannels; ++channel)
+            require(initial.samples[i * kChannels + channel] == expectedFrame[channel],
+                "initial cycle-one payload after owner transition");
+    }
     require((*driver)->StopIO(driver, kDevice, client.mClientID) == noErr, "stop IO");
     require((*driver)->RemoveDeviceClient(driver, kDevice, &client) == noErr, "remove client");
     addr = address(kOwner); claim = kCFBooleanFalse;

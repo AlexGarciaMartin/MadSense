@@ -2,8 +2,8 @@
 #include <atomic>
 #include <cstdint>
 
-namespace audio_probe {
-// Research-only read commit. The drop snapshot acquires the rejection counter,
+namespace madsense {
+// Commit a property read. The drop snapshot acquires the rejection counter,
 // whose release publication follows the producer's epoch CAS. Thus a packet
 // cannot acknowledge that rejection while retaining pre-recovery candidates.
 template<class Ring>

@@ -1,10 +1,12 @@
 #pragma once
 #include <cstdint>
 
-namespace audio_probe {
-// Research only. The SDK documents cycle 1 both at initial start and when the
+namespace madsense {
+// The SDK documents cycle 1 both at initial start and when the
 // host resynchronizes. Initial start is accepted. Once the stream is established,
 // every cycle-one operation is rejected, including consecutive resynchronizations.
+// Like AudioRing, this state belongs exclusively to the single HAL mix producer.
+// Control/property threads communicate transitions only through the PCM epoch.
 class ResyncPolicy {
     uint64_t generation_ = 0;
     bool established_ = false;
