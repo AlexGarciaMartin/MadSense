@@ -51,3 +51,22 @@ for name, language, stalled, paused_restart in cases:
             except ProcessLookupError:
                 pass
             process.wait(timeout=5)
+
+# These explicitly labelled fixtures only verify rendering of long localized
+# pause/error states. They do not create a controller or validate hardware.
+for state in ("paused", "blocked"):
+    for language in ("en", "es", "fr", "de", "it", "pt"):
+        name = f"fixture-{state}-{language}"
+        screenshot = output / f"ui-{name}.png"
+        error_log = output / f"gui-{name}.stderr"
+        environment = dict(os.environ, MADSENSE_SMOKE_SCREENSHOT=str(screenshot),
+                           MADSENSE_SMOKE_LANGUAGE=language, MADSENSE_VISUAL_FIXTURE=state)
+        with (output / f"gui-{name}.stdout").open("w") as stdout, error_log.open("w") as stderr:
+            result = subprocess.run([str(app), "--smoke-test", "--visual-fixture"],
+                                    stdout=stdout, stderr=stderr, env=environment, timeout=10)
+        log = error_log.read_text()
+        assert result.returncode == 0 and screenshot.is_file(), f"Missing visual fixture: {name}"
+        assert "visual fixture only:" in log and "no backend or hardware" in log, name
+        assert "backend startup requested" not in log, "Visual fixture unexpectedly started a bridge"
+        assert "applicationWillTerminate" in log and "snapshot saved:" in log, name
+        print(f"PASS {name}: translated visual fixture only; no hardware", flush=True)

@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Type-check native interface
-        run: swiftc -typecheck -swift-version 5 -framework AppKit macos/app/MadSense.swift
+        run: swiftc -typecheck -swift-version 5 -framework AppKit macos/app/MadSense.swift macos/app/Branding.swift
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -71,7 +71,7 @@ jobs:
           dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --protocol-check
           dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --diagnose > dist/macos/diagnostic.json
       - name: Native GUI startup and shutdown smoke test
-        timeout-minutes: 2
+        timeout-minutes: 3
         run: python3 macos/tests/gui_smoke.py "$PWD/dist/macos/MadSense.app/Contents/MacOS/MadSense" dist/macos
       - name: Packaged service lifecycle
         if: always() && steps.package.outcome == 'success'

@@ -16,6 +16,14 @@ El volumen del altavoz ofrece alto, bajo y apagado, con los mismos valores que W
 
 El menú permite activar el inicio de sesión mediante una acción explícita; macOS puede exigir confirmarlo en sus ajustes. La batería y la carga proceden del informe físico, con aviso visible al 15 % sin cargar. Los indicadores de háptica, gatillos, audio y vibración reflejan escrituras HID completadas, no mediciones del movimiento de los actuadores. Si el backend se recupera de un fallo estando en pausa, arranca con `--start-paused` antes de buscar mandos.
 
+## Identidad visual compartida
+
+La interfaz Mac debe conservar la identidad de Windows definida en [MainWindow.cs](../src/MainWindow.cs), el [logo vectorial](../src/assets/madsense.svg) y los [catálogos originales de los seis idiomas](../src/Localization/). Los textos de marca se reutilizan por sus claves `Ui.HeaderTagline`, `Ui.Hero*` y `Ui.Badge*`, sin inventar lemas ni volver a traducirlos; el empaquetado debe conservar los archivos `ui.*.json` en `Contents/Resources/WindowsUI`. Las referencias visuales vigentes son [ui-v04-final.png](../evidence/ui-v04-final.png) y [ui-v04-speaker.png](../evidence/ui-v04-speaker.png).
+
+Se mantienen la cabecera condensada de gran tamaño, los rótulos monoespaciados, el mando ilustrado sobre la diagonal naranja con trama, la franja `LINK` y los botones rectangulares con borde y sombra firme. La paleta original es tinta `#181815`, papel `#F0EBDC`, naranja `#F95428`, lima `#DCF131` y texto secundario `#636055`. El código Windows usa Impact, Consolas y Segoe UI; cualquier sustitución necesaria en Mac debe conservar su función visual.
+
+La validación visual debe revisar espera, pausa y bloqueo en los seis idiomas, comprobando textos completos, contraste y controles accesibles. Estas comprobaciones no se consideran superadas antes de inspeccionar las capturas. La identidad compartida no permite anunciar conexión sin confirmación del backend, ofrecer un modo Xbox activo ni afirmar que el HID Mac sea USB compuesto; los límites y errores reales siguen visibles.
+
 ## Compilar sin un Mac propio
 
 La compilación nativa necesita macOS; un runner de GitHub Actions permite compilar y comprobar ambos paquetes sin un equipo local. Se generan variantes separadas para Apple Silicon e Intel. Los trabajos de CI no tienen un DualSense físico y sus pruebas no equivalen a validar hardware.

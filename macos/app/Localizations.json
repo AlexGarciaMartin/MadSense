@@ -3,7 +3,6 @@
   "Opening the controller bridge…": {"fr":"Ouverture du pont de la manette…", "de":"Controller-Verbindung wird geöffnet…", "it":"Apertura del collegamento al controller…", "pt":"Abrindo a conexão do controle…"},
   "No response": {"fr":"Aucune réponse", "de":"Keine Antwort", "it":"Nessuna risposta", "pt":"Sem resposta"},
   "The controller bridge stopped reporting its state. Open diagnostics for details.": {"fr":"Le pont ne transmet plus son état. Consultez le diagnostic.", "de":"Die Controller-Verbindung meldet keinen Status mehr. Details stehen in der Diagnose.", "it":"Il collegamento non comunica più il suo stato. Consulta la diagnostica.", "pt":"A conexão do controle parou de informar seu estado. Abra o diagnóstico."},
-  "DUALSENSE, ON YOUR TERMS.": {"fr":"VOTRE DUALSENSE. À VOTRE FAÇON.", "de":"DEIN DUALSENSE. DEINE REGELN.", "it":"IL TUO DUALSENSE. A MODO TUO.", "pt":"SEU DUALSENSE. DO SEU JEITO."},
   "macOS · DEVELOPMENT BUILD": {"fr":"macOS · VERSION DE DÉVELOPPEMENT", "de":"macOS · ENTWICKLUNGSVERSION", "it":"macOS · VERSIONE DI SVILUPPO", "pt":"macOS · VERSÃO EM DESENVOLVIMENTO"},
   "Pause bridge": {"fr":"Suspendre", "de":"Verbindung pausieren", "it":"Metti in pausa", "pt":"Pausar conexão"},
   "Resume bridge": {"fr":"Reprendre", "de":"Verbindung fortsetzen", "it":"Riprendi", "pt":"Retomar conexão"},

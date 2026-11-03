@@ -5,12 +5,22 @@ import ServiceManagement
 
 // The backend alone decides whether the bridge is usable. A running child process,
 // an open physical controller or an available library never implies "Ready".
-private enum Palette {
-    static let paper = NSColor(srgbRed: 0.96, green: 0.95, blue: 0.90, alpha: 1)
-    static let ink = NSColor(srgbRed: 0.094, green: 0.094, blue: 0.082, alpha: 1)
-    static let orange = NSColor(srgbRed: 0.976, green: 0.329, blue: 0.157, alpha: 1)
-    static let lime = NSColor(srgbRed: 0.863, green: 0.945, blue: 0.192, alpha: 1)
-    static let muted = NSColor(srgbRed: 0.38, green: 0.38, blue: 0.35, alpha: 1)
+private typealias Palette = BrandPalette
+
+// Package the original Windows UI catalogs, so the brand copy has one source.
+// Mac-specific operations/errors still use Localizations.json below.
+private let brandCatalogs: [String: [String: String]] = {
+    var catalogs: [String: [String: String]] = [:]
+    for code in ["en", "es", "fr", "de", "it", "pt-BR"] {
+        guard let url = Bundle.main.url(forResource: "ui.\(code)", withExtension: "json", subdirectory: "WindowsUI"),
+              let data = try? Data(contentsOf: url),
+              let catalog = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { continue }
+        catalogs[code] = catalog
+    }
+    return catalogs
+}()
+private func brandText(_ key: String) -> String {
+    brandCatalogs[language == "pt" ? "pt-BR" : language]?[key] ?? brandCatalogs["en"]?[key] ?? key
 }
 
 private let translations: [String: [String: String]] = {
@@ -92,27 +102,6 @@ private final class BackendOutputBuffer {
     var sawStatus = false
 }
 
-private final class BrandView: NSView {
-    override var isFlipped: Bool { true }
-    override func draw(_ dirtyRect: NSRect) {
-        Palette.orange.setFill()
-        bounds.fill()
-        let scale = min(bounds.width, bounds.height) / 64
-        func polygon(_ points: [(CGFloat, CGFloat)], _ color: NSColor) {
-            let path = NSBezierPath()
-            guard let first = points.first else { return }
-            path.move(to: NSPoint(x: first.0 * scale, y: first.1 * scale))
-            for p in points.dropFirst() { path.line(to: NSPoint(x: p.0 * scale, y: p.1 * scale)) }
-            path.close()
-            color.setFill()
-            path.fill()
-        }
-        // The same paths as src/assets/madsense.svg; no raster dependency.
-        polygon([(3,51),(13,10),(27,26),(36,8),(47,24),(58,11),(59,52),(46,52),(46,34),(36,48),(25,35),(17,54)], Palette.ink)
-        polygon([(23,23),(34,15),(29,31),(40,28),(29,47),(31,34),(20,37)], Palette.lime)
-    }
-}
-
 private final class AppContentView: NSView {
     override var isOpaque: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
@@ -141,7 +130,9 @@ private func label(_ text: String, size: CGFloat, weight: NSFont.Weight = .regul
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private var window: NSWindow!
     private var statusItem: NSStatusItem!
-    private var stateLabel = label(tr("Starting", "Iniciando"), size: 30, weight: .bold)
+    private var stateLabel = label(tr("Starting", "Iniciando"), size: 14, weight: .bold)
+    private var hero = BrandHeroView()
+    private var presentedBackendState: String?
     private var detailLabel = label(tr("Opening the controller bridge…", "Abriendo el puente del mando…"), size: 14)
     private var telemetryLabel = label("—", size: 12, color: Palette.muted)
     private var lowBatteryLabel = label("", size: 12, weight: .semibold,
@@ -161,7 +152,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var activityMenuItem: NSMenuItem!
     private var loginMenuItem: NSMenuItem!
     private var loginSettingsMenuItem: NSMenuItem!
-    private var speakerPopup: NSPopUpButton!
+    private var speakerButtons: [String: BrandButton] = [:]
     private var speakerMenuItems: [String: NSMenuItem] = [:]
     private var confirmedSpeaker: String?
     private var process: Process?
@@ -192,6 +183,27 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         buildMenu()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // Explicit visual fixtures inspect translated error/pause layouts without
+        // a controller. They never start the backend and cannot prove HID works.
+        if CommandLine.arguments.contains("--visual-fixture") {
+            guard CommandLine.arguments.contains("--smoke-test"),
+                  let fixture = ProcessInfo.processInfo.environment["MADSENSE_VISUAL_FIXTURE"],
+                  ["paused", "blocked"].contains(fixture) else { Darwin.exit(2) }
+            paused = fixture == "paused"
+            requestedPaused = paused
+            blocked = fixture == "blocked"
+            setState(localizeBackendState(fixture),
+                detail: fixture == "paused" ? localizeBackendDetail("Controller released.") :
+                    "Virtual HID unavailable (0xe00002bc): macOS refused virtual HID creation. Check the executable's accepted com.apple.developer.hid.virtual.device entitlement/signature.",
+                ready: false, backendState: fixture)
+            refreshPause()
+            smokeLog("visual fixture only: \(fixture); no backend or hardware")
+            afterOnMainRunLoop(0.5) { [weak self] in
+                self?.captureSmokeSnapshot()
+                NSApp.terminate(nil)
+            }
+            return
+        }
         startBackend()
         smokeLog("window visible; backend startup requested")
         if CommandLine.arguments.contains("--smoke-test") {
@@ -292,83 +304,110 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func buildWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 640),
-                          styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 760),
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.contentMinSize = NSSize(width: 800, height: 760)
         window.title = "MadSense · macOS"
         window.backgroundColor = Palette.paper
+        window.appearance = NSAppearance(named: .aqua)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
         let root = AppContentView()
         window.contentView = root
-        let brand = BrandView()
-        brand.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([brand.widthAnchor.constraint(equalToConstant: 68), brand.heightAnchor.constraint(equalToConstant: 68)])
-        let wordmark = label("MADSENSE", size: 34, weight: .black)
-        let subtitle = label(tr("DUALSENSE, ON YOUR TERMS.", "TU DUALSENSE. A TU MANERA."), size: 11, weight: .semibold)
-        let titles = NSStackView(views: [wordmark, subtitle])
-        titles.orientation = .vertical
-        titles.alignment = .leading
-        titles.spacing = 5
-        let header = NSStackView(views: [brand, titles])
-        header.orientation = .horizontal
-        header.spacing = 18
-        header.alignment = .centerY
-        let badge = label(tr("macOS · DEVELOPMENT BUILD", "macOS · VERSIÓN EN DESARROLLO"), size: 10, weight: .bold, color: Palette.muted)
-        let rule = NSBox()
-        rule.boxType = .separator
-        pauseButton = NSButton(title: tr("Pause bridge", "Pausar puente"), target: self, action: #selector(togglePause))
-        pauseButton.bezelStyle = .rounded
-        pauseButton.controlSize = .large
-        let diagnosticButton = NSButton(title: tr("Diagnostics", "Diagnóstico"), target: self, action: #selector(showDiagnostics))
-        diagnosticButton.bezelStyle = .rounded
-        diagnosticButton.controlSize = .large
-        let buttons = NSStackView(views: [pauseButton, diagnosticButton])
-        buttons.orientation = .horizontal
-        buttons.spacing = 12
-        speakerPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        speakerPopup.target = self
-        speakerPopup.action = #selector(speakerPopupChanged(_:))
-        speakerPopup.addItem(withTitle: "—")
-        speakerPopup.item(at: 0)?.isEnabled = false
-        speakerPopup.menu?.autoenablesItems = false
-        for (mode, title) in speakerChoices() {
-            speakerPopup.addItem(withTitle: title)
-            speakerPopup.lastItem?.representedObject = mode
-        }
-        speakerPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 150).isActive = true
-        let speakerRow = NSStackView(views: [
-            label(tr("Speaker · optional audio", "Altavoz · audio opcional"), size: 12), speakerPopup
-        ])
+        let header = BrandHeaderView(tagline: brandText("Ui.HeaderTagline"),
+            version: brandText("Ui.Version").replacingOccurrences(of: "{0}", with: "0.5 DEV"))
+        hero = BrandHeroView()
+        hero.mode = brandText("Ui.HeroDualSense")
+        header.heightAnchor.constraint(equalToConstant: 106).isActive = true
+        hero.heightAnchor.constraint(equalToConstant: 250).isActive = true
+
+        // Actual backend state remains native, selectable and accessible in the
+        // Windows LINK strip; the artwork never invents a connected controller.
+        stateLabel.maximumNumberOfLines = 1
+        detailLabel.maximumNumberOfLines = 2
+        detailLabel.lineBreakMode = .byTruncatingTail
+        let statusText = NSStackView(views: [stateLabel, detailLabel, telemetryLabel, lowBatteryLabel])
+        statusText.orientation = .vertical
+        statusText.alignment = .leading
+        statusText.spacing = 3
+        let link = label("LINK", size: 12, weight: .bold)
+        link.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        let divider = NSBox()
+        divider.boxType = .custom
+        divider.fillColor = Palette.ink
+        divider.borderType = .noBorder
+        divider.widthAnchor.constraint(equalToConstant: 3).isActive = true
+        divider.heightAnchor.constraint(equalToConstant: 48).isActive = true
+        let statusRow = NSStackView(views: [link, divider, statusText])
+        statusRow.orientation = .horizontal
+        statusRow.alignment = .centerY
+        statusRow.spacing = 16
+        statusRow.edgeInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
+        statusRow.wantsLayer = true
+        statusRow.layer?.borderColor = Palette.ink.cgColor
+        statusRow.layer?.borderWidth = 3
+        statusRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 78).isActive = true
+        link.widthAnchor.constraint(equalToConstant: 38).isActive = true
+        statusText.widthAnchor.constraint(equalTo: statusRow.widthAnchor, constant: -105).isActive = true
+        detailLabel.widthAnchor.constraint(equalTo: statusText.widthAnchor).isActive = true
+        lowBatteryLabel.isHidden = true
+
+        let speakerSection = label(brandText("Ui.SpeakerMenu").uppercased(), size: 11, weight: .bold)
+        speakerSection.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+        speakerButtons.removeAll()
+        let speakerRow = NSStackView()
         speakerRow.orientation = .horizontal
-        speakerRow.alignment = .centerY
-        speakerRow.spacing = 14
+        speakerRow.distribution = .fillEqually
+        speakerRow.spacing = 12
+        for (mode, title) in speakerChoices() {
+            let button = BrandButton(title: title.uppercased(), target: self, action: #selector(speakerButtonChanged(_:)))
+            button.identifier = NSUserInterfaceItemIdentifier(mode)
+            button.setAccessibilityLabel(brandText("Ui.SpeakerLevel").replacingOccurrences(of: "{0}", with: title))
+            speakerButtons[mode] = button
+            speakerRow.addArrangedSubview(button)
+        }
+        speakerRow.heightAnchor.constraint(equalToConstant: 50).isActive = true
         refreshSpeaker()
+
+        pauseButton = BrandButton(title: brandText("Ui.Pause"), target: self, action: #selector(togglePause))
+        (pauseButton as? BrandButton)?.accent = true
+        let diagnosticButton = BrandButton(title: brandText("Ui.Logs"), target: self, action: #selector(showDiagnostics))
+        diagnosticButton.toolTip = tr("Diagnostics", "Diagnóstico")
+        let footer = NSStackView(views: [activityLabel, diagnosticButton, pauseButton])
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 12
+        diagnosticButton.widthAnchor.constraint(equalToConstant: 132).isActive = true
+        pauseButton.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        footer.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        activityLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+        activityLabel.maximumNumberOfLines = 2
+        activityLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
         let limitation = label(tr(
             "The optional CoreAudio audio/PCM endpoint is experimental. Game association and hardware compatibility are unverified. XInput is unsupported. Virtual HID requires Apple-authorized signing.",
             "El dispositivo de audio/PCM CoreAudio es opcional y experimental. La asociación con juegos y la compatibilidad con hardware no están verificadas. XInput no está soportado. El HID virtual requiere una firma autorizada por Apple."), size: 12, color: Palette.muted)
-        lowBatteryLabel.isHidden = true
-        let stack = NSStackView(views: [header, badge, rule, stateLabel, detailLabel, telemetryLabel, lowBatteryLabel, capabilityLabel, activityLabel, speakerRow, buttons, limitation])
+        let development = label(tr("macOS · DEVELOPMENT BUILD", "macOS · VERSIÓN EN DESARROLLO"), size: 10, weight: .bold, color: Palette.muted)
+        development.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
+        let stack = NSStackView(views: [header, hero, statusRow, development, speakerSection, speakerRow, limitation, footer])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 16
-        stack.setCustomSpacing(4, after: stateLabel)
-        stack.setCustomSpacing(6, after: telemetryLabel)
-        stack.setCustomSpacing(6, after: capabilityLabel)
+        stack.spacing = 10
+        stack.setCustomSpacing(0, after: hero)
+        stack.setCustomSpacing(6, after: speakerSection)
         stack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 30),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -30),
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 26),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -22),
-            detailLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            lowBatteryLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            capabilityLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            activityLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            limitation.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            rule.widthAnchor.constraint(equalTo: stack.widthAnchor)
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16)
         ])
+        for view in [header, hero, statusRow, speakerRow, limitation, footer] {
+            view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+        redrawState()
     }
 
     private func buildMenu() {
@@ -570,7 +609,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 lastHealthyReport = nil
             }
             let ready = state == "ready"
-            setState(localizeBackendState(rawState), detail: localizeBackendDetail(status["detail"] as? String ?? ""), ready: ready)
+            setState(localizeBackendState(rawState), detail: localizeBackendDetail(status["detail"] as? String ?? ""), ready: ready, backendState: state)
             paused = state == "paused"
             blocked = state == "blocked"
             refreshPause()
@@ -606,10 +645,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func setState(_ state: @autoclosure @escaping () -> String,
-                          detail: @autoclosure @escaping () -> String, ready: Bool) {
+                          detail: @autoclosure @escaping () -> String, ready: Bool, backendState: String? = nil) {
         // Retain the presentation expressions, not only their translated result.
         // Rebuilding the UI can then preserve and retranslate a local startup
         // failure even when no backend exists to emit another status message.
+        presentedBackendState = backendState
         displayedState = state
         displayedDetail = detail
         displayedReady = ready
@@ -628,6 +668,27 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         stateLabel.stringValue = title
         stateLabel.textColor = displayedReady ? NSColor(srgbRed: 0.18, green: 0.42, blue: 0.12, alpha: 1) : Palette.ink
         detailLabel.stringValue = displayedDetail?() ?? ""
+        detailLabel.toolTip = detailLabel.stringValue
+        hero.mode = brandText("Ui.HeroDualSense")
+        hero.connected = displayedReady
+        switch presentedBackendState {
+        case "waiting":
+            hero.headline = brandText("Ui.HeroPressPs")
+            hero.subheadline = brandText("Ui.HeroOnController")
+            hero.badge = brandText("Ui.BadgeWaiting")
+        case "paused":
+            hero.headline = brandText("Ui.HeroPaused")
+            hero.subheadline = brandText("Ui.HeroReleased")
+            hero.badge = brandText("Ui.BadgePaused")
+        case "ready" where displayedReady:
+            hero.headline = brandText("Ui.HeroReady")
+            hero.subheadline = brandText("Ui.HeroPlay")
+            hero.badge = brandText("Ui.BadgeReady")
+        default:
+            hero.headline = title.uppercased()
+            hero.subheadline = ""
+            hero.badge = tr("macOS · DEVELOPMENT BUILD", "macOS · VERSIÓN EN DESARROLLO")
+        }
         refreshStatusItem()
     }
 
@@ -652,9 +713,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             parts.append(tr("Battery", "Batería") + ": \(battery)%")
             if charging == true { parts.append(tr("Charging / charged", "Cargando / cargado")) }
         }
-        if let reports = reportCount { parts.append(tr("Reports", "Informes") + ": \(reports)") }
-        if let version = backendVersion { parts.append(version) }
-        telemetryLabel.stringValue = parts.isEmpty ? "—" : parts.joined(separator: "  ·  ")
+        telemetryLabel.stringValue = parts.joined(separator: "  ·  ")
+        telemetryLabel.isHidden = parts.isEmpty
         let low = batteryPercent.map { $0 <= 15 } == true && charging == false
         lowBatteryLabel.stringValue = low ? tr("Low battery — connect the controller to USB.", "Batería baja — conecta el mando por USB.") : ""
         lowBatteryLabel.isHidden = !low
@@ -772,23 +832,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func refreshPause() {
         let title = blocked ? tr("Retry bridge", "Reintentar puente") :
             requestedPaused || (process?.isRunning != true && scheduledRestart == nil)
-                ? tr("Resume bridge", "Reanudar puente") : tr("Pause bridge", "Pausar puente")
+                ? brandText("Ui.Resume") : brandText("Ui.Pause")
         pauseButton.title = title
         pauseMenuItem.title = title
     }
 
     private func speakerChoices() -> [(String, String)] {
-        [("high", tr("High", "Alto")), ("low", tr("Low", "Bajo")), ("off", tr("Off", "Apagado"))]
+        [("high", brandText("Ui.SpeakerHigh")), ("low", brandText("Ui.SpeakerLow")), ("off", brandText("Ui.SpeakerOff"))]
     }
 
     private func refreshSpeaker() {
         let enabled = process?.isRunning == true && confirmedSpeaker != nil && !quitting
-        speakerPopup?.isEnabled = enabled
-        if let confirmed = confirmedSpeaker,
-           let item = speakerPopup?.itemArray.first(where: { ($0.representedObject as? String) == confirmed }) {
-            speakerPopup.select(item)
-        } else {
-            speakerPopup?.selectItem(at: 0)
+        for (mode, button) in speakerButtons {
+            button.isEnabled = enabled
+            button.selected = confirmedSpeaker == mode
+            button.needsDisplay = true
         }
         for (mode, item) in speakerMenuItems {
             item.state = confirmedSpeaker == mode ? .on : .off
@@ -807,8 +865,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         refreshSpeaker()
     }
 
-    @objc private func speakerPopupChanged(_ sender: NSPopUpButton) {
-        guard let mode = sender.selectedItem?.representedObject as? String else { return }
+    @objc private func speakerButtonChanged(_ sender: NSButton) {
+        guard let mode = sender.identifier?.rawValue else { return }
         requestSpeaker(mode)
     }
 
@@ -853,7 +911,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let frame = window.frame
         let visible = window.isVisible
         window.close()
-        stateLabel = label(tr("Starting", "Iniciando"), size: 30, weight: .bold)
+        stateLabel = label(tr("Starting", "Iniciando"), size: 14, weight: .bold)
         detailLabel = label("", size: 14)
         telemetryLabel = label("—", size: 12, color: Palette.muted)
         capabilityLabel = label("", size: 12, color: Palette.muted)
@@ -915,11 +973,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 }
 
-smokeLog("creating NSApplication")
-let app = NSApplication.shared
-private let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.regular)
-smokeLog("entering AppKit run loop")
-app.run()
-smokeLog("AppKit run loop returned")
+@main
+private enum MadSenseApplication {
+    private static let delegate = AppDelegate()
+    static func main() {
+        smokeLog("creating NSApplication")
+        let app = NSApplication.shared
+        app.delegate = delegate
+        app.setActivationPolicy(.regular)
+        smokeLog("entering AppKit run loop")
+        app.run()
+        smokeLog("AppKit run loop returned")
+    }
+}
