@@ -1,7 +1,7 @@
 # macOS virtual HID bridge
 
 This library uses Apple's public `IOKit/hidsystem/IOHIDUserDevice.h` API
-(available since macOS 10.15); MadSense targets macOS 14 or newer. It creates a
+(available since macOS 10.15); this MadSense package targets macOS 15 or newer. It creates a
 HID service with **Virtual** transport. It does not emulate a USB controller,
 USB composite audio, an Xbox XInput device, or HidHide's per-application rules.
 

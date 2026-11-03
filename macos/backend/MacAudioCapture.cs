@@ -43,9 +43,10 @@ internal sealed class MacAudioCapture : IDisposable
     public long DroppedFrames => Interlocked.Read(ref dropped);
     public int ActiveClients => Volatile.Read(ref active);
     public bool PlayToHeadset { set => forwarder.PlayToHeadset = value; }
+    public void SetSpeaker(string value) => SpeakerLevels.Apply(forwarder, value);
 
     public MacAudioCapture(IDualSenseAudioOutputs outputs, VirtualDualSenseController adapter,
-        Func<string?>? transportFault = null)
+        Func<string?>? transportFault = null, string speaker = "high")
     {
         this.transportFault = transportFault;
         if (AbiVersion() != 2) throw new IOException("The MadSense CoreAudio bridge ABI is incompatible; reinstall its matching package.");
@@ -66,6 +67,7 @@ internal sealed class MacAudioCapture : IDisposable
         worker = new Thread(Pump) { IsBackground = true, Name = "MadSense CoreAudio capture" };
         try
         {
+            SetSpeaker(speaker);
             adapter.OutputStateReceived += forwarder.UpdateGameOutputState;
             if (!forwarder.Start()) throw new IOException("Bluetooth audio forwarding is unavailable.");
             worker.Start();

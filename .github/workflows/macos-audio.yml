@@ -1,0 +1,35 @@
+name: macOS installed audio
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/macos]
+    paths: ['macos/audio/**', 'macos/tests/install_audio_ci.sh', '.github/workflows/macos-audio.yml']
+permissions:
+  contents: read
+concurrency:
+  group: macos-audio-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  audio:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test native audio
+        run: |
+          cmake -S macos/audio -B .build/audio -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+          cmake --build .build/audio --parallel
+          ctest --test-dir .build/audio --output-on-failure
+      - name: Install and exercise real CoreAudio host
+        timeout-minutes: 3
+        run: bash macos/tests/install_audio_ci.sh .build/audio dist/audio
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-audio-${{ matrix.runner }}
+          path: dist/audio/*
+          retention-days: 14

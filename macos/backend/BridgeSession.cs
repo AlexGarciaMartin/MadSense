@@ -25,7 +25,9 @@ internal sealed class BridgeSession : IDisposable
     public int Battery => physical.InputReport?.Battery.DisplayPercentage ?? -1;
     public string? Fault => Volatile.Read(ref fault);
     public bool AudioAvailable => audio != null && audio.Fault == null;
-    public object AudioStatus => new { available = AudioAvailable, detail = audio?.Fault ?? audioUnavailable,
+    public string? AudioDetail => audio?.Fault ?? audioUnavailable;
+    public void SetSpeaker(string value) => audio?.SetSpeaker(value);
+    public object AudioStatus => new { available = AudioAvailable, detail = AudioDetail,
         activeClients = audio?.ActiveClients ?? 0, droppedFrames = audio?.DroppedFrames ?? 0 };
     public bool Connected
     {
@@ -37,7 +39,7 @@ internal sealed class BridgeSession : IDisposable
         }
     }
 
-    public BridgeSession(HidDeviceEnumerator enumerator, IHidDeviceInfo info)
+    public BridgeSession(HidDeviceEnumerator enumerator, IHidDeviceInfo info, string speaker = "high")
     {
         bool edge = info.ProductId == 0x0df2;
         persona = new VirtualPad(new DualSenseIdentity { SerialNumber = "MadSense-Mac-Virtual" }, edge);
@@ -62,7 +64,7 @@ internal sealed class BridgeSession : IDisposable
             // Publish only after calibration and output delivery are ready: host
             // drivers can cache features and send effects during enumeration.
             virtualHid = published = new MacVirtualHid(persona, edge, () => Fault != null);
-            try { audio = new MacAudioCapture(outputs, adapter, () => outputs.AudioFault); }
+            try { audio = new MacAudioCapture(outputs, adapter, () => outputs.AudioFault, speaker); }
             catch (Exception e) { audioUnavailable = e.Message; Console.Error.WriteLine(e.Message); }
             physical.InputReportReceived += OnInput;
             started = Environment.TickCount64;

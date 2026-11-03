@@ -2,9 +2,11 @@
 #include <CoreFoundation/CFPlugInCOM.h>
 #include <libproc.h>
 #include <mach/mach_time.h>
+#include <os/log.h>
 #include <sys/proc_info.h>
 #include <unistd.h>
 #include <atomic>
+#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <map>
@@ -27,10 +29,25 @@ struct Client { Identity identity; bool active = false; };
 Identity owner;
 std::map<UInt32, Client> clients;
 
+os_log_t identityLog() {
+    static os_log_t log = os_log_create("org.madsense.audio", "identity");
+    return log;
+}
+
 bool identityFor(pid_t pid, Identity& identity) {
-    if (pid <= 0) return false;
+    if (pid <= 0) {
+        os_log_error(identityLog(), "Identity denied: HAL caller pid=%{public}d, host pid=%{public}d; anonymous caller", pid, getpid());
+        return false;
+    }
     proc_bsdinfo info{};
-    if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info)) != sizeof(info)) return false;
+    errno = 0;
+    int result = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info));
+    if (result != sizeof(info)) {
+        int error = errno;
+        os_log_error(identityLog(), "Identity denied: caller pid=%{public}d, host pid=%{public}d, host euid=%{public}u, proc_pidinfo returned=%{public}d expected=%{public}zu errno=%{public}d",
+                     pid, getpid(), geteuid(), result, sizeof(info), error);
+        return false;
+    }
     identity = {pid, info.pbi_uid, info.pbi_start_tvsec, info.pbi_start_tvusec};
     return true;
 }
@@ -278,27 +295,41 @@ OSStatus setProperty(AudioServerPlugInDriverRef, AudioObjectID id, pid_t pid,
     if (id != kDevice || !addr || addr->mSelector != kOwner ||
         addr->mScope != kAudioObjectPropertyScopeGlobal || addr->mElement != kAudioObjectPropertyElementMain)
         return kAudioHardwareUnknownPropertyError;
-    if (!data || size != sizeof(CFBooleanRef)) return kAudioHardwareBadPropertySizeError;
+    if (!data || size != sizeof(CFBooleanRef)) {
+        os_log_error(identityLog(), "Owner request rejected: caller pid=%{public}d, data size=%{public}u expected=%{public}zu", pid, size, sizeof(CFBooleanRef));
+        return kAudioHardwareBadPropertySizeError;
+    }
     CFBooleanRef command = *static_cast<const CFBooleanRef*>(data);
-    if (!command || CFGetTypeID(command) != CFBooleanGetTypeID()) return kAudioHardwareIllegalOperationError;
+    if (!command || CFGetTypeID(command) != CFBooleanGetTypeID()) {
+        os_log_error(identityLog(), "Owner request rejected: caller pid=%{public}d, value is not CFBoolean", pid);
+        return kAudioHardwareIllegalOperationError;
+    }
+    os_log(identityLog(), "Owner request: caller pid=%{public}d claim=%{public}d host pid=%{public}d",
+           pid, CFBooleanGetValue(command), getpid());
     Identity caller;
     if (!identityFor(pid, caller)) return kAudioHardwareIllegalOperationError;
     std::lock_guard<std::mutex> lock(stateMutex);
     uint64_t now = mach_absolute_time();
     bool mine = sameIdentity(owner, caller);
     if (CFBooleanGetValue(command)) {
-        if (!mine && now < leaseDeadline.load()) return kAudioHardwareIllegalOperationError;
+        if (!mine && now < leaseDeadline.load()) {
+            os_log_error(identityLog(), "Owner claim rejected: live lease belongs to pid=%{public}d; caller pid=%{public}d", owner.pid, pid);
+            return kAudioHardwareIllegalOperationError;
+        }
         // A crashed backend may reconnect while its user's game is still open.
         // Never transfer a live mixed stream to a different user.
         if (!mine) for (const auto& entry : clients)
-            if (entry.second.active && entry.second.identity.uid != caller.uid)
+            if (entry.second.active && entry.second.identity.uid != caller.uid) {
+                os_log_error(identityLog(), "Owner claim rejected: active client uid=%{public}u differs from caller uid=%{public}u", entry.second.identity.uid, caller.uid);
                 return kAudioHardwareIllegalOperationError;
+            }
         if (!mine || now >= leaseDeadline.load()) {
             ring.discard();
             timestampSeed.fetch_add(1, std::memory_order_release);
         }
         owner = caller;
         leaseDeadline.store(now + leaseTicks, std::memory_order_release);
+        os_log(identityLog(), "Owner claim accepted: pid=%{public}d uid=%{public}u", caller.pid, caller.uid);
     } else {
         if (!mine) return kAudioHardwareIllegalOperationError;
         leaseDeadline.store(0, std::memory_order_release);
@@ -315,6 +346,7 @@ OSStatus initialize(AudioServerPlugInDriverRef, AudioServerPlugInHostRef inHost)
     ticksPerFrame = (1000000000.0 * timebase.denom / timebase.numer) / kSampleRate;
     leaseTicks = static_cast<uint64_t>(1000000000.0 * timebase.denom / timebase.numer);
     anchor.store(mach_absolute_time());
+    os_log(identityLog(), "Audio plugin initialized: host pid=%{public}d euid=%{public}u", getpid(), geteuid());
     return noErr;
 }
 OSStatus addClient(AudioServerPlugInDriverRef, AudioObjectID id, const AudioServerPlugInClientInfo* info) {

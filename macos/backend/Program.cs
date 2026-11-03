@@ -25,6 +25,7 @@ internal static class Program
             WriteStatus("unsupported", "The macOS backend requires macOS.");
             return 2;
         }
+        SpeakerPreferences? preferences = null;
         try
         {
             if (args.Contains("--probe-native"))
@@ -46,17 +47,18 @@ internal static class Program
             string stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "MadSense");
             Directory.CreateDirectory(stateDirectory);
             using var instance = new FileStream(Path.Combine(stateDirectory, "backend.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            return await Run(enumerator, args.Contains("--service"));
+            preferences = new SpeakerPreferences(Path.Combine(stateDirectory, "preferences.json"), Console.Error.WriteLine);
+            return await Run(enumerator, args.Contains("--service"), preferences);
         }
         catch (Exception e)
         {
-            WriteStatus("error", e.Message);
+            WriteStatus("error", e.Message, speaker: preferences?.Speaker ?? "high");
             Console.Error.WriteLine(e);
             return 1;
         }
     }
 
-    private static async Task<int> Run(HidDeviceEnumerator enumerator, bool service)
+    private static async Task<int> Run(HidDeviceEnumerator enumerator, bool service, SpeakerPreferences preferences)
     {
         using var stop = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
@@ -79,6 +81,7 @@ internal static class Program
         bool paused = false;
         long nextAttempt = 0;
         string state = "waiting", detail = "Pair a DualSense in Bluetooth settings, then press PS.";
+        (string State, string Detail, string? Audio)? lastLogged = null;
         try
         {
             while (!stop.IsCancellationRequested)
@@ -90,7 +93,11 @@ internal static class Program
                         case "quit": stop.Cancel(); break;
                         case "pause": paused = true; session?.Dispose(); session = null; state = "paused"; detail = "Controller released."; break;
                         case "resume": paused = false; nextAttempt = 0; state = "waiting"; detail = "Waiting for a paired Bluetooth DualSense."; break;
-                        case "diagnose": Diagnose(enumerator); break;
+                        case "diagnose": Diagnose(enumerator, session, preferences.Speaker, state, detail); break;
+                        default:
+                            if (!preferences.TryApplyCommand(command, value => session?.SetSpeaker(value)))
+                                Console.Error.WriteLine("Ignored unknown command or invalid speaker level.");
+                            break;
                     }
                 }
                 if (stop.IsCancellationRequested) break;
@@ -109,7 +116,7 @@ internal static class Program
                         var info = pads.FirstOrDefault(d => d.BusType == ConnectionType.Bluetooth);
                         if (info != null)
                         {
-                            session = new BridgeSession(enumerator, info);
+                            session = new BridgeSession(enumerator, info, preferences.Speaker);
                             state = "connecting"; detail = "Waiting for the first controller input report.";
                         }
                         else
@@ -133,7 +140,15 @@ internal static class Program
                     try { session?.Dispose(); } finally { session = null; }
                     state = "error"; detail = e.Message; nextAttempt = Environment.TickCount64 + 10000;
                 }
-                WriteStatus(state, detail, session?.Battery ?? -1, session?.Reports ?? 0, session?.AudioAvailable ?? false, session?.AudioStatus);
+                var health = (state, detail, session?.AudioDetail);
+                if (lastLogged != health)
+                {
+                    Console.Error.WriteLine($"[{state}] {detail}");
+                    if (health.Item3 is { } audioDetail) Console.Error.WriteLine($"[audio] {audioDetail}");
+                    lastLogged = health;
+                }
+                WriteStatus(state, detail, session?.Battery ?? -1, session?.Reports ?? 0,
+                    session?.AudioAvailable ?? false, session?.AudioStatus, preferences.Speaker);
                 // Wake for commands immediately; periodic health/discovery remains bounded.
                 using var wake = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
                 wake.CancelAfter(1000);
@@ -143,14 +158,16 @@ internal static class Program
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
         finally { session?.Dispose(); }
-        WriteStatus("stopped", "Controller released.");
+        WriteStatus("stopped", "Controller released.", speaker: preferences.Speaker);
         return 0;
     }
 
-    private static void Diagnose(HidDeviceEnumerator enumerator) => Console.WriteLine(JsonSerializer.Serialize(new
+    private static void Diagnose(HidDeviceEnumerator enumerator, BridgeSession? session = null,
+        string speaker = "high", string? bridgeState = null, string? detail = null) => Console.WriteLine(JsonSerializer.Serialize(new
     {
         state = "diagnostic", version = "0.5.0-macos-dev", os = RuntimeInformation.OSDescription,
-        architecture = RuntimeInformation.ProcessArchitecture.ToString(), capabilities = Capabilities(),
+        architecture = RuntimeInformation.ProcessArchitecture.ToString(), capabilities = Capabilities(session?.AudioAvailable ?? false),
+        speaker, bridgeState, detail, fault = session?.Fault, audio = session?.AudioStatus,
         devices = enumerator.Enumerate(0x054c).Select(d => new { d.ProductName, d.ProductId, bus = d.BusType.ToString(), d.UsagePage })
     }));
 
@@ -164,8 +181,10 @@ internal static class Program
         return 0;
     }
 
-    private static void WriteStatus(string state, string detail, int battery = -1, long reports = 0, bool audioAvailable = false, object? audio = null) =>
-        Console.WriteLine(JsonSerializer.Serialize(new { state, detail, battery, reports, version = "0.5.0-macos-dev", capabilities = Capabilities(audioAvailable), audio }));
+    private static void WriteStatus(string state, string detail, int battery = -1, long reports = 0,
+        bool audioAvailable = false, object? audio = null, string speaker = "high") =>
+        Console.WriteLine(JsonSerializer.Serialize(new { state, detail, battery, reports, speaker,
+            version = "0.5.0-macos-dev", capabilities = Capabilities(audioAvailable), audio }));
 
     private sealed class StderrLog : ILogSink
     {

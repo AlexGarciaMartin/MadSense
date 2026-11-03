@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Public IOHIDUserDevice API, available since macOS 10.15. The application
-// targets macOS 14+. This does not implement a USB device or an audio endpoint.
+// targets macOS 15+. This does not implement a USB device or an audio endpoint.
 #include "madsense_hid.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitKeys.h>

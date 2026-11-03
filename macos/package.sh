@@ -8,6 +8,7 @@ if [[ $# -ne 2 ]]; then
   exit 2
 fi
 rid="$1"
+minimum_macos=15.0
 case "$rid" in
   osx-arm64) arch=arm64 ;;
   osx-x64) arch=x86_64 ;;
@@ -27,7 +28,7 @@ if [[ -e "$app" || -e "$audio_package" ]]; then
   echo "An app or optional audio package already exists. Choose an empty output directory." >&2
   exit 2
 fi
-for tool in dotnet cmake swiftc codesign iconutil ditto lipo file install_name_tool; do
+for tool in dotnet cmake swiftc codesign iconutil ditto lipo file install_name_tool python3; do
   command -v "$tool" >/dev/null || { echo "Required build tool is missing: $tool" >&2; exit 2; }
 done
 
@@ -45,10 +46,10 @@ lipo "$hidapi" -verify_arch "$arch"
 # the self-contained runtime together also preserves .NET's relative probing.
 mkdir -p "$build" "$app/Contents/MacOS" "$app/Contents/Resources/backend"
 cmake -S "$root/macos/native" -B "$build/native" -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_ARCHITECTURES="$arch" -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
+  -DCMAKE_OSX_ARCHITECTURES="$arch" -DCMAKE_OSX_DEPLOYMENT_TARGET="$minimum_macos"
 cmake --build "$build/native" --config Release
 cmake -S "$root/macos/audio" -B "$build/audio" -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_ARCHITECTURES="$arch" -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
+  -DCMAKE_OSX_ARCHITECTURES="$arch" -DCMAKE_OSX_DEPLOYMENT_TARGET="$minimum_macos"
 cmake --build "$build/audio" --config Release
 dotnet publish "$root/macos/backend/MadSense.Mac.csproj" -c Release -r "$rid" \
   --self-contained true -p:PublishSingleFile=false -p:DebugType=None \
@@ -65,7 +66,7 @@ mkdir -p "$app/Contents/Resources/licenses"
 cp "$root"/vendor/licenses/*.txt "$app/Contents/Resources/licenses/"
 cp "$root/macos/README.md" "$app/Contents/Resources/macOS-README.md"
 cp "$root/macos/audio/README.md" "$app/Contents/Resources/Audio-README.md"
-swiftc -swift-version 5 -O -target "$arch-apple-macosx14.0" -framework AppKit \
+swiftc -swift-version 5 -O -target "$arch-apple-macosx$minimum_macos" -framework AppKit \
   "$root/macos/app/MadSense.swift" -o "$app/Contents/MacOS/MadSense"
 swift "$root/macos/app/MakeIcon.swift" "$build/MadSense.iconset"
 iconutil -c icns "$build/MadSense.iconset" -o "$app/Contents/Resources/MadSense.icns"
@@ -102,6 +103,11 @@ codesign --force --sign - "$audio_package/MadSenseAudio.driver/Contents/MacOS/Ma
 codesign --force --sign - "$audio_package/MadSenseAudio.driver"
 codesign --verify --deep --strict "$audio_package/MadSenseAudio.driver"
 lipo "$audio_package/MadSenseAudio.driver/Contents/MacOS/MadSenseAudio" -verify_arch "$arch"
+# Validate every actual executable/native library, including .NET and Homebrew
+# dependencies. Build flags cannot lower a prebuilt dependency's requirement.
+# Keep this report even when validation prevents creation of the ZIP artifacts.
+python3 "$root/macos/verify_deployment.py" --arch "$arch" --minimum "$minimum_macos" \
+  --report "$out/deployment.json" "$app" "$audio_package"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$out/MadSense-$rid-development.zip"
 ditto -c -k --sequesterRsrc --keepParent "$audio_package" "$out/MadSenseAudio-$rid-development.zip"
 (cd "$out" && shasum -a 256 "MadSense-$rid-development.zip" "MadSenseAudio-$rid-development.zip" > SHA256SUMS.txt)

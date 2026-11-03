@@ -19,6 +19,11 @@ private let translations: [String: [String: String]] = {
     return dictionary
 }()
 private var language: String {
+    if CommandLine.arguments.contains("--smoke-test"),
+       let requested = ProcessInfo.processInfo.environment["MADSENSE_SMOKE_LANGUAGE"],
+       ["en", "es", "fr", "de", "it", "pt"].contains(requested) {
+        return requested
+    }
     let selected = UserDefaults.standard.string(forKey: "MadSenseLanguage") ?? Locale.preferredLanguages.first ?? "en"
     return String(selected.prefix(2))
 }
@@ -70,6 +75,21 @@ private final class BrandView: NSView {
     }
 }
 
+private final class AppContentView: NSView {
+    override var isOpaque: Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        // NSWindow normally paints behind a transparent content view, but that
+        // background is absent when caching only the view. Paint the same actual
+        // window color here so the live UI and its bitmap have identical backing.
+        (window?.backgroundColor ?? Palette.paper).setFill()
+        bounds.fill()
+    }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
 private func label(_ text: String, size: CGFloat, weight: NSFont.Weight = .regular,
                    color: NSColor = Palette.ink) -> NSTextField {
     let field = NSTextField(wrappingLabelWithString: text)
@@ -89,6 +109,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var capabilityLabel = label("", size: 12, color: Palette.muted)
     private var pauseButton: NSButton!
     private var pauseMenuItem: NSMenuItem!
+    private var speakerPopup: NSPopUpButton!
+    private var speakerMenuItems: [String: NSMenuItem] = [:]
+    private var confirmedSpeaker: String?
     private var process: Process?
     private var input: FileHandle?
     private var outputPipe: Pipe?
@@ -96,7 +119,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var pendingOutput = Data()
     private var session = UUID()
     private var quitting = false
-    private var terminationReplied = false
+    private var terminationScheduled = false
     private var paused = false
     private var restarts = 0
     private var recovering = false
@@ -171,14 +194,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func buildWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 600),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 640),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "MadSense · macOS"
         window.backgroundColor = Palette.paper
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
-        let root = NSView()
+        let root = AppContentView()
         window.contentView = root
         let brand = BrandView()
         brand.translatesAutoresizingMaskIntoConstraints = false
@@ -205,10 +228,28 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let buttons = NSStackView(views: [pauseButton, diagnosticButton])
         buttons.orientation = .horizontal
         buttons.spacing = 12
+        speakerPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        speakerPopup.target = self
+        speakerPopup.action = #selector(speakerPopupChanged(_:))
+        speakerPopup.addItem(withTitle: "—")
+        speakerPopup.item(at: 0)?.isEnabled = false
+        speakerPopup.menu?.autoenablesItems = false
+        for (mode, title) in speakerChoices() {
+            speakerPopup.addItem(withTitle: title)
+            speakerPopup.lastItem?.representedObject = mode
+        }
+        speakerPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 150).isActive = true
+        let speakerRow = NSStackView(views: [
+            label(tr("Speaker · optional audio", "Altavoz · audio opcional"), size: 12), speakerPopup
+        ])
+        speakerRow.orientation = .horizontal
+        speakerRow.alignment = .centerY
+        speakerRow.spacing = 14
+        refreshSpeaker()
         let limitation = label(tr(
             "The optional CoreAudio audio/PCM endpoint is experimental. Game association and hardware compatibility are unverified. XInput is unsupported. Virtual HID requires Apple-authorized signing.",
             "El dispositivo de audio/PCM CoreAudio es opcional y experimental. La asociación con juegos y la compatibilidad con hardware no están verificadas. XInput no está soportado. El HID virtual requiere una firma autorizada por Apple."), size: 12, color: Palette.muted)
-        let stack = NSStackView(views: [header, badge, rule, stateLabel, detailLabel, telemetryLabel, capabilityLabel, buttons, limitation])
+        let stack = NSStackView(views: [header, badge, rule, stateLabel, detailLabel, telemetryLabel, capabilityLabel, speakerRow, buttons, limitation])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 16
@@ -247,6 +288,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         pauseMenuItem = menu.addItem(withTitle: tr("Pause bridge", "Pausar puente"), action: #selector(togglePause), keyEquivalent: "")
         pauseMenuItem.target = self
         menu.addItem(withTitle: tr("Diagnostics", "Diagnóstico"), action: #selector(showDiagnostics), keyEquivalent: "").target = self
+        let speakerMenu = NSMenu()
+        speakerMenu.autoenablesItems = false
+        speakerMenuItems.removeAll()
+        for (mode, title) in speakerChoices() {
+            let item = speakerMenu.addItem(withTitle: title, action: #selector(speakerMenuChanged(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode
+            speakerMenuItems[mode] = item
+        }
+        let speakerItem = menu.addItem(withTitle: tr("Speaker · optional audio", "Altavoz · audio opcional"), action: nil, keyEquivalent: "")
+        speakerItem.submenu = speakerMenu
+        refreshSpeaker()
         let languages = NSMenu()
         for (code, title) in [("en", "English"), ("es", "Español"), ("fr", "Français"),
                               ("de", "Deutsch"), ("it", "Italiano"), ("pt", "Português Brasileiro")] {
@@ -275,6 +328,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let token = UUID()
         session = token
         recovering = false
+        confirmedSpeaker = nil
+        refreshSpeaker()
         pendingOutput.removeAll(keepingCapacity: true)
         child.executableURL = executable
         child.arguments = ["--service"]
@@ -301,6 +356,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 guard let self = self, self.session == token else { return }
                 self.input = nil
                 self.process = nil
+                self.refreshSpeaker()
                 smokeLog("backend child exited with status \(child.terminationStatus)")
                 if self.quitting { self.finishTermination(); return }
                 self.setState(tr("Bridge stopped", "Puente detenido"), detail: tr("Reconnecting…", "Reconectando…"), ready: false)
@@ -345,6 +401,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             lastStatusTime = Date()
             restarts = 0
             let state = rawState.lowercased()
+            if let speaker = status["speaker"] as? String, ["high", "low", "off"].contains(speaker) {
+                confirmedSpeaker = speaker
+                refreshSpeaker()
+            }
             if state == "diagnostic" {
                 if let formatted = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted, .sortedKeys]) {
                     appendLog(String(decoding: formatted, as: UTF8.self) + "\n")
@@ -402,10 +462,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func finishTermination() {
-        guard quitting, !terminationReplied, process?.isRunning != true else { return }
-        terminationReplied = true
-        smokeLog("backend exited; replying to application termination")
-        NSApp.reply(toApplicationShouldTerminate: true)
+        guard quitting, !terminationScheduled, process?.isRunning != true else { return }
+        terminationScheduled = true
+        smokeLog("backend exited; scheduling normal application termination")
+        // The first request returned terminateCancel, so there is no AppKit
+        // nested termination loop holding the main dispatch queue. Re-enter
+        // termination from the run loop only after the owned child has exited.
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopCommonModes) { [weak self] in
+            guard let self = self, self.quitting, self.process?.isRunning != true else { return }
+            NSApp.terminate(nil)
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     private func stopBackend(_ child: Process, token: UUID) {
@@ -432,10 +499,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 7) { [weak self] in
-            guard let self = self, self.quitting, !self.terminationReplied,
+            guard let self = self, self.quitting, !self.terminationScheduled,
                   self.session == token, self.process == nil || self.process === child else { return }
             if !child.isRunning {
-                // Normally the termination handler replies first. This covers
+                // Normally the termination handler schedules the exit first. This covers
                 // an exit whose notification was delayed or not delivered.
                 self.finishTermination()
             } else if self.owns(child, token: token) {
@@ -453,6 +520,46 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let title = paused ? tr("Resume bridge", "Reanudar puente") : tr("Pause bridge", "Pausar puente")
         pauseButton.title = title
         pauseMenuItem.title = title
+    }
+
+    private func speakerChoices() -> [(String, String)] {
+        [("high", tr("High", "Alto")), ("low", tr("Low", "Bajo")), ("off", tr("Off", "Apagado"))]
+    }
+
+    private func refreshSpeaker() {
+        let enabled = process?.isRunning == true && confirmedSpeaker != nil && !quitting
+        speakerPopup?.isEnabled = enabled
+        if let confirmed = confirmedSpeaker,
+           let item = speakerPopup?.itemArray.first(where: { ($0.representedObject as? String) == confirmed }) {
+            speakerPopup.select(item)
+        } else {
+            speakerPopup?.selectItem(at: 0)
+        }
+        for (mode, item) in speakerMenuItems {
+            item.state = confirmedSpeaker == mode ? .on : .off
+            item.isEnabled = enabled
+        }
+    }
+
+    private func requestSpeaker(_ mode: String) {
+        guard confirmedSpeaker != nil, ["high", "low", "off"].contains(mode), process?.isRunning == true else {
+            refreshSpeaker()
+            return
+        }
+        send("speaker \(mode)")
+        // The backend persists and confirms the setting. Restore the previous
+        // selection until that status arrives; no optimistic volume state.
+        refreshSpeaker()
+    }
+
+    @objc private func speakerPopupChanged(_ sender: NSPopUpButton) {
+        guard let mode = sender.selectedItem?.representedObject as? String else { return }
+        requestSpeaker(mode)
+    }
+
+    @objc private func speakerMenuChanged(_ sender: NSMenuItem) {
+        guard let mode = sender.representedObject as? String else { return }
+        requestSpeaker(mode)
     }
 
     private func appendLog(_ text: String) {
@@ -525,10 +632,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         smokeLog("applicationShouldTerminate: backend running=\(process?.isRunning == true), already quitting=\(quitting)")
         healthTimer?.invalidate()
         guard let child = process, child.isRunning else { return .terminateNow }
-        if quitting { return .terminateLater }
+        if quitting { return .terminateCancel }
         quitting = true
+        refreshSpeaker()
         stopBackend(child, token: session)
-        return .terminateLater
+        // Returning terminateLater here can enter an AppKit modal loop from
+        // inside a main-queue callback. That prevents the queued child-exit
+        // handler and cleanup deadlines from running. Cancel this first request
+        // and let finishTermination issue a fresh normal request after cleanup.
+        return .terminateCancel
     }
     func applicationWillTerminate(_ notification: Notification) {
         smokeLog("applicationWillTerminate")

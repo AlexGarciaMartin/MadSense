@@ -16,7 +16,7 @@ La interfaz ofrece inglés, español, francés, alemán, italiano y portugués d
 
 La compilación nativa necesita macOS; un runner de GitHub Actions permite compilar y comprobar ambos paquetes sin un equipo local. Se generan variantes separadas para Apple Silicon e Intel. Los trabajos de CI no tienen un DualSense físico y sus pruebas no equivalen a validar hardware.
 
-En un runner o Mac con macOS 14 o posterior, Xcode Command Line Tools, .NET 10, CMake e HIDAPI:
+En un runner o Mac con macOS 15 o posterior, Xcode Command Line Tools, .NET 10, CMake, Python 3 e HIDAPI:
 
 ```sh
 brew install cmake hidapi
@@ -25,7 +25,11 @@ bash macos/package.sh osx-arm64 /tmp/madsense-arm64
 bash macos/package.sh osx-x64 /tmp/madsense-x64
 ```
 
-Cada directorio de salida debe estar vacío de `MadSense.app`. Para una biblioteca HIDAPI compilada aparte, establecer `MADSENSE_HIDAPI=/ruta/libhidapi.dylib`. El empaquetador comprueba la arquitectura y copia la biblioteca al paquete; el usuario final no necesita Homebrew ni .NET.
+Cada directorio de salida debe estar vacío de `MadSense.app`. Para una biblioteca HIDAPI compilada aparte, establecer `MADSENSE_HIDAPI=/ruta/libhidapi.dylib`. El empaquetador comprueba la arquitectura y copia la biblioteca al paquete; el usuario final no necesita Homebrew, Python ni .NET.
+
+El mínimo del paquete es **macOS 15.0**: coincide con la [matriz vigente de soporte de .NET 10](https://github.com/dotnet/core/blob/main/release-notes/10.0/supported-os.md) y con el mínimo del binario HIDAPI para Apple Silicon que entrega Homebrew en el runner Sequoia. macOS 14 dejó de figurar entre los sistemas admitidos por .NET 10 en septiembre de 2026. Las pruebas actuales se ejecutan en macOS 15, tanto Intel como Apple Silicon; no son una certificación de todas las versiones posteriores.
+
+Antes de crear los ZIP, `verify_deployment.py` lee los encabezados Mach-O de **todos** los ejecutables y bibliotecas distribuidos, incluidos el runtime .NET, HIDAPI y el plugin HAL opcional. Examina la arquitectura seleccionada en binarios universales y los comandos `LC_BUILD_VERSION` o `LC_VERSION_MIN_MACOSX`. Si falta esa arquitectura, falta información del mínimo o una dependencia exige una versión posterior a 15.0, falla el empaquetado. `deployment.json` registra cada binario, su mínimo y el resultado; también se conserva cuando la comprobación falla.
 
 El resultado es un `.app`, su ZIP de desarrollo, un ZIP opcional `MadSenseAudio-<arquitectura>-development.zip` con el dispositivo CoreAudio, y `SHA256SUMS.txt` con los hashes de ambos paquetes. La biblioteca consumidora de audio se incluye dentro del `.app`; el plugin HAL se entrega aparte. Las firmas ad-hoc comprueban integridad y permiten cargar binarios ARM, pero **no conceden la autorización HID virtual de Apple** ni sustituyen notarización.
 

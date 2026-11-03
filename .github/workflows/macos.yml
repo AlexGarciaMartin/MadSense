@@ -36,7 +36,7 @@ jobs:
           ctest --test-dir .build/native --output-on-failure
       - name: CoreAudio plugin build and contract tests
         run: |
-          cmake -S macos/audio -B .build/audio -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
+          cmake -S macos/audio -B .build/audio -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
           cmake --build .build/audio --parallel
           ctest --test-dir .build/audio --output-on-failure
       - name: Record signed virtual HID loopback
@@ -61,7 +61,9 @@ jobs:
           --logger 'trx;LogFileName=shared.trx' --results-directory test-results
       - name: Package native app
         id: package
-        run: bash macos/package.sh '${{ matrix.rid }}' dist/macos
+        run: |
+          python3 macos/tests/deployment_test.py
+          bash macos/package.sh '${{ matrix.rid }}' dist/macos
       - name: Check packaged runtime
         run: |
           dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --protocol-check
@@ -71,27 +73,12 @@ jobs:
         run: python3 macos/tests/gui_smoke.py "$PWD/dist/macos/MadSense.app/Contents/MacOS/MadSense" dist/macos
       - name: Packaged service lifecycle
         if: always() && steps.package.outcome == 'success'
+        timeout-minutes: 2
         run: python3 macos/tests/service_smoke.py "$PWD/dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend" > dist/macos/service.stdout
       - name: Installed CoreAudio end-to-end test on disposable runner
         if: always() && steps.package.outcome == 'success'
-        run: |
-          test ! -e /Library/Audio/Plug-Ins/HAL/MadSenseAudio.driver
-          codesign --force --sign - .build/audio/MadSenseAudio.driver
-          sudo mkdir -p /Library/Audio/Plug-Ins/HAL
-          sudo ditto .build/audio/MadSenseAudio.driver /Library/Audio/Plug-Ins/HAL/MadSenseAudio.driver
-          sudo chown -R root:wheel /Library/Audio/Plug-Ins/HAL/MadSenseAudio.driver
-          sudo chmod -R go-w /Library/Audio/Plug-Ins/HAL/MadSenseAudio.driver
-          sudo killall coreaudiod
-          for attempt in {1..15}; do
-            if .build/audio/madsense-audio-installed-probe > dist/macos/audio-installed.stdout 2> dist/macos/audio-installed.stderr; then
-              cat dist/macos/audio-installed.stdout
-              exit 0
-            fi
-            sleep 1
-          done
-          cat dist/macos/audio-installed.stderr >&2
-          log show --last 2m --style compact --predicate 'process == "coreaudiod"' > dist/macos/coreaudio.stdout
-          exit 1
+        timeout-minutes: 3
+        run: bash macos/tests/install_audio_ci.sh .build/audio dist/macos
       - name: Native virtual-device access report
         if: always() && steps.package.outcome == 'success'
         run: |
