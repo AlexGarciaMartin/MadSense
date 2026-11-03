@@ -182,24 +182,29 @@ final class BrandHeaderView: NSView {
         BrandDrawing.logo(context, in: CGRect(x: 5, y: 4, width: 58, height: 58))
         context.restoreGState()
         let textRight = width > 650 ? width - 161 : width
-        BrandDrawing.text("MADSENSE", in: CGRect(x: 78, y: 0, width: textRight - 78, height: 70),
+        // AppKit's Impact glyphs sit closer to their drawing origin than GDI's.
+        // Leave an optical gutter after the rotated logo, including its top corner.
+        BrandDrawing.text("MADSENSE", in: CGRect(x: 96, y: 0, width: textRight - 96, height: 70),
                           color: BrandPalette.ink, largest: 57, smallest: 40, display: true)
-        BrandDrawing.text(tagline, in: CGRect(x: 82, y: 65, width: textRight - 82, height: 26),
+        BrandDrawing.text(tagline, in: CGRect(x: 100, y: 65, width: textRight - 100, height: 26),
                           color: BrandPalette.ink, largest: 10.5, smallest: 8, wrap: true)
         BrandDrawing.line(context, CGPoint(x: 0, y: 94), CGPoint(x: width, y: 94), width: 3)
         if width > 650 {
             let x = width - 146
             context.setFillColor(BrandPalette.ink.cgColor)
-            context.fill(CGRect(x: x, y: 12, width: 146, height: 63))
+            context.fill(CGRect(x: x, y: 12, width: 146, height: 76))
             BrandDrawing.text("BLUETOOTH / macOS", in: CGRect(x: x + 11, y: 20, width: 125, height: 18),
                               color: BrandPalette.paper, largest: 10.5, smallest: 9)
             context.setFillColor(BrandPalette.acid.cgColor)
             context.fill(CGRect(x: x + 10, y: 42, width: 126, height: 25))
             BrandDrawing.text(version, in: CGRect(x: x + 16, y: 45, width: 114, height: 22),
                               color: BrandPalette.ink, largest: 13, smallest: 9)
+            // Keep the printed barcode inside the badge, clear of the header rule.
+            context.setFillColor(BrandPalette.paper.cgColor)
+            context.fill(CGRect(x: x + 10, y: 72, width: 126, height: 11))
             context.setFillColor(BrandPalette.ink.cgColor)
             for index in 0..<12 {
-                context.fill(CGRect(x: width - 145 + CGFloat(index) * 12, y: 84,
+                context.fill(CGRect(x: x + 15 + CGFloat(index) * 10, y: 74,
                                     width: index % 3 == 0 ? 6 : 2, height: 6))
             }
         }
