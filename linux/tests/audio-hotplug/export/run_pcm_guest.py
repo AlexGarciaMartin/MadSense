@@ -22,7 +22,8 @@ from evidence import compare, metadata_changes, preservation
 from pcm_evidence import marked_source, load_capture, verify_phase, verify_negotiation, digest, require
 from pcm_node import read_node, set_raw, node_state, exact_node
 from consumer_session import process_identity
-from pipewire_gain import stream_binding, control_snapshot
+from pipewire_gain import stream_binding
+from pcm_alsa import capture as capture_alsa, parse_capture as parse_alsa, expected_identity as alsa_identity, verify_controls
 
 PHASES=(('direct',(1,1,1,1)),('export',(1,1,1,1)),('front-gain',(2,4,1,1)),('restored',(1,1,1,1)))
 
@@ -193,12 +194,27 @@ def audit(directory,token,gates,export_hash):
         else:compared.append(dict(label=name,**verify_phase(capture,raw,source,row['start'],row['end'],divisors)))
     require(phases[0]['end']['timestamp']<negotiation[0]['start']['timestamp']<negotiation[0]['end']['timestamp']
         <phases[1]['start']['timestamp'],'Negotiation did not precede the marked PipeWire phases')
-    require(audio['pcmPropsRestored'] and audio['pcmOriginalExact']==audio['pcmRestoredExact']
-        and audio['pcmAlsaBefore']==audio['pcmAlsaAfter']
-        and audio['pcmAlsaBefore']==control_snapshot((directory/'audio/pcm-alsa-before.stdout').read_text())
-        and audio['pcmAlsaAfter']==control_snapshot((directory/'audio/pcm-alsa-after.stdout').read_text()),'Node Props or ALSA controls were not restored')
+    control_grants=[row for row in retired['grants'] if row['path']==f"/dev/snd/controlC{arrival['card']}"]
+    require(len(control_grants)==1,'Missing exact retired ALSA control identity')
+    control_identity=alsa_identity(arrival,control_grants[0]);alsa={}
+    labels=('pcm-alsa-before','pcm-alsa-negotiated','pcm-alsa-after','pcm-alsa-after-eof')
+    for row in audio['pcmAlsaReads']:
+        label=row['label'];require(label in labels and label not in alsa,'Unexpected or duplicate ALSA read')
+        value=parse_alsa((directory/'audio'/(label+'.stdout')).read_bytes(),control_identity,
+            audio['account']['uid'],audio['account']['gid'])
+        require(row==dict(label=label,**value),'ALSA capture differs from raw evidence')
+        commands=[command for command in audio['consumers'] if command['label']==label]
+        require(len(commands)==1 and commands[0]['exitCode']==0
+            and commands[0]['startedMonotonicNs']<=value['reader']['monotonicNs']<=commands[0]['endedMonotonicNs'],
+            'ALSA read lacks a successful bounded process')
+        alsa[label]=value['controls']
+    require(set(alsa)==set(labels),'Missing ALSA state transition evidence')
+    for label,field in zip(labels,('pcmAlsaBefore','pcmAlsaNegotiated','pcmAlsaAfter','pcmAlsaAfterEof')):
+        require(audio[field]==alsa[label],'ALSA state summary differs')
+    alsa_verified=verify_controls(*(alsa[label] for label in labels))
+    require(audio['pcmPropsRestored'] and audio['pcmOriginalExact']==audio['pcmRestoredExact'],'Node Props were not restored')
     return dict(phases=compared,negotiationControl=silence,publication=observed,defaultsPreserved=preserved,cleanCapture=True,
-        exactFourChannelIngress=True,transmissionValidated=False,physicalAudioValidated=False)
+        alsaControls=alsa_verified,exactFourChannelIngress=True,transmissionValidated=False,physicalAudioValidated=False)
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -234,8 +250,7 @@ def main():
                     hid=(Path(actor.last_identity['hidrawSysfs'])/'device/report_descriptor').read_bytes()
                     descriptor_evidence(audio.output,1,reference,(parent/'descriptors').read_bytes(),hid)
                     audio.settle('ignored',True)
-                    _,control=audio.command('pcm-alsa-before',['amixer','--card',str(audio.card),'contents'])
-                    audio.result['pcmAlsaBefore']=control_snapshot(control.decode())
+                    audio.result['pcmAlsaBefore']=capture_alsa(audio,'pcm-alsa-before')
                     staged=audio.stage(output/'source.wav');playback(actor,audio,'direct',staged)
                     audio.start_export('pcm-export');audio.settle('export-ready',True)
                     identity=audio.exports[-1]['nodeIdentity']
@@ -246,6 +261,7 @@ def main():
                     playback(actor,audio,'negotiate',audio.stage(output/'negotiation.wav'),identity,negotiation=True)
                     original,precise=read_node(audio,identity,'pcm-original')
                     require(precise['raw']==precise['soft']==[1,1,1,1],'First PCM control requires observed exact unity; preserve other baseline')
+                    audio.result['pcmAlsaNegotiated']=capture_alsa(audio,'pcm-alsa-negotiated')
                     audio.result['pcmOriginalExact']=precise;audio.result['pcmPropsRestored']=False;audio.save()
                     primary=None
                     try:
@@ -264,9 +280,9 @@ def main():
                             if primary is None:primary=error
                     if primary is not None:raise primary
                     playback(actor,audio,'restored',staged,identity,precise)
-                    _,control=audio.command('pcm-alsa-after',['amixer','--card',str(audio.card),'contents'])
-                    audio.result['pcmAlsaAfter']=control_snapshot(control.decode());audio.save()
+                    audio.result['pcmAlsaAfter']=capture_alsa(audio,'pcm-alsa-after');audio.save()
                     audio.stop_export();audio.settle('export-closed',True)
+                    audio.result['pcmAlsaAfterEof']=capture_alsa(audio,'pcm-alsa-after-eof');audio.save()
                     actor.pause();audio.retire_removed_sound();audio.settle('detached',False);audio.finish_observation()
                 require(audio.result['accountProcessesAndFilesRemoved'] and not audio.result.get('cleanupErrors'),'PCM audio cleanup failed')
             require(actor.cleanup['confirmed'],'PCM actor cleanup failed')

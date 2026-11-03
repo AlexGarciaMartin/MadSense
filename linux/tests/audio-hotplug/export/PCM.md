@@ -53,8 +53,9 @@ snapshots retain their hashes. The first baseline must actually be unity; anothe
 baseline is retained as a failed experiment rather than normalized for success.
 Only Node Props are written, never an ACP Device/Route. PipeWire's audioconvert
 selects its channel-volume branch when channelVolumes is set without softVolumes;
-the PCM comparison verifies the actual consequence. ALSA controls are also saved
-before/after and must remain identical. Source:
+the PCM comparison verifies the actual consequence. Writable ALSA controls and
+all other read-only controls must remain identical; the current playback map is
+tracked across its explicit unopened/negotiated/closed states. Source:
 [PipeWire 1.0.5 audioconvert apply_props/set_volume](https://github.com/PipeWire/pipewire/blob/1.0.5/spa/plugins/audioconvert/audioconvert.c).
 
 Default sink/source identity, initial playback priority, no automatic capture
@@ -83,6 +84,30 @@ the already-running export client. The player logs now use their own
 `pcm-player-` namespace, also avoiding the later front-gain command's logs.
 The original failed evidence and complete cleanup remain recorded; marked
 PipeWire/gain validation is still pending.
+
+Run `41663518548` at `1252b16` completed all four marked PCM phases: every one of
+48,000 frames per phase matched in all four channels, including FL/2, FR/4 and
+unchanged rear samples, then exact unity after restoration. Capture retained
+7,437 packets / 2,855,808 bytes with no rejection. The final gate nevertheless
+failed because it expected the read-only ALSA `Playback Channel Map` to stay at
+its pre-open zeros. The observed map was `3,4,5,6` (FL/FR/RL/RR); all writable
+controls, other read-only values and Node Props were unchanged/restored. This
+failed run remains failed; its four sample comparisons are separate evidence.
+
+The revised check retains four read-only mixer snapshots: before opening,
+after negotiation, after the marked phases, and after exporter EOF. Only the
+exact INTEGER/read-only/four-value PCM playback-map control may move from
+`0,0,0,0` to `3,4,5,6` during negotiation; all metadata and every other control
+must match. Negotiated controls must remain exact through the marked phases,
+and the complete initial state must return after EOF. An ordinary-UID reader
+records its real credentials, PID/start and the exact card/control inode/rdev
+before executing `amixer`; the coordinator checks the retained grant identity
+again afterwards. JSON numid keys are canonicalized without changing values.
+Kernel `usb_chmap_ctl_get` reports zeros when no current format exists, while
+`snd_usb_hw_free` clears that format. Sources:
+[USB channel-map getter](https://github.com/torvalds/linux/blob/v6.8/sound/usb/stream.c#L177),
+[PCM hardware free](https://github.com/torvalds/linux/blob/v6.8/sound/usb/pcm.c#L556).
+The new post-EOF comparison still needs a native run.
 
 This stage proves only software PCM ingress if it passes. Native haptics and
 Opus transmission require separate comparisons against the samples actually
