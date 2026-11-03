@@ -1,5 +1,6 @@
 // Opt-in research executable. Never included in MadSense.app or its HAL plugin.
 #include "AudioProbeSignal.hpp"
+#include "AudioIngressTrace.hpp"
 #include "../audio/AudioProtocol.hpp"
 #include "../audio/madsense_audio.h"
 #include <CoreAudio/CoreAudio.h>
@@ -238,8 +239,65 @@ void controls(AudioDeviceID device, Consumer& consumer, unsigned iterations) {
     });
 }
 
+void printTime(const char* name, const audio_probe::TraceTime& time) {
+    std::cout << ",\"" << name << "\":{\"sample\":";
+    if (std::isfinite(time.sample)) std::cout << time.sample; else std::cout << "null";
+    std::cout << ",\"host\":" << time.host << ",\"flags\":" << time.flags << '}';
+}
+void printCycle(const audio_probe::TraceCycle& cycle) {
+    std::cout << "{\"entered_ticks\":" << cycle.entered << ",\"cycle\":" << cycle.cycle
+              << ",\"frames\":" << cycle.frames << ",\"nominal_frames\":" << cycle.nominalFrames
+              << ",\"operation\":" << cycle.operation << ",\"client\":" << cycle.client;
+    printTime("current", cycle.current); printTime("input", cycle.input); printTime("output", cycle.output);
+    std::cout << '}';
+}
+void printBadMarker(const audio_probe::BadMarker& marker) {
+    std::cout << "{\"frame_index\":" << marker.index
+              << ",\"highest_callback\":" << marker.highest.callback << ",\"highest_offset\":" << marker.highest.offset
+              << ",\"current_callback\":" << marker.current.callback << ",\"current_offset\":" << marker.current.offset << '}';
+}
+bool ingressTrace(AudioDeviceID device, unsigned trialIndex, bool elevated, uint64_t generation) {
+    auto addr = address(audio_probe::kIngressProperty);
+    CFDataRef data = nullptr;
+    UInt32 size = sizeof(data);
+    check(AudioObjectGetPropertyData(device, &addr, 0, nullptr, &size, &data), "Read stopped ingress trace");
+    const bool valid = data && size == sizeof(data) && CFGetTypeID(data) == CFDataGetTypeID() &&
+        CFDataGetLength(data) == static_cast<CFIndex>(sizeof(audio_probe::IngressSnapshot));
+    if (!valid) { if (data) CFRelease(data); throw std::runtime_error("Invalid ingress trace wire format"); }
+    audio_probe::IngressSnapshot trace;
+    std::memcpy(&trace, CFDataGetBytePtr(data), sizeof(trace)); CFRelease(data);
+    require(trace.version == audio_probe::kIngressVersion && trace.generation == generation &&
+        trace.eventCount <= trace.events.size(), "Ingress trace epoch/version mismatch");
+    const bool integrity = trace.verified > 0 && trace.nonIncreasing == 0 && trace.invalidMarkers == 0 && trace.overlaps == 0;
+    std::cout << "{\"kind\":\"audio_ingress_trace\",\"trial\":" << trialIndex
+              << ",\"policy\":\"" << (elevated ? "scoped_user_interactive" : "default")
+              << "\",\"includes_warmup\":true,\"generation\":" << trace.generation
+              << ",\"data_integrity\":" << (integrity ? "true" : "false")
+              << ",\"calls\":" << trace.calls << ",\"frames\":" << trace.frames
+              << ",\"verified\":" << trace.verified << ",\"silent\":" << trace.silent
+              << ",\"invalid_markers\":" << trace.invalidMarkers << ",\"nonincreasing_frames\":" << trace.nonIncreasing
+              << ",\"observer_overlaps_since_load\":" << trace.overlaps << ",\"first_anomalous_blocks\":[";
+    for (uint32_t i = 0; i < trace.eventCount; ++i) {
+        const auto& event = trace.events[i];
+        require(event.markerCount <= event.markers.size(), "Ingress trace marker count invalid");
+        if (i) std::cout << ',';
+        std::cout << "{\"previous_block\":"; printCycle(event.previous);
+        std::cout << ",\"current_block\":"; printCycle(event.current);
+        std::cout << ",\"nonincreasing_frames\":" << event.nonIncreasing << ",\"last_bad_marker\":";
+        printBadMarker(event.lastBad);
+        std::cout << ",\"first_bad_markers\":[";
+        for (uint32_t j = 0; j < event.markerCount; ++j) {
+            if (j) std::cout << ',';
+            printBadMarker(event.markers[j]);
+        }
+        std::cout << "]}";
+    }
+    std::cout << "]}\n" << std::flush;
+    return integrity;
+}
+
 bool trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned warmup,
-           unsigned trialIndex, bool elevated, unsigned idleMs) {
+           unsigned trialIndex, bool elevated, unsigned idleMs, bool hasIngress) {
     Scheduling scheduling(elevated);
     Signal signal(seconds + warmup);
     std::vector<double> rpc, fullRpc, emptyRpc, idle, gaps, age, offset;
@@ -320,6 +378,7 @@ bool trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
     ended = mach_absolute_time();
     const Cpu after = cpu();
     stream.stop();
+    const bool ingressIntegrity = !hasIngress || ingressTrace(device, trialIndex, elevated, generation);
     require(!signal.failed.load(), "Unsupported callback layout/size or metadata capacity exceeded");
     std::vector<double> callbackGap, callbackDuration;
     std::map<uint32_t, uint64_t> blockSizes;
@@ -334,7 +393,7 @@ bool trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
         previousCallback = record.entered;
     }
     const uint32_t callbackOverlaps = signal.callbackOverlaps.load();
-    const bool integrity = sequence.nonIncreasing == 0 && !age.empty() && callbackOverlaps == 0;
+    const bool integrity = sequence.nonIncreasing == 0 && !age.empty() && callbackOverlaps == 0 && ingressIntegrity;
     const bool discontinuity = changes != 0 || activeZero != 0;
     std::cout << "{\"kind\":\"audio_path_trial\",\"trial\":" << trialIndex
               << ",\"data_integrity\":" << (integrity ? "true" : "false")
@@ -402,6 +461,7 @@ unsigned positive(const char* value, unsigned max) {
 int main(int argc, char** argv) {
     try {
         unsigned seconds = 30, trials = 3, iterations = 5000, warmup = 2;
+        bool requireIngress = false;
         for (int i = 1; i < argc; i += 2) {
             require(i + 1 < argc, "Missing option value");
             std::string option(argv[i]);
@@ -409,6 +469,7 @@ int main(int argc, char** argv) {
             else if (option == "--trials") trials = positive(argv[i + 1], 5);
             else if (option == "--control-iterations") iterations = positive(argv[i + 1], 100000);
             else if (option == "--warmup") warmup = positive(argv[i + 1], 10);
+            else if (option == "--require-ingress") requireIngress = positive(argv[i + 1], 1) == 1;
             else throw std::runtime_error("Unknown option: " + option);
         }
         mach_timebase_info_data_t timebase{};
@@ -416,6 +477,9 @@ int main(int argc, char** argv) {
         millisecondsPerTick = static_cast<double>(timebase.numer) / timebase.denom / 1000000;
         const AudioDeviceID device = findDevice();
         Consumer consumer;
+        auto ingressAddress = address(audio_probe::kIngressProperty);
+        const bool hasIngress = AudioObjectHasProperty(device, &ingressAddress);
+        require(!requireIngress || hasIngress, "Required research ingress observer is missing");
         auto addr = address(kAudioDevicePropertyBufferFrameSize);
         UInt32 blockSize = 0, size = sizeof(blockSize);
         check(AudioObjectGetPropertyData(device, &addr, 0, nullptr, &size, &blockSize), "Get frame size");
@@ -423,17 +487,18 @@ int main(int argc, char** argv) {
                   << "{\"kind\":\"audio_path_environment\",\"hardware_latency_measured\":false,"
                   << "\"bluetooth_measured\":false,\"sample_rate\":48000,\"channels\":4,\"reported_buffer_frames\":"
                   << blockSize << ",\"consumer_abi\":" << ms_audio_abi_version()
+                  << ",\"research_ingress_observer\":" << (hasIngress ? "true" : "false")
                   << ",\"timebase_numer\":" << timebase.numer << ",\"timebase_denom\":" << timebase.denom << "}\n";
         controls(device, consumer, iterations);
         bool allValid = true;
         for (unsigned i = 1; i <= trials; ++i) {
             // Alternate order to reduce the bias of warming the same VM.
             if (i % 2) {
-                allValid = trial(device, consumer, seconds, warmup, i, false, 5) && allValid;
-                allValid = trial(device, consumer, seconds, warmup, i, true, 1) && allValid;
+                allValid = trial(device, consumer, seconds, warmup, i, false, 5, hasIngress) && allValid;
+                allValid = trial(device, consumer, seconds, warmup, i, true, 1, hasIngress) && allValid;
             } else {
-                allValid = trial(device, consumer, seconds, warmup, i, true, 1) && allValid;
-                allValid = trial(device, consumer, seconds, warmup, i, false, 5) && allValid;
+                allValid = trial(device, consumer, seconds, warmup, i, true, 1, hasIngress) && allValid;
+                allValid = trial(device, consumer, seconds, warmup, i, false, 5, hasIngress) && allValid;
             }
         }
         if (!allValid) std::cerr << "Audio research completed with one or more invalid trials; see retained diagnostics.\n";

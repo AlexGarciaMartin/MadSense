@@ -7,6 +7,7 @@ on:
       - '.github/workflows/macos-audio-research.yml'
       - 'macos/research/*audio*'
       - 'macos/research/AudioProbeSignal.hpp'
+      - 'macos/research/AudioIngressTrace.hpp'
 permissions:
   contents: read
 concurrency:
@@ -22,12 +23,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Compile unchanged HAL and isolated research executable
+      - name: Compile HAL tests and isolated ingress research build
         run: |
           cmake -S macos/audio -B .build/audio -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
           cmake --build .build/audio --parallel
           ctest --test-dir .build/audio --output-on-failure
           bash macos/research/build_audio_probe.sh .build/audio-research
+          bash macos/research/build_audio_ingress.sh .build/audio-research .build/audio/MadSenseAudio.driver
+          mkdir -p dist/audio-research
+          cp .build/audio-research/ingress-source.json dist/audio-research/
       - name: Install and validate endpoint only on disposable runner
         timeout-minutes: 3
         run: bash macos/tests/install_audio_ci.sh .build/audio dist/audio-research
@@ -37,6 +41,7 @@ jobs:
           sw_vers > dist/audio-research/environment.txt
           uname -a >> dist/audio-research/environment.txt
           git rev-parse HEAD >> dist/audio-research/environment.txt
+          cp "$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers/AudioServerPlugIn.h" dist/audio-research/AudioServerPlugIn-sdk.h
           python3 - <<'PY'
           import pathlib, subprocess, sys
           output = pathlib.Path('dist/audio-research')
@@ -44,7 +49,7 @@ jobs:
               try:
                   result = subprocess.run(
                       ['.build/audio-research/audio-path-probe', '--seconds', '30', '--trials', '3',
-                       '--warmup', '2', '--control-iterations', '5000'],
+                       '--warmup', '2', '--control-iterations', '5000', '--require-ingress', '1'],
                       stdout=stdout, stderr=stderr, timeout=330)
               except subprocess.TimeoutExpired:
                   print('Audio research timed out; no latency conclusion is valid.', file=stderr)

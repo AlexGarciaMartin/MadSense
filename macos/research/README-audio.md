@@ -2,12 +2,14 @@
 
 This opt-in executable measures the existing four-channel HAL output endpoint
 and its authenticated custom-property reader. It is not shipped in the app.
-Neither the production plugin, its queue limits, its authentication nor the
-native consumer ABI is changed. It uses no controller, microphone, input
+The production plugin, queue limits, authentication and native consumer ABI
+remain unchanged. The research workflow builds an instrumented source copy
+with the ingress observer described below. It uses no controller, microphone, input
 IOProc, process tap, system-default audio selection or physical speaker.
 
-Run the dispatch-only **macOS audio path research** workflow for disposable
-macOS 15 ARM and Intel VMs. It builds and installs the current HAL plugin using
+The **macOS audio path research** workflow runs on changes to this experiment
+on `feature/macos`, and supports manual dispatch on disposable macOS 15 ARM
+and Intel VMs. It builds and installs the current HAL plugin using
 the existing CI-only installer, verifies its existing integration tests, and
 then saves JSONL results and CoreAudio diagnostics. Its installation guard
 refuses ordinary developer machines and self-hosted runners.
@@ -30,8 +32,11 @@ separately during streaming. The driver never exposes an unauthenticated
 benchmark operation.
 
 Each streaming pair compares default scheduling with a requested 5 ms idle
-wait against the backend's scoped user-interactive QoS and requested 1 ms
-wait. Pair order alternates across three trials, with two seconds of warmup
+wait against scoped user-interactive QoS and a requested 1 ms wait. These are
+the backend's QoS/requested-idle settings, but this C++ executable waits with
+`std::this_thread::sleep_for`; the managed backend uses a cancellable
+`WaitHandle.WaitOne`. This comparison does not measure the managed reader,
+GC, forwarding or backend performance directly. Pair order alternates across three trials, with two seconds of warmup
 before each 30-second measurement. No requested audio buffer size is imposed;
 the reported size and actual callback sizes are recorded.
 
@@ -79,6 +84,34 @@ generation counters, and raw mach timestamps. These timestamps can be compared
 with CoreAudio overload logs on the same host. Later trial pairs still run
 after a continuity failure; the final process exit remains unsuccessful if
 any trial was invalid. RPC/layout/corrupt-marker errors still abort immediately.
+
+The workflow additionally builds a **research-only ingress observer** before
+installing its disposable HAL bundle. `instrument_audio_plugin.py` generates
+a source copy under `.build`, requiring every injection site to match exactly
+once. It records production/copy SHA-256 digests; no production source, normal
+CMake target or shipped bundle enables this observer. The generated copy
+retains the original `ring.push` and observes its unchanged input after the
+normal lease/running checks. It stores up to 32 anomalous WriteMix blocks,
+their preceding block, first eight and last bad markers, frame counts,
+client/operation, cycle ordinal, and current/input/output sample and host
+timestamps. The timestamp flags indicate which fields CoreAudio supplied.
+Per-generation ordering/counters reset when the stream restarts. An atomic
+try-guard counts overlapping plugin callbacks; it never waits, allocates or
+logs on the realtime thread and does not skip the original audio write.
+Any overlap invalidates subsequent diagnostic trials.
+
+After StopIO, the same authenticated owner can read the bounded trace through
+a research-only CFData property. Reads during IO, anonymous/foreign callers,
+and snapshots racing a lingering observer fail. Previous-generation storage
+is scrubbed and changing owner invalidates the prior trace. The native fake
+host test checks this access contract. `audio_ingress_trace` JSON rows include
+warmup, unlike the measured reader window, and retain failures even when the
+ring subsequently drops those frames. They distinguish repeated markers
+already present at plugin ingress from failures introduced after ingress.
+The observer adds per-frame work to the host: these instrumented runs diagnose
+integrity, and their timing must not be presented as unchanged-runtime costs.
+`--require-ingress 1` fails if the expected research property is absent; without
+that option the executable still supports an ordinary installed endpoint.
 
 This is a software path experiment on shared CI VMs. It does not measure
 Bluetooth transmission, Opus/forwarder buffering, USB transfers, controller
