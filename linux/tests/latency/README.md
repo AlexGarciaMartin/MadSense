@@ -6,9 +6,11 @@ raw converter and USB/IP import to that lease's virtual hidraw reader. It reuses
 the existing ordinary AppProbe executable; no production factory, endpoint,
 authorization or scheduling policy is replaced. It does not run the GUI.
 
-The executable is prepared, with portable analysis regressions passing. Native
-C compilation and timing execution are still pending. No latency numbers have
-been measured by this experiment yet.
+Native C compilation and all eight validation tests passed on Linux x64 and
+arm64 at commit `477687d` in [run 41615446664](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41615446664).
+Both source-tagged artifacts were downloaded and their archive hashes verified.
+Timing execution is still pending; this experiment has produced no latency
+numbers yet.
 
 Run only after all broker, core and application functional gates passed in the
 same owned QEMU guest. The runner checks their case sets and ownership tokens,
@@ -101,6 +103,7 @@ python3 linux/tests/latency/run_latency_guest.py \
   --baseline-result /home/ubuntu/madsense/result/result.json \
   --core-result /home/ubuntu/madsense/result/core-experiment/result.json \
   --app-result /home/ubuntu/madsense/result/app-experiment/result.json \
+  --upgrade-result /home/ubuntu/madsense/result/idle-upgrade/result.json \
   --probe-directory /home/ubuntu/madsense/app-probe \
   --output /home/ubuntu/madsense/result/latency-experiment
 ```
@@ -109,5 +112,27 @@ The coordinator needs the existing research/platform/app integration modules in
 the same payload tree, plus this directory and `cc`. It compiles C with warnings
 as errors and records compiler, command and source/binary hashes. The actual
 AppProbe assembly provenance appears in each copied actor event log. Keep this
-invocation and exit code separate from the functional gate result. Current CI
-does not invoke this optional experiment yet.
+invocation and exit code separate from the functional gate result.
+
+The `linux-latency.yml` workflow always runs validation on push. Runtime is a
+separate x64 job enabled only by the `run_native=true` workflow-dispatch input
+(default false). It publishes the real neutral/core/AppProbe actors, then
+`qemu_latency.py` uses one owned VM for baseline, upgrade/removal, core, app and
+timing. The existing stages/verifiers and signed-image/KVM lifecycle are reused;
+no kernel matrix or second baseline is run for timing. Every functional result,
+including removal/reinstallation, is verified inside the guest before creating
+any timing fixture or account. Collected CSVs, gate hashes, fresh cleanup ACKs
+and restored fixture snapshots are checked again on the host.
+
+`functionalResult` and `benchmarkResult` remain separate in provenance. Missing
+or failed functional gates skip timing. A measured workload limit retains its
+classification without failing functional results; invalid timing evidence or
+unconfirmed cleanup fails this independent workflow job. Runtime invocation has
+not yet occurred.
+
+An existing live-VM owner can reuse `add_latency_payload(payload)` before its
+single upload and `run_latency_stage(guest)` after its functional stages, without
+booting another guest. The current functional launcher is unchanged. A completed
+workflow's already stopped VM cannot be reused; the opt-in standalone launcher
+necessarily runs its own gates once. It collects evidence only once, then stops
+its own QEMU before restoring the temporary KVM ACL.

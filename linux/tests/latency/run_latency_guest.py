@@ -24,9 +24,7 @@ sys.path.insert(0, str(LINUX / "tests/app-integration"))
 from kernel_probe import owned_nodes, ports, wait_for
 from actor_staging import stage_probe, verify_actor_execution
 from production_fixture import SyntheticDualSense
-from qemu_broker import verify_result
-from qemu_app import verify_app_result
-from qemu_core import verify_core_result
+from gates import verify_paths
 
 
 def load(path):
@@ -216,22 +214,24 @@ def main():
     parser.add_argument("--baseline-result", type=Path, required=True)
     parser.add_argument("--core-result", type=Path, required=True)
     parser.add_argument("--app-result", type=Path, required=True)
+    parser.add_argument("--upgrade-result", type=Path, required=True)
     parser.add_argument("--probe-directory", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     require(os.geteuid() == 0, "Root guest observer required")
     scope = validate_environment(args.owned_guest_token)
     require(scope["kind"] == "owned-qemu-guest", "Owned QEMU guest required")
-    # Existing gates validate unique case sets plus exact ownership token.
-    verify_result(load(args.baseline_result), args.owned_guest_token)
-    verify_core_result(load(args.core_result), args.owned_guest_token)
-    verify_app_result(load(args.app_result), args.owned_guest_token)
+    # Existing verifiers plus idle upgrade/removal are checked before any new
+    # account, module, fixture or lease. A zero SSH exit is not sufficient.
+    gate_records = verify_paths(args.baseline_result, args.core_result, args.app_result,
+                               args.upgrade_result, args.owned_guest_token)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     require(not any(output.iterdir()), "Fresh evidence directory required")
     result = dict(schema=1, result="invalid", environment=scope, functionalGate=False,
                   physicalDevices=False, radioInitialized=False, applicationControllerExercised=True,
-                  applicationUiExercised=False, physicalLatencyValidated=False, temporaryVmTestPolicies=True, cases=[])
+                  applicationUiExercised=False, physicalLatencyValidated=False, temporaryVmTestPolicies=True,
+                  functionalGates=gate_records, cases=[])
     try:
         executable = build(output)
         for rate in (100, 1000):

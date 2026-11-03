@@ -1,6 +1,12 @@
 name: Linux input timing observer validation
 on:
   workflow_dispatch:
+    inputs:
+      run_native:
+        description: 'Run all functional gates then optional timing in one owned x64 VM'
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [feature/linux]
     paths:
@@ -30,10 +36,50 @@ jobs:
           set -o pipefail
           python3 -m unittest discover -s linux/tests/latency -p 'test_*.py' -v 2>&1 | tee dist/latency-observer/tests.txt
           python3 -m py_compile linux/tests/latency/*.py
+          bash -n linux/tests/latency/run_latency_experiment.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: linux-latency-observer-${{ matrix.runner }}
           path: dist/latency-observer/**
+          retention-days: 14
+          if-no-files-found: warn
+  native:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_native
+    needs: observer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish the actual functional actors
+        run: |
+          dotnet publish linux/probe/MadSense.Linux.Probe.csproj -c Release -r linux-x64 --self-contained true -o dist/neutral-probe
+          dotnet publish linux/platform/integration/MadSense.Linux.CoreProbe.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o dist/core-probe
+          dotnet publish linux/tests/app-integration/MadSense.Linux.AppProbe.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o dist/app-probe
+      - name: Install tools for the pinned signed guest
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client acl
+          test -r /usr/share/keyrings/ubuntu-cloudimage-keyring.gpg
+      - name: Inventory existing KVM capability
+        run: |
+          python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-runner.json
+          sudo -n python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-root.json
+      - name: Functional gates and independent timing in the same owned VM
+        run: >-
+          python3 linux/tests/latency/qemu_latency.py
+          --neutral-probe-directory dist/neutral-probe --core-probe-directory dist/core-probe
+          --app-probe-directory dist/app-probe
+          --output dist/latency-guest --work dist/latency-qemu-private
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-latency-runtime-x64
+          path: |
+            dist/latency-guest/**
+            dist/kvm-*.json
           retention-days: 14
           if-no-files-found: warn
