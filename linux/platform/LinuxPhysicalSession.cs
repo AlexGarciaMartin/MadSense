@@ -11,10 +11,11 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
     readonly LinuxBrokerClient broker;
     readonly BrokerHidDevice device;
     readonly LinuxAttachStrategy attachStrategy;
-    int verified = 1, disposed;
+    int verified = 1, disposed, cleanupConfirmed;
     public IHidDevice Device => device;
     public IUsbIpAttachStrategy AttachStrategy => attachStrategy;
     public bool IsolationVerified => Volatile.Read(ref verified) != 0 && broker.IsConnected;
+    public bool CleanupConfirmed => Volatile.Read(ref cleanupConfirmed) != 0;
     public LinuxProxyMetrics Metrics => device.Metrics;
     public event Action? IsolationLost;
 
@@ -54,7 +55,11 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
         device.Dispose();
         try
         {
-            if (broker.IsConnected) await broker.RequestAsync("release").ConfigureAwait(false);
+            if (broker.IsConnected)
+            {
+                await broker.RequestAsync("release").ConfigureAwait(false);
+                Volatile.Write(ref cleanupConfirmed, 1);
+            }
         }
         finally { await broker.DisposeAsync().ConfigureAwait(false); }
     }

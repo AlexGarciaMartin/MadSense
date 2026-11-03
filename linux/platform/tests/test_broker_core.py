@@ -9,6 +9,7 @@ import stat
 import struct
 import sys
 import tempfile
+import time
 import types
 import unittest
 from unittest.mock import MagicMock, patch
@@ -16,6 +17,110 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import broker_core as core
 import broker
+
+
+class AuthorizationTests(unittest.TestCase):
+    def lease(self):
+        lease = broker.Lease.__new__(broker.Lease)
+        lease.pid, lease.uid, lease.start = 7, 1000, 11
+        lease.alive = MagicMock()
+        return lease
+
+    def test_cancellation_reaps_only_its_owned_authorization_child(self):
+        launch = broker.subprocess.Popen
+        unrelated = launch([sys.executable, "-I", "-c", "import time; time.sleep(60)"],
+                           stdin=broker.subprocess.DEVNULL, stdout=broker.subprocess.DEVNULL,
+                           stderr=broker.subprocess.DEVNULL)
+        owned = []
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                ready = Path(directory) / "ready"
+                def spawn_owned(args, **kwargs):
+                    child = launch([sys.executable, "-I", "-c",
+                                    "import pathlib,sys,time; pathlib.Path(sys.argv[1]).touch(); time.sleep(60)", str(ready)],
+                                   **{key: value for key, value in kwargs.items() if key != "env"})
+                    owned.append(child)
+                    return child
+                lease = self.lease()
+                def cancelled_after_child_started():
+                    if ready.exists():
+                        raise core.BrokerError("owner_lost", "The requesting socket closed")
+                lease.alive.side_effect = cancelled_after_child_started
+                started = time.monotonic()
+                with patch.object(broker, "tool", return_value="/usr/bin/pkcheck"), \
+                     patch.object(broker.subprocess, "Popen", side_effect=spawn_owned) as spawn, \
+                     patch.object(broker, "notify") as notify, self.assertRaises(core.BrokerError) as error:
+                    lease.authorize()
+                self.assertEqual(error.exception.code, "owner_lost")
+                self.assertLess(time.monotonic() - started, 10, "Cancellation must not wait for the 120-second prompt")
+                self.assertEqual(len(owned), 1)
+                self.assertIsNotNone(owned[0].poll(), "The owned child must be reaped")
+                self.assertIsNone(unrelated.poll(), "Unrelated processes must remain untouched")
+                self.assertEqual(spawn.call_args.args[0], ["/usr/bin/pkcheck", "--action-id", "org.madsense.bridge.acquire",
+                                                         "--process", "7,11,1000", "--allow-user-interaction"])
+                self.assertEqual(notify.call_args_list, [unittest.mock.call("WATCHDOG_USEC=130000000\nWATCHDOG=1"),
+                                                         unittest.mock.call("WATCHDOG_USEC=15000000\nWATCHDOG=1")])
+        finally:
+            for child in [unrelated, *owned]:
+                if child.poll() is None:
+                    child.kill()
+                child.wait()
+
+    def test_successful_authorization_racing_with_disconnect_is_rejected(self):
+        lease = self.lease()
+        connected = [True]
+        lease.alive.side_effect = lambda: core.require(connected[0], "owner_lost", "Socket closed")
+        child = MagicMock(); child.returncode = 0; child.poll.return_value = 0
+        def complete(**_):
+            connected[0] = False
+            return None, b""
+        child.communicate.side_effect = complete
+        with patch.object(broker, "tool", return_value="/usr/bin/pkcheck"), \
+             patch.object(broker.subprocess, "Popen", return_value=child), patch.object(broker, "notify"), \
+             self.assertRaises(core.BrokerError) as error:
+            lease.authorize()
+        self.assertEqual(error.exception.code, "owner_lost")
+        child.kill.assert_not_called()  # It already exited successfully.
+
+    def test_disconnect_after_authorization_cannot_touch_a_device_or_journal(self):
+        lease = self.lease()
+        lease.authorize = MagicMock()
+        lease.alive.side_effect = core.BrokerError("owner_lost", "Socket closed")
+        with patch.dict(sys.modules, {"fcntl": MagicMock()}), \
+             patch.object(os, "open") as opened, patch.object(broker, "atomic_json") as journal, \
+             patch.object(broker, "install_rule") as rule, patch.object(broker, "command") as command, \
+             self.assertRaises(core.BrokerError) as error:
+            lease.acquire("/dev/hidraw1")
+        self.assertEqual(error.exception.code, "owner_lost")
+        opened.assert_not_called(); journal.assert_not_called(); rule.assert_not_called(); command.assert_not_called()
+
+    def test_authorization_deadline_reaps_child_and_restores_watchdog(self):
+        lease = self.lease()
+        child = MagicMock(); child.poll.return_value = None
+        with patch.object(broker, "tool", return_value="/usr/bin/pkcheck"), \
+             patch.object(broker.subprocess, "Popen", return_value=child), patch.object(broker, "notify") as notify, \
+             patch.object(broker.time, "monotonic", side_effect=[0, 121]), self.assertRaises(core.BrokerError) as error:
+            lease.authorize()
+        self.assertEqual(error.exception.code, "not_authorized")
+        child.kill.assert_called_once(); child.communicate.assert_called_once_with()
+        self.assertEqual(notify.call_args.args[0], "WATCHDOG_USEC=15000000\nWATCHDOG=1")
+
+    @unittest.skipUnless(sys.platform == "linux", "Requires Linux pidfd and POLLRDHUP")
+    def test_real_owner_half_close_is_detected_behind_unread_requests(self):
+        endpoint, owner = broker.socket.socketpair()
+        pidfd = os.pidfd_open(os.getpid())
+        try:
+            lease = broker.Lease(os.getpid(), 1000, core.process_start(os.getpid()), pidfd, endpoint)
+            lease.alive()
+            owner.sendall(b"unread request bytes")
+            lease.alive()  # Ordinary queued data is not cancellation.
+            owner.shutdown(broker.socket.SHUT_WR)
+            with self.assertRaises(core.BrokerError) as error:
+                lease.alive()
+            self.assertEqual(error.exception.code, "owner_lost")
+            self.assertEqual(endpoint.recv(64), b"unread request bytes", "The liveness check must not consume protocol data")
+        finally:
+            endpoint.close(); owner.close(); os.close(pidfd)
 
 
 class ProtocolTests(unittest.TestCase):
@@ -567,12 +672,62 @@ class ServiceLoopTests(unittest.TestCase):
         for endpoint in endpoints:
             endpoint.close.assert_called_once()
 
+    def test_preflight_reports_unresolved_journal_or_rule_without_a_lease(self):
+        for journal_pending, rule_pending in ((True, False), (False, True)):
+            with self.subTest(journal=journal_pending, rule=rule_pending):
+                listener, endpoint = MagicMock(), MagicMock()
+                listener.accept.return_value = (endpoint, None)
+                endpoint.getsockopt.return_value = struct.pack("3i", 7, 1000, 1000)
+                endpoint.recv.return_value = b'{"id":1,"op":"preflight"}\n'
+                frames = []
+                def send(data):
+                    frames.extend(json.loads(line) for line in bytes(data).splitlines())
+                    return len(data)
+                endpoint.send.side_effect = send
+                runtime, path, journal, rule = (MagicMock() for _ in range(4))
+                runtime.stat.return_value = types.SimpleNamespace(st_uid=0, st_mode=stat.S_IFDIR | 0o755)
+                path.exists.return_value = False
+                journal.exists.return_value = journal_pending
+                rule.exists.return_value = rule_pending
+                loops, handlers = [0], {}
+                def select_once(readable, writable, errors, timeout):
+                    loops[0] += 1
+                    if loops[0] == 1: return [listener], [], []
+                    if loops[0] == 2: return [endpoint], [], []
+                    handlers[broker.signal.SIGTERM](None, None)
+                    return [], writable, []
+                with ExitStack() as stack:
+                    for item in (
+                        patch.object(broker, "RUN", runtime), patch.object(broker, "SOCKET", path),
+                        patch.object(broker, "JOURNAL", journal), patch.object(broker, "RULE", rule),
+                        patch.object(broker, "recover_imports", return_value=set()), patch.object(broker, "restore_journal"),
+                        patch.object(broker, "notify"),
+                        patch.object(broker, "preflight", side_effect=core.BrokerError("recovery_failed", "Cleanup remains pending")),
+                        patch.object(os, "geteuid", return_value=0, create=True), patch.object(os, "chmod"),
+                        patch.object(os, "pidfd_open", return_value=101, create=True), patch.object(os, "close"),
+                        patch.object(broker, "process_start", return_value=1),
+                        patch.object(broker.socket, "AF_UNIX", 1, create=True),
+                        patch.object(broker.socket, "SOCK_CLOEXEC", 0, create=True),
+                        patch.object(broker.socket, "SO_PEERCRED", 17, create=True),
+                        patch.object(broker.socket, "socket", return_value=listener),
+                        patch.object(broker.select, "select", side_effect=select_once),
+                        patch.object(broker.signal, "signal", side_effect=lambda kind, handler: handlers.update({kind: handler})),
+                    ):
+                        stack.enter_context(item)
+                    broker.serve()
+                self.assertEqual(len(frames), 1)
+                self.assertFalse(frames[0]["result"]["available"])
+                self.assertFalse(frames[0]["result"]["leaseActive"])
+                self.assertTrue(frames[0]["result"]["recoveryPending"])
+
     def test_pending_attach_keeps_input_and_owner_eof_cleanup_live(self):
         listener, endpoint, lease = MagicMock(), MagicMock(), MagicMock()
         listener.accept.return_value = (endpoint, None)
         endpoint.getsockopt.return_value = struct.pack("3i", 7, 1000, 1000)
-        endpoint.recv.side_effect = [b'{"id":1,"op":"acquire","path":"/dev/hidraw1"}\n'
-                                     b'{"id":2,"op":"attach","host":"127.0.0.1","port":16384,"busId":"1-1"}\n', b""]
+        endpoint.recv.side_effect = [b'{"id":0,"op":"preflight"}\n'
+                                     b'{"id":1,"op":"acquire","path":"/dev/hidraw1"}\n'
+                                     b'{"id":2,"op":"attach","host":"127.0.0.1","port":16384,"busId":"1-1"}\n'
+                                     b'{"id":3,"op":"preflight"}\n', b""]
         frames, events = [], []
         def send(data):
             frames.extend(json.loads(line) for line in bytes(data).splitlines())
@@ -604,6 +759,7 @@ class ServiceLoopTests(unittest.TestCase):
         with ExitStack() as stack:
             for item in (
                 patch.object(broker, "RUN", runtime), patch.object(broker, "SOCKET", path),
+                patch.object(broker, "JOURNAL", path), patch.object(broker, "RULE", path),
                 patch.object(broker, "recover_imports", return_value=set()), patch.object(broker, "restore_journal"),
                 patch.object(broker, "notify"), patch.object(broker, "preflight"),
                 patch.object(broker, "Lease", return_value=lease),
@@ -624,6 +780,13 @@ class ServiceLoopTests(unittest.TestCase):
         self.assertEqual(sum(row.get("event") == "input" for row in frames), 3)
         self.assertGreaterEqual(lease.verify.call_count, 3)
         self.assertFalse(any(row.get("id") == 2 for row in frames))
+        status = {row["id"]: row["result"] for row in frames if row.get("id") in (0, 3)}
+        self.assertTrue(status[0]["available"])
+        self.assertFalse(status[0]["leaseActive"])
+        self.assertFalse(status[0]["recoveryPending"])
+        self.assertTrue(status[3]["available"])
+        self.assertTrue(status[3]["leaseActive"], "Availability must not conceal an active import/lease")
+        self.assertFalse(status[3]["recoveryPending"])
 
 
 if __name__ == "__main__":

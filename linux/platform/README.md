@@ -37,6 +37,27 @@ device ACL or raw descriptor. At most two connections per UID and eight total ar
 accepted. Non-owner connections expire after ten seconds without incoming data;
 the active lease is governed by its owner lifetime and isolation checks.
 
+While the authorization dialog is pending, the helper checks the exact requesting
+socket and the caller's pidfd at intervals of at most 100 ms between child waits.
+EOF, including a write-half close behind unread request bytes, cancels and reaps
+only the helper's own `pkcheck` child. The helper rechecks the connection after
+authorization and before recording isolation intent, so late authorization cannot
+activate a disconnected attempt. It never signals the desktop, an authorization
+agent or unrelated processes. The extended authorization watchdog and the
+120-second total deadline still apply.
+
+`preflight.available` reports platform support, including when another lease is
+active. It is not a release acknowledgement. The additional `leaseActive` and
+`recoveryPending` booleans report ownership and unresolved journal/rule state.
+Only explicit `false` values for both fields on a fresh connection confirm an
+idle helper after transport loss. A successful `release` response is sent after
+ordered cleanup finishes. The desktop remains in recovery and blocks acquisition
+until it receives that acknowledgement or the fresh idle status; EOF, an offline
+helper, and older helpers without these fields cannot establish release. Status
+polls never request authorization. Cancelling initial firmware/pairing/calibration
+requests closes only that attempt's broker connection, and follows the same
+confirmation requirement.
+
 Acquisition accepts only `/dev/hidrawN` whose opened-device identity and validated
 HID ancestor identify a Bluetooth Sony DualSense or DualSense Edge. It inventories
 every hidraw and input node beneath that HID ancestor, records each node's boot,

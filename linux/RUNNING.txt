@@ -29,6 +29,11 @@ native controller support needs hid_playstation; Xbox mode needs xpad.
 Read platform/README.md, then run from this extracted directory:
     sudo sh platform/install.sh
 
+To update an existing helper, first pause the app and let recovery finish. The
+installer checks the host prerequisites before writing files and refuses pending
+lease state. It stops the old helper and confirms that no recovery descriptors
+remain before replacing it, then starts the newly installed version.
+
 Run MadSense without sudo. Resume requests authorization to isolate the selected
 Bluetooth controller. Close other software that already has its hidraw interface
 open. The helper refuses conflicting readers instead of terminating applications.

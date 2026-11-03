@@ -1,6 +1,23 @@
 """Portable validation of kernel-proof evidence interpretation; no device access."""
 import unittest
-from kernel_probe import contains_exact
+from kernel_probe import contains_exact, sysfs_bitmap
+
+
+class SysfsBitmapTests(unittest.TestCase):
+    def test_native_64_bit_words_keep_zero_word_width_for_south_button(self):
+        text = "1000000000000 0 0 0 0\n"  # bit 48 of word 4 = BTN_SOUTH 304
+        self.assertEqual(sysfs_bitmap(text, 64), 1 << 304)
+        self.assertFalse((int("".join(text.split()), 16) >> 304) & 1)
+
+    def test_compat_32_bit_words_keep_zero_word_width_for_south_button(self):
+        self.assertEqual(sysfs_bitmap("10000 0 0 0 0 0 0 0 0 0", 32), 1 << 304)
+
+    def test_low_bits_zero_and_malformed_words(self):
+        self.assertEqual(sysfs_bitmap("2 3", 64), (2 << 64) | 3)
+        self.assertEqual(sysfs_bitmap("0", 64), 0)
+        for text in ("", "-1", "10000000000000000", "not-hex"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                sysfs_bitmap(text, 64)
 
 
 class PcmEvidenceTests(unittest.TestCase):

@@ -439,8 +439,9 @@ def restore_journal(restored_imports=frozenset()):
 
 
 class Lease:
-    def __init__(self, pid, uid, start, pidfd):
+    def __init__(self, pid, uid, start, pidfd, owner_socket):
         self.pid, self.uid, self.start, self.pidfd = pid, uid, start, pidfd
+        self.owner_socket = owner_socket
         self.fd = -1
         self.nodes = []
         self.grabs = []
@@ -461,6 +462,45 @@ class Lease:
     def alive(self):
         require(not select.select([self.pidfd], [], [], 0)[0] and process_start(self.pid) == self.start,
                 "owner_lost", "The lease owner exited")
+        # Unlike MSG_PEEK, RDHUP detects EOF even behind unread request bytes.
+        # Never consume or close this endpoint here; the main loop owns it.
+        require(self.owner_socket.fileno() >= 0, "owner_lost", "The lease owner's connection closed")
+        events = select.poll()
+        events.register(self.owner_socket, select.POLLRDHUP | select.POLLHUP | select.POLLERR | select.POLLNVAL)
+        require(not events.poll(0), "owner_lost", "The lease owner's connection closed")
+
+    def authorize(self):
+        self.alive()
+        require(self.uid != 0, "not_authorized", "The application must run as an ordinary user")
+        try:
+            notify("WATCHDOG_USEC=130000000\nWATCHDOG=1")
+            # Only this directly owned child is terminated on cancellation.
+            # No external agent, process group, or caller process is signalled.
+            child = subprocess.Popen([tool("pkcheck"), "--action-id", "org.madsense.bridge.acquire", "--process",
+                                      f"{self.pid},{self.start},{self.uid}", "--allow-user-interaction"],
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=ENV)
+            try:
+                deadline = time.monotonic() + 120
+                while True:
+                    self.alive()
+                    remaining = deadline - time.monotonic()
+                    require(remaining > 0, "not_authorized", "Controller authorization timed out")
+                    try:
+                        _, error = child.communicate(timeout=min(.1, remaining))
+                    except subprocess.TimeoutExpired:
+                        continue
+                    # An authorization completing concurrently with cancellation
+                    # must never authorize a disconnected attempt.
+                    self.alive()
+                    require(child.returncode == 0, "not_authorized",
+                            "Controller isolation was not authorized: " + error.decode(errors="replace")[:300])
+                    return
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                child.communicate()  # Reap our child and close its pipe on every exit.
+        finally:
+            notify("WATCHDOG_USEC=15000000\nWATCHDOG=1")
 
     def inventory(self):
         result = []
@@ -475,16 +515,7 @@ class Lease:
 
     def acquire(self, path):
         import fcntl
-        self.alive()
-        require(self.uid != 0, "not_authorized", "The application must run as an ordinary user")
-        try:
-            notify("WATCHDOG_USEC=130000000\nWATCHDOG=1")
-            command("pkcheck", ["--action-id", "org.madsense.bridge.acquire", "--process",
-                                f"{self.pid},{self.start},{self.uid}", "--allow-user-interaction"], timeout=120)
-        except BrokerError as error:
-            raise BrokerError("not_authorized", "Controller isolation was not authorized: " + str(error)) from None
-        finally:
-            notify("WATCHDOG_USEC=15000000\nWATCHDOG=1")
+        self.authorize()
         self.alive()
         self.hid_parent = (Path("/sys/class/hidraw") / Path(path).name / "device").resolve(strict=True)
         require(self.hid_parent.is_relative_to(Path("/sys/devices")) and HID_NAME.fullmatch(self.hid_parent.name),
@@ -522,10 +553,12 @@ class Lease:
                      f'SUBSYSTEM=="hidraw|input", KERNELS=="{self.hid_parent.name}", '
                      'OWNER:="root", GROUP:="root", MODE:="0600", TAG-="uaccess", TAG-="seat"\n').encode()
         self.saved["ruleSha256"] = hashlib.sha256(self.rule).hexdigest()
+        self.alive()  # Inventory/ACL reads may outlast the requesting connection.
         atomic_json(JOURNAL, self.saved)  # Durable intent precedes every permission mutation.
         install_rule(self.rule)
         command("udevadm", ["control", "--reload-rules"])
         for node in self.saved["nodes"]:
+            self.alive()
             node_fd = os.open(node["path"], os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW)
             try:
                 require(same_node(os.fstat(node_fd), node), "isolation_unverified", "Input node was replaced")
@@ -734,10 +767,18 @@ class Lease:
                         if (len(fields) == 7 and int(fields[1]) == selected_port and int(fields[2]) == 6
                                 and int(fields[4], 16) == ((bus << 16) | number)
                                 and int(fields[5]) == endpoint.fileno() and fields[6] != "0-0"):
-                            device_path = (Path("/sys/bus/usb/devices") / fields[6]).resolve()
-                            require(device_path == expected_path, "attach_failed", "The virtual device appeared on an unexpected USB path")
-                            if device_path.exists():
-                                self.import_device = (device_path, device_path.stat().st_ino)
+                            # VHCI reports USED before USB core publishes its
+                            # sysfs alias. Non-strict resolve would return the
+                            # still-missing /sys/bus alias and reject the exact
+                            # expected /sys/devices path as a different device.
+                            try:
+                                device_path = (Path("/sys/bus/usb/devices") / fields[6]).resolve(strict=True)
+                                device_info = device_path.stat()
+                            except FileNotFoundError:
+                                continue  # Creation/removal race; keep the same deadline.
+                            require(device_path == expected_path, "attach_failed",
+                                    f"The virtual device appeared on an unexpected USB path: {device_path}; expected {expected_path}")
+                            self.import_device = (device_path, device_info.st_ino)
                 if self.import_device is not None:
                     break
                 yield
@@ -928,16 +969,18 @@ def serve():
                                 require(not client["failed"], "isolation_lost", "Reconnect before requesting a new lease")
                                 result = {}
                                 if op == "preflight":
+                                    recovery_pending = lease is None and (JOURNAL.exists() or RULE.exists())
                                     try:
                                         if lease is None:
                                             preflight()
                                         result = {"available": True, "detail": "Privilege broker is available; acquisition still verifies physical isolation"}
                                     except BrokerError as error:
                                         result = {"available": False, "detail": str(error)}
+                                    result.update(leaseActive=lease is not None, recoveryPending=recovery_pending)
                                 elif op == "acquire":
                                     require(lease is None, "busy", "Another lease already owns the broker")
                                     preflight()
-                                    lease = Lease(client["pid"], client["uid"], client["start"], client["pidfd"])
+                                    lease = Lease(client["pid"], client["uid"], client["start"], client["pidfd"], endpoint)
                                     owner = endpoint
                                     try:
                                         result = lease.acquire(value["path"])

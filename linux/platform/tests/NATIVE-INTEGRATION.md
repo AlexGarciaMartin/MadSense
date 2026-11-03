@@ -86,10 +86,41 @@ exporter logs and final VHCI status. A missing capability or incomplete recovery
 fails the run. Cleanup never guesses a different port or overwrites changed
 production recovery evidence.
 
-The harness has been syntax-checked locally, and launcher guards have portable
-tests. Until it is run in CI, systemd
-FDSTORE behavior, actual permission restoration, UHID setup, polkit acceptance,
-pidfd cleanup and SIGKILL ordering remain unverified. This experiment does not
+[Run 41601178752](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41601178752)
+at `38238db1573015cbfc406f78cc0ef847455a34b1` installed the exact four helper/service
+files verified against its source payload. Both architectures passed 77 C# and
+47 Python tests. The native guest passed these eight assertions:
+
+- `root_application_is_rejected`
+- `polkit_denies_unapproved_user`
+- `foreign_hidraw_reader_refused_and_acl_rolled_back`
+- `grab_fdstore_acl_and_input_rpc_then_normal_release`
+- `owner_socket_eof_cleanup`
+- `owner_process_exit_cleanup`
+- `permission_tampering_ends_lease`
+- `named_acl_tampering_ends_lease`
+
+The second USB/IP import was rejected as an unexpected sysfs path, so SIGKILL
+recovery and reconnect assertions did not run. The kernel console identifies its
+own device as `1-2` and the independent import as `1-1`. The implementation could
+compare a missing `/sys/bus/usb/devices/1-2` alias against its expected canonical
+path when VHCI had already marked the port USED. A deterministic regression now
+exercises that publication window; attachment waits for strict resolution and
+still rejects a different existing canonical path. This explains the observed
+failure but requires another native run to confirm.
+
+The failed run left its recovery journal/rule intact and did not acknowledge
+cleanup. Its final service stop overlapped owner-EOF recovery and effect reset
+failed; the harness now waits for recovery before stopping the service and saves
+the remaining journal/rule/status if it times out. All VHCI ports were finally
+empty and the owned QEMU process stopped. This is incomplete recovery evidence,
+not a passing native run. The native artifact ZIP digest is
+`3db87abf08e33bd26de1f0dfcac9ef3f3b6c30de0819addaaed0ae228db0b37a`.
+
+The workflow now gates the separate `integration/qemu_core.py` stage on this
+baseline, then checks two idle installer restarts and the production C# core on a
+full synthetic UHID fixture in the same guest. Those new stages are not yet
+natively validated. This experiment does not
 prove real Bluetooth ownership, firmware reset acceptance, effects on a physical
 controller, game compatibility or latency. It does not exercise C# bridge/UI
 behavior; those require separate integration coverage.

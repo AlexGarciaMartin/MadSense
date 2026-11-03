@@ -76,3 +76,27 @@ start kernel integration: the hosted Azure 7.0.0-1017 kernel lacks `snd_usb_audi
 and its exact extra-module package was unavailable in the runner's Ubuntu archive.
 That is the reason for the official-image guest, rather than loading modules from
 a different kernel. These failed runs do not establish device enumeration.
+
+Run [41601178684](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41601178684),
+commit `38238db`, reached real USB enumeration in all three owned guests on
+Ubuntu `6.8.0-147-generic`. Each imported device's USB descriptors matched the
+exporter exactly. Kernel logs registered DualSense/Edge gamepad, motion and
+touchpad input devices through `hid-playstation`; Xbox registered its `xpad`
+gamepad. Sony's kernel initialization requested the three expected feature
+reports and produced parsed initialization outputs in the exporter capture.
+All three tests then failed in the harness's primary-evdev selector, before the
+raw HID/evdev and ALSA assertions. Each owned port detached and each exporter
+exited cleanly. This is enumeration evidence, not a complete kernel/audio pass.
+
+The selector incorrectly concatenated sysfs capability words, losing the width
+of zero words. Linux's
+[`input_print_bitmap` / `input_bits_to_string`](https://github.com/torvalds/linux/blob/v6.8/drivers/input/input.c)
+prints unpadded native unsigned-long words from high to low (32-bit words for a
+compat reader). The corrected parser retains that width, with regression tests
+for BTN_SOUTH at bit 304 in both 32- and 64-bit views. Subsequent runs also retain
+the owned input/hidraw/sound node inventory before detachment. A rerun is still
+required to validate the later assertions.
+
+The independent next-stage SDL2/SDL3, Xbox force-feedback and Wine/Proton plan is
+documented in [CONSUMERS.md](CONSUMERS.md). Those consumer probes do not alter
+this baseline and have no native execution evidence yet.

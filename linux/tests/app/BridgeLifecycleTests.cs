@@ -1,4 +1,5 @@
 using MadSense;
+using MadSense.Platform;
 using NUnit.Framework;
 
 namespace MadSense.Linux.App.Tests;
@@ -152,5 +153,71 @@ public sealed class BridgeLifecycleTests
         await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(2));
         await bridge.DisposeAsync();
         Assert.DoesNotThrow(() => { bridge.SetPaused(true); bridge.SetMode("Xbox"); bridge.SetSpeaker("Off"); });
+    }
+
+    [Test]
+    public async Task TransportLossDoesNotClaimPausedUntilAFreshHelperConfirmsCleanup()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int attempts = 0, probes = 0, recovered = 0;
+        LinuxBridgeController? bridge = null;
+        bridge = new LinuxBridgeController(false, "Auto", "Alto", async token =>
+        {
+            Interlocked.Increment(ref attempts); bridge!.MarkAcquisitionRequested(); entered.TrySetResult();
+            await Task.Delay(Timeout.Infinite, token);
+        }, _ =>
+        {
+            Interlocked.Increment(ref probes);
+            return ValueTask.FromResult(Volatile.Read(ref recovered) == 0
+                ? new LinuxBrokerPreflight(false, "Helper is offline during recovery")
+                : new LinuxBrokerPreflight(true, "Idle", LeaseActive: false, RecoveryPending: false));
+        });
+        await using (bridge)
+        {
+            bridge.SetPaused(false); await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            bridge.SetPaused(true);
+            await Until(() => Volatile.Read(ref probes) > 0);
+            Assert.That(bridge.State.Paused, Is.False);
+            Assert.That(bridge.State.Releasing, Is.True);
+            Assert.That(bridge.State.Message, Does.Contain("offline during recovery"));
+            Assert.That(LinuxLog.Recent(), Does.Contain("offline during recovery"));
+            await Task.Delay(1100);
+            Assert.That(attempts, Is.EqualTo(1));
+            Volatile.Write(ref recovered, 1);
+            await Until(() => bridge.State.Paused);
+            Assert.That(bridge.State.Releasing, Is.False);
+            Assert.That(attempts, Is.EqualTo(1), "Recovery polling must never request authorization.");
+        }
+    }
+
+    [Test]
+    public async Task ResumeWaitsForCleanupConfirmationAndAnOlderHelperCannotSupplyIt()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int attempts = 0, probes = 0, recovered = 0;
+        LinuxBridgeController? bridge = null;
+        bridge = new LinuxBridgeController(false, "Auto", "Alto", async token =>
+        {
+            Interlocked.Increment(ref attempts); bridge!.MarkAcquisitionRequested(); entered.TrySetResult();
+            await Task.Delay(Timeout.Infinite, token);
+        }, _ =>
+        {
+            Interlocked.Increment(ref probes);
+            return ValueTask.FromResult(Volatile.Read(ref recovered) == 0
+                ? new LinuxBrokerPreflight(true, "Legacy helper reports availability only")
+                : new LinuxBrokerPreflight(true, "Idle", LeaseActive: false, RecoveryPending: false));
+        });
+        await using (bridge)
+        {
+            bridge.SetPaused(false); await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            bridge.SetPaused(true); await Until(() => Volatile.Read(ref probes) > 0);
+            bridge.SetPaused(false);
+            await Task.Delay(1100);
+            Assert.That(attempts, Is.EqualTo(1));
+            Assert.That(bridge.State.Releasing, Is.True);
+            Assert.That(bridge.State.Ready, Is.False);
+            Volatile.Write(ref recovered, 1);
+            await Until(() => Volatile.Read(ref attempts) == 2);
+        }
     }
 }

@@ -43,8 +43,11 @@ jobs:
           set -o pipefail
           dotnet test linux/platform/tests/MadSense.Linux.Platform.Tests.csproj -c Release --logger 'trx;LogFileName=platform.trx' --results-directory dist/linux-platform-portable
           python3 -m unittest discover -s linux/platform/tests -p 'test_*.py' -v 2>&1 | tee dist/linux-platform-portable/python-tests.txt
-          python3 -m py_compile linux/platform/broker.py linux/platform/broker_core.py linux/platform/tests/*.py
-          for script in linux/platform/install.sh linux/platform/tests/run_native_broker_guest.sh linux/platform/tests/run_broker_experiment.sh; do bash -n "$script"; done
+          python3 -m unittest discover -s linux/platform/integration -p 'test_*.py' -v 2>&1 | tee dist/linux-platform-portable/core-fixture-tests.txt
+          dotnet restore linux/platform/integration/MadSense.Linux.CoreProbe.csproj --locked-mode
+          dotnet run --project linux/platform/integration/MadSense.Linux.CoreProbe.csproj -c Release --no-restore -- --verify-fixtures linux/platform/integration/fixtures.json | tee dist/linux-platform-portable/core-parser.txt
+          python3 -m py_compile linux/platform/broker.py linux/platform/broker_core.py linux/platform/tests/*.py linux/platform/integration/*.py
+          for script in linux/platform/install.sh linux/platform/tests/run_native_broker_guest.sh linux/platform/tests/run_broker_experiment.sh linux/platform/integration/run_core_experiment.sh; do bash -n "$script"; done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -63,20 +66,28 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Publish neutral USB-IP exporter
         run: dotnet publish linux/probe/MadSense.Linux.Probe.csproj -c Release -r linux-x64 --self-contained true -o dist/linux-platform-probe
+      - name: Publish production core integration actor
+        run: dotnet publish linux/platform/integration/MadSense.Linux.CoreProbe.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o dist/linux-core-probe
       - name: Install official-image guest tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client
           test -r /usr/share/keyrings/ubuntu-cloudimage-keyring.gpg
-      - name: Native UHID, polkit, FDSTORE and owned USB-IP recovery
+      - name: Record existing KVM capability without changing host permissions
+        run: |
+          python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-runner.json
+          sudo -n python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-root.json
+      - name: Native broker baseline, idle upgrade and production core over UHID
         run: >-
-          python3 linux/platform/tests/qemu_broker.py
-          --probe-directory dist/linux-platform-probe
+          python3 linux/platform/integration/qemu_core.py
+          --neutral-probe-directory dist/linux-platform-probe --core-probe-directory dist/linux-core-probe
           --output dist/linux-platform-guest --work dist/platform-qemu-private
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: linux-platform-native-x64
-          path: dist/linux-platform-guest/**
+          path: |
+            dist/linux-platform-guest/**
+            dist/kvm-*.json
           retention-days: 14
           if-no-files-found: warn

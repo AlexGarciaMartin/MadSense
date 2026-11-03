@@ -60,7 +60,7 @@ sealed class MainWindow : Window
         Add(Section(speakerSection), 6);
         var speakers = new Grid { ColumnDefinitions = new("*,*,*") };
         var buttons = new[] { high, low, off }; for (var i = 0; i < buttons.Length; i++) { buttons[i].Margin = new(0, 0, i == 2 ? 0 : 8, 0); Grid.SetColumn(buttons[i], i); speakers.Children.Add(buttons[i]); } Add(speakers, 7);
-        var footer = new Grid { ColumnDefinitions = new("*,150,96,144"), Margin = new(0, 6, 0, 0) };
+        var footer = new Grid { ColumnDefinitions = new("*,150,120,144"), Margin = new(0, 6, 0, 0) };
         activity.FontSize = 10; activity.Foreground = Brand.Muted; activity.TextTrimming = TextTrimming.CharacterEllipsis; activity.VerticalAlignment = VerticalAlignment.Center; footer.Children.Add(activity);
         Grid.SetColumn(languages, 1); footer.Children.Add(languages); logs.Margin = new(8, 0, 8, 0); Grid.SetColumn(logs, 2); footer.Children.Add(logs); Grid.SetColumn(pause, 3); footer.Children.Add(pause); Add(footer, 8);
         languages.ItemsSource = new[] { LinuxText.Text("Ui.LanguageAuto") }.Concat(L.Languages.Select(l => l.NativeName)).ToArray();

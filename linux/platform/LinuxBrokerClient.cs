@@ -6,7 +6,12 @@ using System.Text.Json;
 
 namespace MadSense.Platform;
 
-public sealed record LinuxBrokerPreflight(bool Available, string Detail);
+public sealed record LinuxBrokerPreflight(bool Available, string Detail, bool? LeaseActive = null, bool? RecoveryPending = null)
+{
+    // Older helpers do not provide these fields. Availability alone is not an
+    // acknowledgement that an earlier lease has finished restoring the device.
+    public bool CleanupConfirmed => LeaseActive == false && RecoveryPending == false;
+}
 
 /// <summary>Unprivileged client for the installed, root-owned local broker.</summary>
 public sealed class LinuxBrokerClient : IAsyncDisposable
@@ -66,7 +71,9 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
         try
         {
             JsonElement result = await RequestAsync("preflight", null, ct).ConfigureAwait(false);
-            return new(result.GetProperty("available").GetBoolean(), result.GetProperty("detail").GetString() ?? "");
+            return new(result.GetProperty("available").GetBoolean(), result.GetProperty("detail").GetString() ?? "",
+                result.TryGetProperty("leaseActive", out var active) ? active.GetBoolean() : null,
+                result.TryGetProperty("recoveryPending", out var recovery) ? recovery.GetBoolean() : null);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception error) when (error is IOException or InvalidOperationException or JsonException)

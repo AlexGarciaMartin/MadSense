@@ -50,6 +50,43 @@ def owned_nodes(root, subsystem, pattern):
     return sorted(nodes)
 
 
+def sysfs_bitmap(text, word_bits=None):
+    """input_print_bitmap uses unpadded native unsigned-long words, high first.
+
+    Linux's compat reader uses 32-bit words; native Python's C unsigned-long
+    size therefore matches the syscall view. Concatenating strings loses zero
+    words and changes button indices (notably BTN_SOUTH at bit 304).
+    """
+    if word_bits is None:
+        word_bits = struct.calcsize("L") * 8
+    if word_bits not in (32, 64):
+        raise ValueError("Unsupported sysfs bitmap word width")
+    words = text.split()
+    if not words:
+        raise ValueError("Empty sysfs capability bitmap")
+    result = 0
+    for word in words:
+        value = int(word, 16)
+        if value < 0 or value >= (1 << word_bits):
+            raise ValueError("Capability word exceeds its native width")
+        result = (result << word_bits) | value
+    return result
+
+
+def device_inventory(usb):
+    result = {"usbParent": str(usb), "nodes": []}
+    for subsystem, pattern in (("input", "event*"), ("hidraw", "hidraw*"), ("sound", "card[0-9]*")):
+        for node in owned_nodes(usb, subsystem, pattern):
+            record = {"subsystem": subsystem, "name": node.name,
+                      "device": str((node / "device").resolve())}
+            for relative in ("device/name", "device/uevent", "device/capabilities/key", "device/capabilities/abs"):
+                path = node / relative
+                if path.is_file():
+                    record[relative] = path.read_text().strip()
+            result["nodes"].append(record)
+    return result
+
+
 def contains_exact(captured, expected, frame_bytes, allow_silence):
     if not expected or len(captured) % frame_bytes or len(expected) % frame_bytes:
         raise AssertionError("PCM is empty or not frame aligned")
@@ -93,6 +130,7 @@ def main():
         return completed
     owned_port = None
     owned_bus = None
+    usb = None
     process = None
     try:
         command("uname", ["uname", "-a"])
@@ -156,7 +194,7 @@ def main():
         def primary_event():
             for path in owned_nodes(usb, "input", "event*"):
                 text = (path / "device/capabilities/key").read_text()
-                if (int("".join(text.split()), 16) >> 304) & 1:  # BTN_SOUTH
+                if (sysfs_bitmap(text) >> 304) & 1:  # BTN_SOUTH
                     return path
             return None
         event = wait_for(primary_event)
@@ -228,6 +266,12 @@ def main():
     except BaseException as error:
         result["reason"] = f"{type(error).__name__}: {error}"
     finally:
+        if usb is not None:
+            try:
+                if (usb / "serial").read_text().strip() == ready["serial"]:
+                    save("device-inventory.json", device_inventory(usb))
+            except (OSError, ValueError) as error:
+                result["inventoryError"] = str(error)
         if owned_port is not None:
             try:
                 current = ports().get(owned_port)

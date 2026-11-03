@@ -1,0 +1,74 @@
+import binascii
+import json
+from pathlib import Path
+import struct
+import unittest
+import copy
+
+from production_fixture import descriptor, features, input_report, manifest
+from qemu_core import REQUIRED_CORE_CASES, verify_core_result
+
+
+class FixtureTests(unittest.TestCase):
+    def test_manifest_matches_generated_source(self):
+        self.assertEqual(json.loads(Path(__file__).with_name("fixtures.json").read_text()), manifest())
+
+    def test_descriptor_sizes_cover_complete_transport_reports(self):
+        # Independent HID short-item walk. Count input/output/feature bits per
+        # report id, including the report-id byte only once.
+        data, offset, report, size, count = descriptor(), 0, 0, 0, 0
+        lengths = {}
+        while offset < len(data):
+            tag = data[offset]; offset += 1
+            length = (0, 1, 2, 4)[tag & 3]
+            value = int.from_bytes(data[offset:offset + length], "little"); offset += length
+            kind = tag & 0xFC
+            if kind == 0x84: report = value
+            elif kind == 0x74: size = value
+            elif kind == 0x94: count = value
+            elif kind in (0x80, 0x90, 0xB0):
+                key = (kind, report)
+                lengths[key] = lengths.get(key, 8) + size * count
+        self.assertEqual(lengths[(0x80, 0x31)], 78 * 8)
+        for report, size in ((0x31, 78), (0x32, 142), (0x35, 334), (0x36, 398)):
+            self.assertEqual(lengths[(0x90, report)], size * 8)
+        for report, size in ((5, 41), (9, 20), (0x20, 64)):
+            self.assertEqual(lengths[(0xB0, report)], size * 8)
+
+    def test_input_counter_motion_and_crc_are_not_zero_fixtures(self):
+        neutral, marker = input_report(False, 257), input_report(True, 257)
+        self.assertEqual(neutral[8], 1)
+        self.assertEqual(struct.unpack_from("<I", neutral, 29)[0], 257 * 3000)
+        self.assertEqual(struct.unpack_from("<hhhhhh", marker, 17), (-1234, 2345, -3456, 0, 0, 8192))
+        for data in (neutral, marker):
+            self.assertEqual(struct.unpack_from("<I", data, 74)[0], binascii.crc32(b"\xa1" + data[:74]))
+        self.assertNotEqual(neutral, marker)
+
+    def test_calibration_denominators_nonzero_and_pairing_distinct(self):
+        reports = features()
+        for position in (7, 11, 15, 23, 27, 31):
+            high, low = struct.unpack_from("<hh", reports[5], position)
+            self.assertGreater(high - low, 0)
+        self.assertNotEqual(reports[9][1:7], reports[9][10:16])
+
+    def test_south_only_fixture_changes_only_button_and_crc(self):
+        neutral, south = input_report(), input_report(south_only=True)
+        self.assertEqual(south[9], 0x28)
+        self.assertEqual(neutral[:9], south[:9])
+        self.assertEqual(neutral[10:74], south[10:74])
+
+    def test_evidence_requires_every_stage_and_rejects_hardware_or_ui_claims(self):
+        good = dict(result="passed", environment={"kind": "owned-qemu-guest", "instance": "token"},
+                    physicalDevices=False, radioInitialized=False, applicationUiExercised=False,
+                    cases=[dict(name=name, passed=True) for name in REQUIRED_CORE_CASES])
+        verify_core_result(good, "token")
+        for change in ({"cases": good["cases"][:-1]}, {"cases": good["cases"] * 2},
+                       {"physicalDevices": True}, {"applicationUiExercised": True},
+                       {"cleanupError": "Lease remains"}, {"result": "failed"}):
+            bad = copy.deepcopy(good); bad.update(change)
+            with self.subTest(change=change), self.assertRaises(RuntimeError):
+                verify_core_result(bad, "token")
+
+
+if __name__ == "__main__":
+    unittest.main()

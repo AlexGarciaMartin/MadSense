@@ -1,0 +1,29 @@
+MadSense Linux consumer experiments
+
+These binaries are research observers, not an installed controller driver or a
+claim of game compatibility. The build job performs compilation only. The
+consumer source and build configuration are included under source/, with the
+repository's GNU GPL version 3 license in source/LICENSE and notices/.
+
+consumer_sdl3 statically links unmodified SDL 3.2.28 from the official SDL
+project, commit 7f3ae3d57459e59943a4ecfefc8f6277ec6bf540. SDL is copyright
+1997-2025 Sam Lantinga and its contributors, under the zlib license. Its complete
+verified source archive is included as SDL3.tar.gz, with source origin/hash and
+compiler details in provenance.txt. Its license is reproduced in
+notices/SDL3-LICENSE.txt. SDL's HIDAPI component is used under its BSD-style
+license, reproduced in notices/HIDAPI-BSD.txt; its original license-choice
+statement is also included. Other embedded source notices remain in the complete
+unmodified source archive. MadSense does not claim authorship of SDL or HIDAPI.
+
+consumer_sdl2 dynamically links the Ubuntu SDL2 system library. The runtime
+library itself is not bundled. The package version is recorded in provenance.txt
+and its distribution copyright file is included in notices/. Install the matching
+libsdl2-2.0-0 runtime in the test guest. The remaining Linux system libraries are
+also supplied by the distribution, not bundled in this artifact.
+
+Rebuild with the source/linux/research/build_consumers.sh instructions in
+source/linux/research/CONSUMERS.md. The pinned source URL, digest and all build
+options are in that script and consumer-build/CMakeLists.txt. The script downloads
+and verifies the same SDL archive; an identical copy is supplied beside this file.
+Git checkouts record their commit; an unpacked source artifact uses the original
+supplied provenance for that identity. No SDL source changes are made.

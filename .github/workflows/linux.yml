@@ -30,7 +30,7 @@ jobs:
       - name: Install desktop runtime dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libhidapi-hidraw0 libx11-6 libice6 libsm6 libfontconfig1 libfreetype6 fonts-dejavu-core xvfb dbus-x11 xdotool
+          sudo apt-get install -y libhidapi-hidraw0 libx11-6 libice6 libsm6 libfontconfig1 libfreetype6 fonts-dejavu-core xvfb dbus-x11 xdotool scrot
       - name: Build native architecture app
         run: |
           dotnet restore linux/app/MadSense.Linux.csproj --locked-mode
@@ -47,9 +47,7 @@ jobs:
       - name: Real Linux X11 GUI without controller access
         run: |
           mkdir -p dist/linux/evidence
-          for language in en es fr de it pt-BR; do
-            timeout 25s dbus-run-session -- xvfb-run -a dist/linux/app/MadSense.Linux --ui-smoke "$PWD/dist/linux/evidence" --language "$language"
-          done
+          timeout 90s dbus-run-session -- xvfb-run -a python3 linux/tests/capture_desktop.py dist/linux/app/MadSense.Linux dist/linux/evidence
           python3 linux/tests/verify_gui.py dist/linux/evidence
           timeout 90s dbus-run-session -- xvfb-run -a python3 linux/tests/gui_lifecycle.py dist/linux/app/MadSense.Linux dist/linux/evidence
       - name: Package tested binaries with source and dependency notices

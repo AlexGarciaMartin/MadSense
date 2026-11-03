@@ -29,6 +29,7 @@ sealed class LinuxBridgeController : IAsyncDisposable
     readonly Task worker;
     readonly bool preview;
     readonly Func<CancellationToken, ValueTask> connect;
+    readonly Func<CancellationToken, ValueTask<LinuxBrokerPreflight>> cleanupProbe;
     readonly Lock attemptLock = new();
     CancellationTokenSource? connectionAttempt;
     Task? disposal;
@@ -37,7 +38,10 @@ sealed class LinuxBridgeController : IAsyncDisposable
     LinuxBridgeState state = new(false, L.Text("Ui.PausedMessage"), Paused: true);
     string mode, speaker;
     bool paused = true, requestedHeadset, haveHeadset, authorizationDenied;
-    long nextRetry, lastReport, started;
+    bool acquisitionRequested, cleanupPending;
+    LinuxBridgeState? resumeRequiredState;
+    string lastCleanupError = "";
+    long nextRetry, lastReport, started, nextCleanupCheck;
     HidDeviceEnumerator? enumerator;
     LinuxBrokerClient? broker;
     LinuxPhysicalSession? physicalSession;
@@ -56,10 +60,12 @@ sealed class LinuxBridgeController : IAsyncDisposable
         return current == null ? Volatile.Read(ref lastMetrics) : JsonSerializer.Serialize(new
         { scope = "Software broker IPC and client queue only; no radio, firmware or physical actuator latency", metrics = current.Metrics }, new JsonSerializerOptions { WriteIndented = true });
     }
-    internal LinuxBridgeController(bool preview, string mode, string speaker, Func<CancellationToken, ValueTask>? connectOverride = null)
+    internal LinuxBridgeController(bool preview, string mode, string speaker, Func<CancellationToken, ValueTask>? connectOverride = null,
+        Func<CancellationToken, ValueTask<LinuxBrokerPreflight>>? cleanupOverride = null)
     {
         this.preview = preview; this.mode = mode; this.speaker = speaker;
         connect = connectOverride ?? Connect;
+        cleanupProbe = cleanupOverride ?? ProbeCleanup;
         if (!preview) DualSenseClientLogger.Configure(LogLevel.Info, new LinuxLog());
         worker = Task.Run(Run);
     }
@@ -84,7 +90,7 @@ sealed class LinuxBridgeController : IAsyncDisposable
     }
     public void SetPaused(bool value)
     {
-        Send(async () => { paused = value; authorizationDenied = false; if (value) await Stop(); else nextRetry = 0; },
+        Send(async () => { paused = value; authorizationDenied = false; resumeRequiredState = null; if (value) await Stop(); else nextRetry = 0; },
             cancelConnection: value, transition: value);
     }
     public void SetMode(string value)
@@ -124,7 +130,13 @@ sealed class LinuxBridgeController : IAsyncDisposable
         var devices = enumerator.Enumerate(0x054c).Where(info => info.ProductId is 0x0ce6 or 0x0df2 && info.UsagePage == 1).ToArray();
         var info = devices.FirstOrDefault(info => info.BusType == ConnectionType.Bluetooth);
         if (info == null) throw new InvalidOperationException(LinuxText.Text(devices.Any(info => info.BusType == ConnectionType.Usb) ? "Bridge.UsbConnected" : "Bridge.PairingNeeded"));
+        MarkAcquisitionRequested();
         physicalSession = await broker.AcquirePhysicalAsync(info.Path, cancellation);
+        // Setup performs synchronous feature RPCs before its input reader and
+        // virtual creation start. Cancel this exact setup connection to wake
+        // them as well; an established session no longer has this registration.
+        var setupBroker = broker;
+        using var abortSetup = cancellation.Register(() => { _ = setupBroker.DisposeAsync(); });
         cancellation.ThrowIfCancellationRequested();
         if (!physicalSession.IsolationVerified) throw new InvalidOperationException("Physical controller isolation was not verified.");
         // A queued notification from an old session may wake this worker but
@@ -132,6 +144,7 @@ sealed class LinuxBridgeController : IAsyncDisposable
         physicalSession.IsolationLost += Nudge;
         metered = new ActivityHidDevice(physicalSession.Device);
         pad = info.ProductId == 0x0df2 ? new DualSenseEdgeDevice(metered, info) : new DualSenseDevice(metered, info);
+        cancellation.ThrowIfCancellationRequested();
         // Same production session lengths as Windows; no new physical latency claim.
         pad.BluetoothAudioSessionBufferLengths = [0x40, 0x40, 0x40, 0x40, 0x20];
         lastReport = Environment.TickCount64;
@@ -158,7 +171,14 @@ sealed class LinuxBridgeController : IAsyncDisposable
     }
     async ValueTask Update()
     {
-        if (paused) { if (!authorizationDenied) state = new(false, L.Text("Ui.PausedMessage"), Paused: true); return; }
+        if (cleanupPending) { await CheckCleanup(); return; }
+        if (paused)
+        {
+            state = authorizationDenied && resumeRequiredState != null
+                ? resumeRequiredState with { Paused = true }
+                : new(false, L.Text("Ui.PausedMessage"), Paused: true);
+            return;
+        }
         if (preview) { state = new(false, LinuxText.Text("Linux.Preview")); return; }
         if (pad == null)
         {
@@ -174,20 +194,24 @@ sealed class LinuxBridgeController : IAsyncDisposable
             catch (UnauthorizedAccessException error)
             {
                 await Stop(); paused = true; authorizationDenied = true;
-                state = new(false, error.Message, RequiresResume: true, Paused: true); LinuxLog.Append(error.Message);
+                resumeRequiredState = new(false, error.Message, RequiresResume: true, Paused: !cleanupPending);
+                state = cleanupPending ? RecoveryState(error.Message) : resumeRequiredState; LinuxLog.Append(error.Message);
             }
             catch (OperationCanceledException) when (attempt.IsCancellationRequested && !lifetime.IsCancellationRequested)
             { await Stop(); }
             catch (Exception error) when (!lifetime.IsCancellationRequested)
-            { await Stop(); state = new(false, UiMessage.FromException(error).Render()); LinuxLog.Append(state.Message); }
+            {
+                await Stop(); string detail = UiMessage.FromException(error).Render();
+                state = cleanupPending ? RecoveryState(detail) : new(false, detail); LinuxLog.Append(detail);
+            }
             finally { lock (attemptLock) connectionAttempt = null; }
             return;
         }
         if (pad.IsDisposed || !metered!.IsConnected || !physicalSession!.IsolationVerified || Environment.TickCount64 - Interlocked.Read(ref lastReport) > 5000)
-        { await Stop(); nextRetry = Environment.TickCount64 + 1000; state = new(false, L.Text("Bridge.LinkLost")); return; }
+        { await Stop(); nextRetry = Environment.TickCount64 + 1000; if (!cleanupPending) state = new(false, L.Text("Bridge.LinkLost")); return; }
         var status = emulation!.GetStatus(pad);
         if (!status.Running && Environment.TickCount64 - started > 20000)
-        { await Stop(); nextRetry = Environment.TickCount64 + 10000; state = new(false, L.Text("Bridge.CreationFailed")); return; }
+        { await Stop(); nextRetry = Environment.TickCount64 + 10000; if (!cleanupPending) state = new(false, L.Text("Bridge.CreationFailed")); return; }
         var headset = pad.InputReport?.Connection.Headphone ?? false;
         if (status.Running && mode != "Xbox" && (!haveHeadset || headset != requestedHeadset))
         { emulation.SetForwardingAudioOutput(pad, headset); requestedHeadset = headset; haveHeadset = true; }
@@ -199,6 +223,9 @@ sealed class LinuxBridgeController : IAsyncDisposable
     }
     async ValueTask Stop()
     {
+        cleanupPending |= acquisitionRequested;
+        acquisitionRequested = false;
+        bool acknowledged = false;
         if (physicalSession != null) { lastMetrics = MetricsText(); LinuxLog.Append("Session metrics: " + lastMetrics); }
         state = new(false, L.Text("Ui.Releasing"), Releasing: true);
         // A creation may hold EmulationService's disposal gate while waiting
@@ -230,12 +257,54 @@ sealed class LinuxBridgeController : IAsyncDisposable
                 finally
                 {
                     actions = null; tracker = null; enumerator = null; settings = null;
-                    try { if (physicalSession != null) await physicalSession.DisposeAsync(); }
+                    try
+                    {
+                        if (physicalSession != null)
+                        {
+                            await physicalSession.DisposeAsync();
+                            acknowledged = physicalSession.CleanupConfirmed;
+                        }
+                    }
                     finally { physicalSession = null; if (broker != null) await broker.DisposeAsync(); broker = null; }
                 }
             }
         }
-        state = new(false, L.Text(paused ? "Ui.PausedMessage" : "Bridge.Waiting"), Paused: paused);
+        if (acknowledged) cleanupPending = false;
+        if (cleanupPending) LinuxLog.Append("Controller release is unconfirmed; waiting for the helper's recovery status.");
+        state = cleanupPending ? RecoveryState(lastCleanupError)
+            : new(false, L.Text(paused ? "Ui.PausedMessage" : "Bridge.Waiting"), Paused: paused);
+    }
+    internal void MarkAcquisitionRequested() => acquisitionRequested = true;
+    static LinuxBridgeState RecoveryState(string detail) => new(false,
+        LinuxText.Text("Linux.RecoveryPending") + (detail.Length == 0 ? "" : " · " + detail), Releasing: true);
+    static async ValueTask<LinuxBrokerPreflight> ProbeCleanup(CancellationToken cancellation)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        timeout.CancelAfter(TimeSpan.FromSeconds(2));
+        await using var probe = await LinuxBrokerClient.ConnectAsync(timeout.Token);
+        return await probe.PreflightAsync(timeout.Token);
+    }
+    async ValueTask CheckCleanup()
+    {
+        if (Environment.TickCount64 < nextCleanupCheck) return;
+        LinuxBrokerPreflight result;
+        try { result = await cleanupProbe(lifetime.Token); }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
+        catch (Exception error) { result = new(false, error.Message); }
+        nextCleanupCheck = Environment.TickCount64 + 1000;
+        if (result.CleanupConfirmed)
+        {
+            cleanupPending = false; lastCleanupError = ""; nextRetry = 0;
+            LinuxLog.Append("The helper confirmed no active lease or pending recovery.");
+            state = paused ? resumeRequiredState is { } reason ? reason with { Paused = true, Releasing = false }
+                : new(false, L.Text("Ui.PausedMessage"), Paused: true) : new(false, L.Text("Bridge.Waiting"));
+            return;
+        }
+        string detail = result.Available && (result.LeaseActive == null || result.RecoveryPending == null)
+            ? LinuxText.Text("Linux.RecoveryStatusUnsupported") : result.Detail;
+        if (detail != lastCleanupError) LinuxLog.Append("Controller release remains unconfirmed: " + detail);
+        lastCleanupError = detail;
+        state = RecoveryState(detail);
     }
     async Task Run()
     {
@@ -254,7 +323,8 @@ sealed class LinuxBridgeController : IAsyncDisposable
                     LinuxLog.Append(error.ToString());
                     try { await Stop(); } catch (Exception cleanup) { LinuxLog.Append("Cleanup: " + cleanup); }
                     paused = true; authorizationDenied = true;
-                    state = new(false, error.Message, RequiresResume: true);
+                    resumeRequiredState = new(false, error.Message, RequiresResume: true);
+                    state = cleanupPending ? RecoveryState(error.Message) : resumeRequiredState;
                 }
                 await wake.WaitAsync(500, lifetime.Token);
             }

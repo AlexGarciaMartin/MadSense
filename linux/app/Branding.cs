@@ -2,7 +2,7 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Media;
-using System.Globalization;
+using Avalonia.Media.TextFormatting;
 using System.Text.Json;
 using Avalonia.Platform;
 
@@ -40,17 +40,21 @@ static class Brand
                 c.DrawGeometry(color, null, artwork.Geometry);
             return;
         }
-        FormattedText text;
         var size = largest;
-        do
+        // Keep the shaped layout used for measurement through drawing. In
+        // particular, do not re-format a second run after measuring its width.
+        while (true)
         {
-            text = new(value, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
+            using var text = new TextLayout(value,
                 new Typeface(display ? Display : Mono, FontStyle.Normal, FontWeight.Bold), size, color);
-            if ((text.Width <= rect.Width && text.Height <= rect.Height) || size <= smallest) break;
+            if ((text.Width <= rect.Width && text.Height <= rect.Height) || size <= smallest)
+            {
+                var origin = centered ? new Point(rect.X + Math.Max(0, (rect.Width - text.Width) / 2), rect.Y + Math.Max(0, (rect.Height - text.Height) / 2)) : rect.TopLeft;
+                using (c.PushClip(rect)) text.Draw(c, origin);
+                break;
+            }
             size -= .5;
-        } while (true);
-        var origin = centered ? new Point(rect.X + Math.Max(0, (rect.Width - text.Width) / 2), rect.Y + Math.Max(0, (rect.Height - text.Height) / 2)) : rect.TopLeft;
-        using (c.PushClip(rect)) c.DrawText(text, origin);
+        }
     }
     public static void Logo(DrawingContext c, Rect rect)
     {

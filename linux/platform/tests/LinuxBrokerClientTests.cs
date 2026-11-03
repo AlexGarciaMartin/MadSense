@@ -68,6 +68,19 @@ public sealed class LinuxBrokerClientTests
         Assert.That(request.GetProperty("op").GetString(), Is.EqualTo("preflight"));
         await peer.ReplyAsync(request, new { available = false, detail = "vhci_hcd is not installed" });
         Assert.That(await task, Is.EqualTo(new LinuxBrokerPreflight(false, "vhci_hcd is not installed")));
+        Assert.That((await task).CleanupConfirmed, Is.False, "An older helper does not acknowledge lease recovery.");
+    }
+
+    [TestCase(false, false, true)]
+    [TestCase(true, false, false)]
+    [TestCase(false, true, false)]
+    public async Task PreflightOnlyConfirmsCleanupWhenExplicitlyIdle(bool leaseActive, bool recoveryPending, bool confirmed)
+    {
+        await using var peer = await Peer.OpenAsync();
+        var pending = peer.Client.PreflightAsync();
+        var request = await peer.RequestAsync();
+        await peer.ReplyAsync(request, new { available = true, detail = "broker available", leaseActive, recoveryPending });
+        Assert.That((await pending).CleanupConfirmed, Is.EqualTo(confirmed));
     }
 
     [Test]
@@ -116,6 +129,7 @@ public sealed class LinuxBrokerClientTests
         await lost.Task.WaitAsync(TimeSpan.FromSeconds(3));
         await Assert.ThrowsAsync<HidException>(async () => await read);
         Assert.That(session.IsolationVerified, Is.False);
+        Assert.That(session.CleanupConfirmed, Is.False);
         Assert.That(session.Device.IsConnected, Is.False);
         Assert.That(session.AttachStrategy.TryAttach("127.0.0.1", 3241, "1-1", out _), Is.False);
         await peer.SendAsync(new { @event = "isolation_lost", reason = "device removed" });
@@ -281,8 +295,35 @@ public sealed class LinuxBrokerClientTests
         Assert.That(request.GetProperty("op").GetString(), Is.EqualTo("release"));
         await peer.ReplyAsync(request, new { });
         await disposing;
+        Assert.That(session.CleanupConfirmed, Is.True);
         await Assert.ThrowsAsync<HidException>(async () => await read);
         Assert.That(peer.Client.IsConnected, Is.False);
+    }
+
+    [Test]
+    public async Task DisposingAfterTransportLossCannotAcknowledgeHelperCleanup()
+    {
+        await using var peer = await Peer.OpenAsync();
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        await peer.Client.DisposeAsync();
+        await session.DisposeAsync();
+        Assert.That(session.CleanupConfirmed, Is.False);
+    }
+
+    [Test]
+    public async Task CancellingSetupConnectionWakesPendingFeatureReadAndLeavesCleanupUnconfirmed()
+    {
+        await using var peer = await Peer.OpenAsync();
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        using var cancellation = new CancellationTokenSource();
+        using var registration = cancellation.Token.Register(() => { _ = peer.Client.DisposeAsync(); });
+        Task<byte[]> feature = Task.Run(() => session.Device.GetFeatureReport(0x20, 64));
+        Assert.That((await peer.RequestAsync()).GetProperty("op").GetString(), Is.EqualTo("get_feature"));
+        cancellation.Cancel();
+        await Assert.ThrowsAsync<HidException>(async () => await feature.WaitAsync(TimeSpan.FromSeconds(1)));
+        Assert.That(await peer.ConnectionEndedAsync(), Is.True);
+        await session.DisposeAsync();
+        Assert.That(session.CleanupConfirmed, Is.False);
     }
 
     [Test]

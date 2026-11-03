@@ -498,6 +498,24 @@ def main():
     finally:
         for value in actors:
             value.close()
+        # Owner EOF starts ordered import shutdown/reset. Stopping systemd at
+        # once also SIGTERMs a reset child still running in its cgroup, which
+        # turns a recoverable test failure into an artificial reset failure.
+        try:
+            wait_for(lambda: not Path("/run/madsense/lease.json").exists()
+                     and not Path("/run/udev/rules.d/72-madsense-lease.rules").exists(), seconds=20)
+        except TimeoutError:
+            result["cleanupError"] = "owner EOF recovery did not finish before final service stop"
+            result["result"] = "failed"
+        recovery = {"ports": ports()}
+        for name, path in (("journal", Path("/run/madsense/lease.json")),
+                           ("rule", Path("/run/udev/rules.d/72-madsense-lease.rules"))):
+            try:
+                content = path.read_text()
+                recovery[name] = json.loads(content) if name == "journal" else content
+            except FileNotFoundError:
+                recovery[name] = None  # Recovery can finish during the snapshot.
+        save("recovery-before-final-stop.json", recovery)
         command("broker-stop", ["systemctl", "stop", SERVICE], check=False)
         command("broker-journal", ["journalctl", "-u", SERVICE, "--no-pager", "-o", "short-monotonic"], check=False)
         command("broker-properties", ["systemctl", "show", SERVICE], check=False)
