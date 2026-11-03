@@ -5,6 +5,8 @@ on:
     branches: [feature/linux]
     paths:
       - '.github/workflows/linux-consumers.yml'
+      - 'linux/platform/**'
+      - 'vendor/DualSenseClient/**'
       - 'linux/research/consumer-build/**'
       - 'linux/research/build_consumers.sh'
       - 'linux/research/consumer_*'

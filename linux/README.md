@@ -22,28 +22,31 @@ mandos. La conexión permanece bloqueada hasta verificar el componente de acceso
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
 
-En la revisión `884f0fd`, el
-[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41613298810)
-pasó en ambas arquitecturas: 380 pruebas compartidas, 82 de plataforma y 15 de
+En la revisión `a71108f`, el
+[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41617856156)
+pasó en ambas arquitecturas: 380 pruebas compartidas, 84 de plataforma y 15 de
 aplicación, las seis interfaces y el ciclo de escritorio de los paquetes extraídos.
 Las [tres pruebas del kernel en `5733910`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41611760328)
 pasaron con DualSense, Edge y Xbox, incluida la retirada de la VM y restauración
 de permisos KVM. Las dos Sony conservaron las 48.000 muestras por canal en la
 reproducción ALSA y el audio ISO IN sintético.
-El [servicio nativo en `884f0fd`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41613298915)
+El [servicio nativo en `0e0c6b9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41617327336)
 pasó diez casos de aislamiento/recuperación, dos actualizaciones en reposo y
 cuatro casos de desinstalación/reinstalación. Después, el fixture real de
-hid-playstation pasó los dos rechazos de acceso evdev en conflicto. La ejecución
-falló antes de arrancar el actor C# por sus permisos de staging; sus artefactos
-conservan ese fallo. En
-[`477687d`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41615446457),
-el staging normalizado y la ejecución como usuario ordinario pasaron; el montaje
-de `/run` quedó identificado como `noexec`. El actor C# arrancó, pero su sesión
-terminó durante la inicialización, antes del USB virtual. La
-[ejecución de consumidores](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41615446558)
-alcanzó calibración, firmware, emparejamiento y el parser real antes de perder la
-sesión. Se conserva ese fallo y se investiga su primera causa; motor, app y
+hid-playstation pasó los dos rechazos de acceso evdev en conflicto. El actor C#
+arrancó como usuario ordinario, pero el servicio cerró su sesión durante la
+calibración porque ya había ocho informes pendientes de entrega. El registro
+del servicio conserva esa primera causa. La
+[ejecución de consumidores](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41617327362)
+confirma el mismo fallo, sin pérdidas en el observador de pruebas. Motor, app y
 consumidores completos todavía no han superado sus gates.
+
+Una [prueba aislada de bloqueo del grupo de hilos](platform/tests/starvation/README.md)
+reproduce la dependencia del cliente anterior: con su único worker ocupado por
+una operación HID síncrona, tampoco podía recibir la respuesta. La corrección
+separa el lector y las esperas síncronas de ese grupo, conservando los límites
+de cola. Los doce casos de control/restricción pasan localmente; queda verificar
+esta corrección en Linux nativo y en el recorrido completo de la app.
 
 El [análisis independiente del audio en `884f0fd`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41613299026)
 pasó en ambas arquitecturas: Opus decodificado con libopus y hápticos contrastados

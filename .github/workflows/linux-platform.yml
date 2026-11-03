@@ -63,6 +63,12 @@ jobs:
           dotnet build linux/tests/app-integration/MadSense.Linux.AppProbe.csproj -c Release -p:RestoreLockedMode=true
           python3 -m py_compile linux/platform/broker.py linux/platform/broker_core.py linux/platform/tests/*.py linux/platform/integration/*.py linux/tests/app-integration/*.py linux/research/kvm_acceleration.py
           for script in linux/platform/install.sh linux/platform/uninstall.sh linux/platform/tests/run_native_broker_guest.sh linux/platform/tests/run_broker_experiment.sh linux/platform/integration/run_core_experiment.sh linux/tests/app-integration/run_app_experiment.sh; do bash -n "$script"; done
+      - name: Synchronous HID and USB import progress with a restricted worker pool
+        run: |
+          set -o pipefail
+          dotnet build linux/platform/tests/starvation/StarvationProbe.csproj -c Release > dist/linux-platform-portable/starvation-build.txt
+          dotnet run --project linux/platform/tests/starvation/StarvationProbe.csproj -c Release --no-build --no-restore | tee dist/linux-platform-portable/starvation.json
+          python3 -c 'import json; r=json.load(open("dist/linux-platform-portable/starvation.json")); assert r["result"] == "passed" and len(r["cases"]) == 12'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

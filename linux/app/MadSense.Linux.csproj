@@ -20,6 +20,7 @@
     <Compile Include="../../macos/backend/ActivityHidDevice.cs" Link="ActivityHidDevice.cs" />
     <EmbeddedResource Include="../../src/Localization/*.json" LogicalName="MadSense.Localization.%(Filename)%(Extension)" WithCulture="false" />
     <AvaloniaResource Include="Assets/**" />
+    <Content Include="../../src/assets/madsense.svg" Link="madsense.svg" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Compile Include="../platform/*.cs" Link="Platform/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

@@ -405,6 +405,38 @@ public sealed class LinuxBrokerClientTests
     }
 
     [Test]
+    public async Task SynchronousRequestDeadlineClosesAnUnresponsivePeer()
+    {
+        await using var peer = await Peer.OpenAsync();
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        var task = Task.Run(() => peer.Client.Request("get_feature", new() { ["reportId"] = 5, ["size"] = 41 },
+            deadline: TimeSpan.FromMilliseconds(250)));
+        JsonElement request = await peer.RequestAsync();
+        Assert.That(request.GetProperty("op").GetString(), Is.EqualTo("get_feature"));
+        // The peer received a complete request but deliberately never replies.
+        var failure = await Assert.ThrowsAsync<IOException>(async () => await task.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.That(failure!.Message, Does.Contain("timed out"));
+        Assert.That(await peer.ConnectionEndedAsync(), Is.True);
+        Assert.That(session.IsolationLostReason, Does.Contain("timed out"));
+        Assert.That(session.CleanupConfirmed, Is.False);
+    }
+
+    [Test]
+    public async Task SynchronousRequestCancellationClosesAnUnresponsivePeer()
+    {
+        await using var peer = await Peer.OpenAsync();
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        using var cancel = new CancellationTokenSource();
+        var task = Task.Run(() => peer.Client.Request("get_feature", new() { ["reportId"] = 5, ["size"] = 41 }, cancel.Token));
+        await peer.RequestAsync();
+        cancel.Cancel();
+        await Assert.ThrowsAsync<OperationCanceledException>(async () => await task.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.That(await peer.ConnectionEndedAsync(), Is.True);
+        Assert.That(session.IsolationLostReason, Does.Contain("cancelled"));
+        Assert.That(session.CleanupConfirmed, Is.False);
+    }
+
+    [Test]
     public async Task AuthorizationDenialIsTypedAndNeverCreatesAPhysicalSession()
     {
         await using var peer = await Peer.OpenAsync();

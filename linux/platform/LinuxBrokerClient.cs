@@ -38,7 +38,10 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
     internal LinuxBrokerClient(Stream stream)
     {
         this.stream = stream;
-        reader = Task.Run(ReadMessagesAsync);
+        // Synchronous HID callers may themselves occupy ThreadPool workers.
+        // A dedicated reader must still deliver their replies and drain input.
+        reader = Task.Factory.StartNew(ReadMessages, CancellationToken.None,
+            TaskCreationOptions.LongRunning, TaskScheduler.Default);
     }
 
     public static async Task<LinuxBrokerClient> ConnectAsync(CancellationToken ct = default)
@@ -118,6 +121,81 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
     string? FailureReason => Volatile.Read(ref session)?.IsolationLostReason ??
         Volatile.Read(ref isolationFailureReason) ?? Volatile.Read(ref terminationReason);
 
+    internal JsonElement Request(string operation, Dictionary<string, object?>? arguments = null,
+        CancellationToken ct = default, TimeSpan? deadline = null)
+    {
+        if (!IsConnected) throw new IOException(FailureReason ?? unavailableReason ?? "The device broker connection is closed.");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, lifetime.Token);
+        // Explicit cancellation must interrupt a synchronous socket write too.
+        using var interrupt = ct.Register(() => Terminate("The device broker request was cancelled."));
+        TimeSpan duration = deadline ?? TimeSpan.FromSeconds(5);
+        long started = Stopwatch.GetTimestamp(), id = Interlocked.Increment(ref nextId);
+        bool slot = false;
+        var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int Remaining()
+        {
+            double milliseconds = duration.TotalMilliseconds - Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            return milliseconds <= 0 ? 0 : (int)Math.Min(int.MaxValue, Math.Ceiling(milliseconds));
+        }
+        try
+        {
+            if (!requestSlots.Wait(Remaining(), cancellation.Token)) throw new TimeoutException();
+            slot = true;
+            if (!pending.TryAdd(id, completion)) throw new IOException("Duplicate broker request identifier.");
+            var request = arguments is null ? new Dictionary<string, object?>() : new(arguments);
+            request.Add("id", id); request.Add("op", operation);
+            byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(request);
+            if (bytes.Length > MaximumLineBytes) throw new IOException("Broker request exceeds the protocol bound.");
+            Array.Resize(ref bytes, bytes.Length + 1);
+            bytes[^1] = (byte)'\n';
+            if (!writes.Wait(Remaining(), cancellation.Token)) throw new TimeoutException();
+            try
+            {
+                int remaining = Remaining();
+                if (remaining == 0) throw new TimeoutException();
+                if (stream!.CanTimeout) stream.WriteTimeout = remaining;
+                stream.Write(bytes); stream.Flush();
+            }
+            finally { writes.Release(); }
+            // Wait on the actual reply task, not an async wrapper whose
+            // continuation would need a worker before waking this caller.
+            try
+            {
+                if (!completion.Task.Wait(Remaining(), cancellation.Token)) throw new TimeoutException();
+            }
+            catch (AggregateException) { } // GetAwaiter below preserves the original protocol exception.
+            return completion.Task.GetAwaiter().GetResult();
+        }
+        catch (TimeoutException)
+        {
+            Terminate("The device broker request timed out.");
+            throw new IOException(FailureReason ?? "The device broker request timed out.");
+        }
+        catch (OperationCanceledException)
+        {
+            if (!lifetime.IsCancellationRequested) Terminate("The device broker request was cancelled.");
+            if (ct.IsCancellationRequested) throw;
+            throw new IOException(FailureReason ?? "The device broker session ended.");
+        }
+        catch (Exception error) when (error is SocketException or ObjectDisposedException)
+        {
+            Terminate(error.Message);
+            throw new IOException(FailureReason ?? "The device broker connection failed.", error);
+        }
+        catch (IOException error) when (error is not BrokerOperationException)
+        {
+            Terminate(error.Message);
+            throw;
+        }
+        finally
+        {
+            if (operation is "write" or "get_feature" or "send_feature")
+                HidRpcTiming.Add(Stopwatch.GetTimestamp() - started);
+            pending.TryRemove(id, out _);
+            if (slot) requestSlots.Release();
+        }
+    }
+
     internal async Task<JsonElement> RequestAsync(string operation, Dictionary<string, object?>? arguments = null,
         CancellationToken ct = default, TimeSpan? deadline = null)
     {
@@ -175,7 +253,7 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
         }
     }
 
-    async Task ReadMessagesAsync()
+    void ReadMessages()
     {
         byte[] incoming = new byte[4096], line = new byte[MaximumLineBytes];
         int used = 0;
@@ -183,7 +261,7 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
         {
             while (!lifetime.IsCancellationRequested)
             {
-                int count = await stream!.ReadAsync(incoming, lifetime.Token).ConfigureAwait(false);
+                int count = stream!.Read(incoming);
                 if (count == 0) throw new IOException("The device broker closed its session.");
                 for (int i = 0; i < count; ++i)
                 {

@@ -35,8 +35,8 @@ public sealed class LinuxAttachStrategy : IUsbIpAttachStrategy
             lock (cancellationGate) pendingAttachment = cancellation;
             try
             {
-                broker.RequestAsync("attach", new() { ["host"] = host, ["port"] = port, ["busId"] = busId },
-                    ct: cancellation.Token, deadline: TimeSpan.FromSeconds(20)).GetAwaiter().GetResult();
+                broker.Request("attach", new() { ["host"] = host, ["port"] = port, ["busId"] = busId },
+                    ct: cancellation.Token, deadline: TimeSpan.FromSeconds(20));
                 if (!session.IsolationVerified) { error = "Physical isolation ended during USB/IP attachment."; return false; }
                 owned.Add(busId); error = null; return true;
             }
@@ -52,7 +52,7 @@ public sealed class LinuxAttachStrategy : IUsbIpAttachStrategy
             if (!owned.Contains(busId)) { error = "This session does not own that USB/IP attachment."; return false; }
             try
             {
-                broker.RequestAsync("detach", new() { ["busId"] = busId }).GetAwaiter().GetResult();
+                broker.Request("detach", new() { ["busId"] = busId });
                 owned.Remove(busId); error = null; return true;
             }
             catch (Exception failure) { error = failure.Message; return false; }

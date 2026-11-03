@@ -216,6 +216,17 @@ socket and requests a 4,096-byte socket send buffer. Kernel socket and hidraw
 buffers are separate and can still hold earlier input. This limit is not an
 end-to-end latency measurement.
 
+The IPC reader has its own blocking thread. Synchronous HID and legacy USB/IP
+attachment calls wait directly on the reply completed by that reader; synchronous
+input reads use a producer signal instead of blocking on an async continuation.
+This prevents those callers from occupying the same ThreadPool workers needed
+to drain their socket or complete their own operation. Async acquisition and
+preflight remain async. Request deadlines, cancellation and ordered lease cleanup
+are retained, without changing ThreadPool limits or the eight-report queues.
+The isolated [starvation probe](tests/starvation/README.md) verifies all six
+synchronous operations with a single occupied worker and with an ordinary pool.
+Its two-second completion bound is a liveness assertion, not a latency result.
+
 `session.Metrics` exposes `ReceivedReports`, `ReadReports`,
 `InitializationDiscardedReports`, `InputOverflows`,
 `QueuedReports`, `OldestQueuedAgeMs`, and client `Stopwatch` timestamps/frequency.

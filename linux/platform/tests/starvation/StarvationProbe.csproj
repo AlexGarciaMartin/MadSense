@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PlatformSourceDirectory Condition="'$(PlatformSourceDirectory)' == ''">$(MSBuildThisFileDirectory)../../</PlatformSourceDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../../vendor/DualSenseClient/DualSenseClient.Hid/DualSenseClient.Hid.csproj" />
+    <ProjectReference Include="../../../../vendor/DualSenseClient/DualSenseClient.Emulation/DualSenseClient.Emulation.csproj" />
+    <ProjectReference Include="../../../../vendor/DualSenseClient/DualSenseClient.Controllers/DualSenseClient.Controllers.csproj" />
+    <Compile Include="$(PlatformSourceDirectory)/*.cs" Link="Platform/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

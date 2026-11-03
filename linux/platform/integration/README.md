@@ -122,6 +122,17 @@ portable fixture command verifies that a blocked observer cannot block the
 producer, and that exhaustion and writer failure remain visible. Production
 input queue bounds and failure behavior are unchanged.
 
+Run 41617327336 at `0e0c6b9` preserved the first cause: both the helper journal
+and client reported `Eight physical input reports are already pending` during
+the first calibration RPC. No typed input snapshot had reached the deferred
+observer, and its rejected/unwritten/error counts were zero. The client reported
+no input-channel overflow, distinguishing helper backpressure from that separate
+failure. A process-isolated test reproduced the old client's shared ThreadPool
+dependency in all six synchronous operations; its ordinary-pool controls passed.
+The dedicated-reader/direct-wait correction passes all twelve local cases, with
+exact results and acknowledged release. Native core/app verification of that
+correction is pending; these liveness tests do not establish physical latency.
+
 Portable preparation:
 
 ```sh

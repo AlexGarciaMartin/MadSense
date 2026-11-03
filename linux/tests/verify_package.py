@@ -68,6 +68,8 @@ def main():
         original_app = file_hashes(args.tested_app.resolve())
         if file_hashes(payload / 'app') != original_app:
             raise AssertionError('Packaged binaries differ from the tested publish tree')
+        if digest(payload / 'app/madsense.svg') != digest(ROOT / 'src/assets/madsense.svg'):
+            raise AssertionError('Desktop branding icon differs from the original MadSense artwork')
         for name in ('run.sh', 'app/MadSense.Linux', 'platform/install.sh', 'platform/uninstall.sh'):
             if not os.access(payload / name, os.X_OK):
                 raise AssertionError('Executable permission missing: ' + name)

@@ -138,7 +138,10 @@ static class Autostart
         if (!Path.GetFileName(executable).Equals("MadSense.Linux", StringComparison.Ordinal))
             throw new IOException("Autostart requires the installed MadSense Linux app.");
         Directory.CreateDirectory(Path.GetDirectoryName(Entry)!);
-        var content = "[Desktop Entry]\nType=Application\nName=MadSense\nExec=" + Quote(executable) + " --tray\nIcon=madsense\nTerminal=false\nCategories=Game;Utility;\n";
+        // The portable package does not install a system icon theme. Reference
+        // its original logo directly; Icon uses one Desktop Entry escape layer.
+        var icon = Path.Combine(Path.GetDirectoryName(executable)!, "madsense.svg").Replace("\\", "\\\\");
+        var content = "[Desktop Entry]\nType=Application\nName=MadSense\nExec=" + Quote(executable) + " --tray\nIcon=" + icon + "\nTerminal=false\nCategories=Game;Utility;\n";
         var pending = Entry + ".tmp";
         try { File.WriteAllText(pending, content); File.Move(pending, Entry, true); }
         finally { if (File.Exists(pending)) File.Delete(pending); }

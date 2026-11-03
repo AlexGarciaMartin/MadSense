@@ -84,6 +84,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
         { SingleWriter = true, SingleReader = false, FullMode = BoundedChannelFullMode.Wait });
         readonly ProxyTiming queueAge = new();
         readonly object readerStartGate = new();
+        readonly object inputAvailable = new();
         long received, read, initializationDiscarded, overflows, lastReceived, lastDelivered, lastBrokerReadNs;
         int reading;
         int queued;
@@ -123,7 +124,11 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
         bool TryEnqueue(InputReport report)
         {
             Interlocked.Increment(ref queued);
-            if (input.Writer.TryWrite(report)) return true;
+            if (input.Writer.TryWrite(report))
+            {
+                lock (inputAvailable) Monitor.PulseAll(inputAvailable);
+                return true;
+            }
             Interlocked.Decrement(ref queued);
             return false;
         }
@@ -143,7 +148,11 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
                     Stopwatch.Frequency, Interlocked.Read(ref lastBrokerReadNs), queueAge.Snapshot(), broker.HidRpcTiming.Snapshot());
             }
         }
-        internal void EndInput(Exception? error) => input.Writer.TryComplete(error);
+        internal void EndInput(Exception? error)
+        {
+            input.Writer.TryComplete(error);
+            lock (inputAvailable) Monitor.PulseAll(inputAvailable);
+        }
         void EnsureConnected()
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
@@ -162,12 +171,18 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
             if (timeoutMs < -1) throw new ArgumentOutOfRangeException(nameof(timeoutMs));
             if (count == 0) return 0;
             BeginReading();
-            if (input.Reader.TryRead(out InputReport? available)) return Copy(available, buffer, offset, count);
-            if (timeoutMs == 0) return 0;
-            using var timeout = new CancellationTokenSource();
-            if (timeoutMs >= 0) timeout.CancelAfter(timeoutMs);
-            try { return ReadAsync(buffer, offset, count, timeout.Token).GetAwaiter().GetResult(); }
-            catch (OperationCanceledException) when (timeout.IsCancellationRequested) { return 0; }
+            long deadline = timeoutMs < 0 ? 0 : Environment.TickCount64 + timeoutMs;
+            InputReport report;
+            lock (inputAvailable)
+            {
+                while (!input.Reader.TryRead(out report!))
+                {
+                    if (!IsConnected) throw new HidException("The physical report stream ended.");
+                    int remaining = timeoutMs < 0 ? Timeout.Infinite : (int)Math.Max(0, deadline - Environment.TickCount64);
+                    if (remaining == 0 || !Monitor.Wait(inputAvailable, remaining)) return 0;
+                }
+            }
+            return Copy(report, buffer, offset, count);
         }
         public async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct)
         {
@@ -202,8 +217,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
             string encoded = Encode(buffer, offset, count);
             return HidOperation(() =>
             {
-                JsonElement result = broker.RequestAsync("write", new() { ["data"] = encoded })
-                    .GetAwaiter().GetResult();
+                JsonElement result = broker.Request("write", new() { ["data"] = encoded });
                 int written = result.GetProperty("written").GetInt32();
                 if (written != count) throw new IOException("The broker did not write the complete HID report.");
                 return written;
@@ -215,8 +229,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
             if (bufferSize is < 1 or > LinuxBrokerClient.MaximumReportBytes) throw new ArgumentOutOfRangeException(nameof(bufferSize));
             return HidOperation(() =>
             {
-                JsonElement result = broker.RequestAsync("get_feature", new() { ["reportId"] = reportId, ["size"] = bufferSize })
-                    .GetAwaiter().GetResult();
+                JsonElement result = broker.Request("get_feature", new() { ["reportId"] = reportId, ["size"] = bufferSize });
                 byte[] report = LinuxBrokerClient.DecodeReport(result.GetProperty("data"));
                 if (report.Length > bufferSize || report[0] != reportId) throw new IOException("Invalid feature report identity or size.");
                 return report;
@@ -226,7 +239,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
         {
             EnsureConnected();
             string encoded = Encode(buffer, offset, count);
-            HidOperation(() => broker.RequestAsync("send_feature", new() { ["data"] = encoded }).GetAwaiter().GetResult(), fatal: true);
+            HidOperation(() => broker.Request("send_feature", new() { ["data"] = encoded }), fatal: true);
         }
         T HidOperation<T>(Func<T> operation, bool fatal = false)
         {
