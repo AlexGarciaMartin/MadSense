@@ -19,7 +19,7 @@ AudioServerPlugInDriverInterface interface{};
 AudioServerPlugInDriverInterface* interfacePointer = &interface;
 AudioServerPlugInHostRef host = nullptr;
 std::atomic<UInt32> references{1}, running{0};
-std::atomic<uint64_t> anchor{0}, timestampSeed{1}, leaseDeadline{0};
+std::atomic<uint64_t> anchor{0}, timestampSeed{1}, pcmGeneration{1}, leaseDeadline{0};
 double ticksPerFrame = 1;
 uint64_t leaseTicks = 1;
 std::mutex stateMutex;
@@ -286,14 +286,14 @@ OSStatus getProperty(AudioServerPlugInDriverRef, AudioObjectID id, pid_t pid,
             uint64_t now = mach_absolute_time();
             if (now >= leaseDeadline.load(std::memory_order_acquire)) {
                 ring.discard();
-                timestampSeed.fetch_add(1, std::memory_order_release);
+                pcmGeneration.fetch_add(1, std::memory_order_release);
             }
             leaseDeadline.store(now + leaseTicks, std::memory_order_release);
             AudioPacket packet{};
             packet.version = kProtocolVersion;
-            packet.frames = ring.popLatest(packet.samples, kReadFrames);
+            packet.generation = pcmGeneration.load(std::memory_order_acquire);
+            packet.frames = ring.popLatest(packet.samples, kReadFrames, packet.generation);
             packet.droppedFrames = ring.dropped();
-            packet.generation = timestampSeed.load(std::memory_order_acquire);
             packet.activeClients = running.load(std::memory_order_acquire);
             CFDataRef data = CFDataCreate(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(&packet),
                 kPacketHeaderSize + packet.frames * kChannels * sizeof(float));
@@ -339,7 +339,7 @@ OSStatus setProperty(AudioServerPlugInDriverRef, AudioObjectID id, pid_t pid,
             }
         if (!mine || now >= leaseDeadline.load()) {
             ring.discard();
-            timestampSeed.fetch_add(1, std::memory_order_release);
+            pcmGeneration.fetch_add(1, std::memory_order_release);
         }
         owner = caller;
         leaseDeadline.store(now + leaseTicks, std::memory_order_release);
@@ -397,6 +397,7 @@ OSStatus startIO(AudioServerPlugInDriverRef, AudioObjectID id, UInt32 clientID) 
             ring.discard();
             anchor.store(mach_absolute_time());
             timestampSeed.fetch_add(1, std::memory_order_release);
+            pcmGeneration.fetch_add(1, std::memory_order_release);
         }
         running.fetch_add(1);
         client->second.active = true;
@@ -430,11 +431,15 @@ OSStatus beginEnd(AudioServerPlugInDriverRef, AudioObjectID id, UInt32, UInt32, 
 }
 OSStatus doIO(AudioServerPlugInDriverRef, AudioObjectID id, AudioObjectID stream, UInt32, UInt32 op,
                UInt32 frames, const AudioServerPlugInIOCycleInfo*, void* main, void*) {
+    // Capture before checking the lease/running state. A concurrent transition
+    // may admit this callback under a renewed lease, but its old PCM tag remains
+    // rejectable even if publication finishes after the transition's discard.
+    const uint64_t generation = pcmGeneration.load(std::memory_order_acquire);
     if (id != kDevice || stream != kStream) return kAudioHardwareBadObjectError;
     if (op != kAudioServerPlugInIOOperationWriteMix) return noErr;
     if (!main && frames) return kAudioHardwareIllegalOperationError;
     if (running.load(std::memory_order_acquire) && mach_absolute_time() < leaseDeadline.load(std::memory_order_acquire))
-        ring.push(static_cast<const float*>(main), frames);
+        ring.push(static_cast<const float*>(main), frames, generation);
     return noErr;
 }
 HRESULT query(void*, REFIID uuid, LPVOID* out) {

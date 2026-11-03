@@ -8,14 +8,16 @@ import sys
 app = pathlib.Path(sys.argv[1]).resolve()
 output = pathlib.Path(sys.argv[2]).resolve()
 output.mkdir(parents=True, exist_ok=True)
-cases = [(language, language, False) for language in ("en", "es", "fr", "de", "it", "pt")]
-cases.append(("stalled", "en", True))
-for name, language, stalled in cases:
+cases = [(language, language, False, False) for language in ("en", "es", "fr", "de", "it", "pt")]
+cases.append(("stalled", "en", True, False))
+cases.append(("paused-restart", "en", False, True))
+for name, language, stalled, paused_restart in cases:
     screenshot = output / f"ui-{name}.png"
     error_log = output / f"gui-{name}.stderr"
     environment = dict(os.environ, MADSENSE_SMOKE_SCREENSHOT=str(screenshot),
                        MADSENSE_SMOKE_LANGUAGE=language,
-                       MADSENSE_SMOKE_STALL_BACKEND="1" if stalled else "0")
+                       MADSENSE_SMOKE_STALL_BACKEND="1" if stalled else "0",
+                       MADSENSE_SMOKE_PAUSED_RESTART="1" if paused_restart else "0")
     with (output / f"gui-{name}.stdout").open("w") as stdout, error_log.open("w") as stderr:
         process = subprocess.Popen([str(app), "--smoke-test"], stdout=stdout, stderr=stderr,
                                    env=environment, start_new_session=True)
@@ -32,6 +34,9 @@ for name, language, stalled in cases:
             assert "applicationWillTerminate" in log, "Normal AppKit termination was not observed"
             if stalled:
                 assert "SIGSTOP" in log and "sending SIGKILL" in log, "The real stalled backend did not exercise bounded forced cleanup"
+            elif paused_restart:
+                assert "paused restart verified" in log, "Automatic recovery did not preserve the requested pause from its first real status"
+                assert "sending SIGKILL" not in log, "Paused recovery unexpectedly required forced backend termination"
             else:
                 assert "sending SIGTERM" not in log and "sending SIGKILL" not in log, "Normal quit required forced backend termination"
             remaining = subprocess.run(["pgrep", "-f", str(app.parent.parent / "Resources/backend/MadSense.Backend") + " --service"],

@@ -41,14 +41,14 @@ internal static class Program
             if (args.Contains("--diagnose")) { Diagnose(enumerator); return 0; }
             if (!args.Contains("--service") && !args.Contains("--run"))
             {
-                Console.Error.WriteLine("Usage: MadSense.Backend --service | --run | --diagnose | --probe-native | --protocol-check");
+                Console.Error.WriteLine("Usage: MadSense.Backend (--service | --run) [--start-paused] | --diagnose | --probe-native | --protocol-check");
                 return 2;
             }
             string stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "MadSense");
             Directory.CreateDirectory(stateDirectory);
             using var instance = new FileStream(Path.Combine(stateDirectory, "backend.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             preferences = new SpeakerPreferences(Path.Combine(stateDirectory, "preferences.json"), Console.Error.WriteLine);
-            return await Run(enumerator, args.Contains("--service"), preferences);
+            return await Run(enumerator, args.Contains("--service"), preferences, args.Contains("--start-paused"));
         }
         catch (Exception e)
         {
@@ -58,7 +58,8 @@ internal static class Program
         }
     }
 
-    private static async Task<int> Run(HidDeviceEnumerator enumerator, bool service, SpeakerPreferences preferences)
+    private static async Task<int> Run(HidDeviceEnumerator enumerator, bool service,
+        SpeakerPreferences preferences, bool startPaused)
     {
         using var stop = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
@@ -78,9 +79,12 @@ internal static class Program
             });
         }
         BridgeSession? session = null;
-        bool paused = false;
+        // Establish pause before the first discovery/open attempt. Sending a
+        // pause command after process launch can otherwise briefly seize a pad.
+        bool paused = startPaused;
         var retry = new BridgeRetryPolicy();
-        string state = "waiting", detail = "Pair a DualSense in Bluetooth settings, then press PS.";
+        string state = paused ? "paused" : "waiting";
+        string detail = paused ? "Controller released." : "Pair a DualSense in Bluetooth settings, then press PS.";
         (string State, string Detail, string? Audio)? lastLogged = null;
         try
         {

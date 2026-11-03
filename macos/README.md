@@ -14,6 +14,8 @@ La interfaz ofrece inglés, español, francés, alemán, italiano y portugués d
 
 El volumen del altavoz ofrece alto, bajo y apagado, con los mismos valores que Windows. Puede elegirse mientras se espera al mando y se conserva entre ejecuciones en `~/Library/Application Support/MadSense/preferences.json`. La interfaz muestra el valor confirmado por el servicio. Silenciar el altavoz conserva los canales de háptica; requiere que la ruta de audio opcional esté disponible para producir sonido.
 
+El menú permite activar el inicio de sesión mediante una acción explícita; macOS puede exigir confirmarlo en sus ajustes. La batería y la carga proceden del informe físico, con aviso visible al 15 % sin cargar. Los indicadores de háptica, gatillos, audio y vibración reflejan escrituras HID completadas, no mediciones del movimiento de los actuadores. Si el backend se recupera de un fallo estando en pausa, arranca con `--start-paused` antes de buscar mandos.
+
 ## Compilar sin un Mac propio
 
 La compilación nativa necesita macOS; un runner de GitHub Actions permite compilar y comprobar ambos paquetes sin un equipo local. Se generan variantes separadas para Apple Silicon e Intel. Los trabajos de CI no tienen un DualSense físico y sus pruebas no equivalen a validar hardware.
@@ -42,6 +44,8 @@ El runtime autónomo está en `Contents/Resources/backend`: los ensamblados `.dl
 El proceso que crea `IOHIDUserDevice` necesita `com.apple.developer.hid.virtual.device`. El código fuente actual de Apple comprueba esa autorización antes de crear el cliente; ejecutarlo como administrador no la sustituye. En este diseño el proceso es `MadSense.Backend`, no la interfaz AppKit. La firma y el perfil de aprovisionamiento aprobados deben aplicarse al proceso correspondiente y a su distribución.
 
 El paquete de desarrollo omite autorizaciones restringidas que no puede acreditar. Puede abrir la interfaz y ejecutar diagnósticos. Al conectar, el backend abre brevemente el mando físico en modo exclusivo, lee sus metadatos y calibración, prepara el adaptador y después crea el dispositivo virtual. Si el sistema rechaza esa creación, libera el mando físico y muestra el bloqueo; no anuncia que está listo ni publica previamente un Sony ficticio. No se recomienda desactivar SIP o AMFI como procedimiento de instalación.
+
+Un fallo de creación, biblioteca o ABI del HID virtual detiene los reintentos automáticos para no capturar repetidamente un mando utilizable. Tras corregir la configuración, **Reintentar puente** permite intentarlo de nuevo. Las desconexiones físicas transitorias sí mantienen la reconexión automática.
 
 La distribución pública requerirá una identidad Developer ID, autorización adecuada, firma de los componentes y notarización. No hay credenciales ni perfiles inventados en esta rama.
 

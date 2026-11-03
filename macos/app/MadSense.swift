@@ -85,6 +85,13 @@ private func afterOnMainRunLoop(_ delay: TimeInterval, _ action: @escaping () ->
     RunLoop.main.add(timer, forMode: .modalPanel)
 }
 
+private final class BackendOutputBuffer {
+    // Each child's pipe has its own framing buffer, including trailing data
+    // delivered after another child has already replaced it.
+    var data = Data()
+    var sawStatus = false
+}
+
 private final class BrandView: NSView {
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
@@ -161,11 +168,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var input: FileHandle?
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
-    private var pendingOutput = Data()
     private var session = UUID()
+    private var scheduledRestart: UUID?
     private var quitting = false
     private var terminationReplied = false
     private var paused = false
+    private var requestedPaused = false
+    private var smokePausedRestartOriginalSession: UUID?
     private var blocked = false
     private var restarts = 0
     private var healthySince: TimeInterval?
@@ -206,6 +215,28 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                         smokeLog("stall test: sent SIGSTOP to owned backend child \(pid)")
                     } else {
                         smokeLog("stall test: SIGSTOP failed (errno \(errno))")
+                    }
+                }
+            }
+            if ProcessInfo.processInfo.environment["MADSENSE_SMOKE_PAUSED_RESTART"] == "1" {
+                let token = session
+                afterOnMainRunLoop(1) { [weak self] in
+                    guard let self = self, self.session == token, self.process?.isRunning == true else { return }
+                    self.togglePause()
+                    smokeLog("pause restart test: requested pause through the UI action")
+                }
+                afterOnMainRunLoop(3) { [weak self] in
+                    guard let self = self, let child = self.process,
+                          self.owns(child, token: token), child.isRunning,
+                          self.requestedPaused, self.paused else {
+                        smokeLog("pause restart test failed: backend did not confirm pause")
+                        return
+                    }
+                    if Darwin.kill(child.processIdentifier, SIGTERM) == 0 {
+                        self.smokePausedRestartOriginalSession = token
+                        smokeLog("pause restart test: sent SIGTERM to the paused owned backend")
+                    } else {
+                        smokeLog("pause restart test failed: SIGTERM errno \(errno)")
                     }
                 }
             }
@@ -399,15 +430,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func startBackend() {
         guard !quitting, process?.isRunning != true else { return }
+        scheduledRestart = nil
         let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/backend/MadSense.Backend")
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             setState(tr("Incomplete installation", "Instalación incompleta"), detail: tr("The bundled controller bridge is missing.", "Falta el puente del mando en la aplicación."), ready: false)
             appendLog("Missing executable: \(executable.path)\n")
+            refreshPause()
             return
         }
         let child = Process()
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         let token = UUID()
+        let outputBuffer = BackendOutputBuffer()
         session = token
         recovering = false
         blocked = false
@@ -415,9 +449,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         lastHealthyReport = nil
         confirmedSpeaker = nil
         refreshSpeaker()
-        pendingOutput.removeAll(keepingCapacity: true)
         child.executableURL = executable
-        child.arguments = ["--service"]
+        child.arguments = requestedPaused ? ["--service", "--start-paused"] : ["--service"]
         child.currentDirectoryURL = executable.deletingLastPathComponent()
         child.standardInput = stdin
         child.standardOutput = stdout
@@ -425,22 +458,26 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         input = stdin.fileHandleForWriting
         outputPipe = stdout
         errorPipe = stderr
-        stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
+        stdout.fileHandleForReading.readabilityHandler = { [weak self, weak child] handle in
             let data = handle.availableData
-            guard !data.isEmpty else { handle.readabilityHandler = nil; return }
-            onMainRunLoop { guard self?.session == token else { return }; self?.receive(data) }
+            let ended = data.isEmpty
+            if ended { handle.readabilityHandler = nil }
+            onMainRunLoop {
+                self?.receive(data, from: child, token: token, buffer: outputBuffer, ended: ended)
+            }
         }
         stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { handle.readabilityHandler = nil; return }
             let text = String(decoding: data, as: UTF8.self)
-            onMainRunLoop { guard self?.session == token else { return }; self?.appendLog(text) }
+            onMainRunLoop { self?.appendLog(text) }
         }
         child.terminationHandler = { [weak self] child in
             onMainRunLoop {
-                guard let self = self, self.session == token else { return }
+                guard let self = self, self.owns(child, token: token) else { return }
                 self.input = nil
                 self.process = nil
+                self.scheduledRestart = nil
                 self.refreshSpeaker()
                 smokeLog("backend child exited with status \(child.terminationStatus)")
                 if self.quitting { self.finishTermination(); return }
@@ -448,43 +485,69 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 self.appendLog("Backend exited: \(child.terminationStatus)\n")
                 self.restarts += 1
                 if self.restarts <= 3 {
-                    afterOnMainRunLoop(Double(self.restarts * 2)) { [weak self] in self?.startBackend() }
+                    let attempt = self.restarts
+                    let ticket = UUID()
+                    self.scheduledRestart = ticket
+                    afterOnMainRunLoop(Double(attempt * 2)) { [weak self] in
+                        guard let self = self, !self.quitting, self.session == token,
+                              self.process == nil, self.scheduledRestart == ticket,
+                              self.restarts == attempt, attempt <= 3 else { return }
+                        self.startBackend()
+                    }
                 } else {
                     self.setState(tr("Bridge could not start", "El puente no pudo arrancar"),
                         detail: tr("Open diagnostics to inspect the error, then use Resume to retry.", "Abre el diagnóstico para consultar el error y pulsa Reanudar para reintentar."), ready: false)
-                    self.paused = true
-                    self.refreshPause()
                 }
+                self.refreshPause()
             }
         }
         do {
             process = child
             lastStatusTime = Date()
+            smokeLog("launching backend; start paused=\(requestedPaused)")
             try child.run()
-            if paused { send("pause") }
+            refreshPause()
         } catch {
             process = nil
             stdout.fileHandleForReading.readabilityHandler = nil
             stderr.fileHandleForReading.readabilityHandler = nil
             setState(tr("Could not start", "No se pudo arrancar"), detail: error.localizedDescription, ready: false)
             appendLog("Launch error: \(error)\n")
+            refreshPause()
         }
     }
 
-    private func receive(_ data: Data) {
-        pendingOutput.append(data)
-        if pendingOutput.count > 1_048_576 {
-            pendingOutput.removeAll(keepingCapacity: true)
+    private func receive(_ data: Data, from child: Process?, token: UUID,
+                         buffer: BackendOutputBuffer, ended: Bool) {
+        buffer.data.append(data)
+        if buffer.data.count > 1_048_576 {
+            buffer.data.removeAll(keepingCapacity: true)
             appendLog("Discarded oversized backend status.\n")
             return
         }
-        while let newline = pendingOutput.firstIndex(of: 10) {
-            let line = pendingOutput[..<newline]
-            pendingOutput.removeSubrange(...newline)
+        while let newline = buffer.data.firstIndex(of: 10) {
+            let line = Data(buffer.data[..<newline])
+            buffer.data.removeSubrange(...newline)
+            guard let child = child, owns(child, token: token), child.isRunning else {
+                appendLog("Backend tail [\(token.uuidString.prefix(8))]: " + String(decoding: line, as: UTF8.self) + "\n")
+                continue
+            }
             guard let object = try? JSONSerialization.jsonObject(with: Data(line)),
                   let status = object as? [String: Any], let rawState = status["state"] as? String else { continue }
             lastStatusTime = Date()
             let state = rawState.lowercased()
+            if !buffer.sawStatus {
+                buffer.sawStatus = true
+                smokeLog("backend first status: \(state); requested pause=\(requestedPaused)")
+                if let original = smokePausedRestartOriginalSession, original != token {
+                    if requestedPaused && state == "paused" {
+                        smokeLog("paused restart verified")
+                    } else {
+                        smokeLog("paused restart failed: first real status was \(state), requested pause=\(requestedPaused)")
+                    }
+                    smokePausedRestartOriginalSession = nil
+                }
+            }
             if let speaker = status["speaker"] as? String, ["high", "low", "off"].contains(speaker) {
                 confirmedSpeaker = speaker
                 refreshSpeaker()
@@ -535,6 +598,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             } else if let capabilities = status["capabilities"] as? [String] {
                 capabilityLabel.stringValue = capabilities.joined(separator: " · ")
             }
+        }
+        if ended && !buffer.data.isEmpty {
+            appendLog("Backend partial tail [\(token.uuidString.prefix(8))]: " + String(decoding: buffer.data, as: UTF8.self) + "\n")
+            buffer.data.removeAll()
         }
     }
 
@@ -704,7 +771,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func refreshPause() {
         let title = blocked ? tr("Retry bridge", "Reintentar puente") :
-            paused ? tr("Resume bridge", "Reanudar puente") : tr("Pause bridge", "Pausar puente")
+            requestedPaused || (process?.isRunning != true && scheduledRestart == nil)
+                ? tr("Resume bridge", "Reanudar puente") : tr("Pause bridge", "Pausar puente")
         pauseButton.title = title
         pauseMenuItem.title = title
     }
@@ -757,14 +825,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     @objc private func togglePause() {
+        guard !quitting else { return }
         if process?.isRunning != true {
-            paused = false
+            // Pause may be requested during the reconnect delay. Let the
+            // scheduled child start safely paused instead of losing that intent.
+            if scheduledRestart != nil && !requestedPaused {
+                requestedPaused = true
+                refreshPause()
+                return
+            }
+            requestedPaused = false
             restarts = 0
+            scheduledRestart = nil
             refreshPause()
             startBackend()
             return
         }
-        send(paused || blocked ? "resume" : "pause")
+        requestedPaused = blocked ? false : !requestedPaused
+        send(requestedPaused ? "pause" : "resume")
+        refreshPause()
     }
 
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }

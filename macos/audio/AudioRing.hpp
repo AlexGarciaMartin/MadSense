@@ -24,20 +24,26 @@ class AudioRing {
     std::atomic<uint64_t> overrun_{0};
     uint64_t seenOverrun_ = 0; // consumer-only
     std::array<float, kRingFrames * kChannels> data_{};
+    // PCM and its generation share the write cursor's release publication.
+    // Plain per-slot tags are safe under the same SPSC ownership as the samples.
+    std::array<uint64_t, kRingFrames> generations_{};
 public:
-    uint32_t push(const float* samples, uint32_t frames) noexcept {
+    uint32_t push(const float* samples, uint32_t frames, uint64_t generation) noexcept {
         const uint64_t write = write_.load(std::memory_order_relaxed);
         const uint64_t read = read_.load(std::memory_order_acquire);
         const auto accepted = static_cast<uint32_t>(std::min<uint64_t>(frames, kRingFrames - (write - read)));
-        for (uint32_t i = 0; i < accepted; ++i)
-            std::memcpy(&data_[((write + i) % kRingFrames) * kChannels],
+        for (uint32_t i = 0; i < accepted; ++i) {
+            const auto slot = (write + i) % kRingFrames;
+            std::memcpy(&data_[slot * kChannels],
                         samples + i * kChannels, kChannels * sizeof(float));
+            generations_[slot] = generation;
+        }
         write_.store(write + accepted, std::memory_order_release);
         dropped_.fetch_add(frames - accepted, std::memory_order_relaxed);
         if (frames != accepted) overrun_.fetch_add(1, std::memory_order_release);
         return accepted;
     }
-    uint32_t popLatest(float* samples, uint32_t capacity) noexcept {
+    uint32_t popLatest(float* samples, uint32_t capacity, uint64_t generation) noexcept {
         if (!capacity) return 0;
         uint64_t read = read_.load(std::memory_order_relaxed);
         const uint64_t write = write_.load(std::memory_order_acquire);
@@ -55,14 +61,26 @@ public:
             dropped_.fetch_add(write - read - kReadFrames, std::memory_order_relaxed);
             read = write - kReadFrames;
         }
-        const auto count = static_cast<uint32_t>(std::min<uint64_t>(write - read, max));
-        for (uint32_t i = 0; i < count; ++i)
-            std::memcpy(samples + i * kChannels,
-                        &data_[((read + i) % kRingFrames) * kChannels], kChannels * sizeof(float));
-        read_.store(read + count, std::memory_order_release);
+        uint32_t count = 0, stale = 0;
+        while (read < write && count < max) {
+            const auto slot = read % kRingFrames;
+            if (generations_[slot] == generation) {
+                std::memcpy(samples + count * kChannels,
+                            &data_[slot * kChannels], kChannels * sizeof(float));
+                ++count;
+            } else {
+                // discard() cannot cancel a producer already copying a block.
+                // Its captured old tag prevents late publication crossing epochs.
+                ++stale;
+            }
+            ++read;
+        }
+        dropped_.fetch_add(stale, std::memory_order_relaxed);
+        read_.store(read, std::memory_order_release);
         return count;
     }
-    // Consumer-only flush; safe while the writer is active.
+    // Consumer-only flush; the caller also advances the accepted generation so
+    // an in-flight producer cannot repopulate this queue with the previous epoch.
     void discard() noexcept { read_.store(write_.load(std::memory_order_acquire), std::memory_order_release); }
     uint64_t dropped() const noexcept { return dropped_.load(std::memory_order_relaxed); }
 };

@@ -34,6 +34,16 @@ dropped frames separately; passing does not establish uninterrupted realtime
 delivery or controller latency. Exit 75 means initial discovery found no loaded
 endpoint and may be retried; transfer or ownership failures return 1.
 
+After the first 2048 verified frames, the probe measures about one second of warm
+transfer using the backend's same five-millisecond polling policy. The
+`warm_measurement_not_latency_guarantee` line reports elapsed time, read calls,
+received frames/samples, verified and silent frames, the dropped-frame increase
+from the end of warmup, maximum `ms_audio_read` RPC duration, and generation
+changes. This separates initial/reconnect gaps from loss during continuing
+delivery. Corrupt or absent signal fails; VM scheduling delays or dropped frames
+are reported without an arbitrary timing threshold. These metrics are evidence
+about the tested host, not an end-to-end latency or realtime guarantee.
+
 For a distributable build, sign the library and driver with the application's
 Developer ID identity, notarize the package, and verify the install on a clean Mac.
 Do not represent an unsigned CI artifact as a finished installer.
@@ -72,6 +82,10 @@ partially assembled PCM when it changes, before processing the returned frames.
 The generation advances and the native ring is cleared on the first IO start after
 all clients have stopped, including a stop/start completed between consumer polls.
 Ownership transfer or recovery after lease expiry also advances the generation.
+PCM generations are separate from the HAL clock seed: owner/lease transitions
+flush PCM without resetting that clock; the first IO start advances both. Queue
+frames carry their generation so an old producer completing after a flush cannot
+publish stale PCM into the new stream.
 An increased dropped-frame count denotes a queue discontinuity and likewise
 requires flushing partially assembled PCM before accepting subsequent frames.
 The CFData packet protocol is version 2; package the matching plugin, consumer

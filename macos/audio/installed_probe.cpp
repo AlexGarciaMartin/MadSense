@@ -1,6 +1,7 @@
 #include "madsense_audio.h"
 #include "AudioProtocol.hpp"
 #include <CoreAudio/CoreAudio.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -88,7 +89,8 @@ struct Stream {
     void stop() { check(AudioDeviceStop(device, proc), "Stop endpoint"); started = false; }
 };
 
-uint64_t receive(Consumer& consumer, Signal& signal, int phase, uint64_t previousGeneration = 0) {
+uint64_t receive(Consumer& consumer, Signal& signal, int phase, uint64_t previousGeneration = 0,
+                 uint64_t* droppedAtEnd = nullptr) {
     uint64_t validated = 0, silent = 0, lastDropped = 0, generation = 0;
     auto deadline = std::chrono::steady_clock::now() + 3s;
     while (std::chrono::steady_clock::now() < deadline) {
@@ -118,11 +120,63 @@ uint64_t receive(Consumer& consumer, Signal& signal, int phase, uint64_t previou
             std::cout << "phase=" << phase << " verified_frames=" << validated
                       << " silent_frames=" << silent << " dropped=" << lastDropped
                       << " generation=" << generation << '\n';
+            if (droppedAtEnd) *droppedAtEnd = lastDropped;
             return generation;
         }
         if (frames < madsense::kReadFrames) std::this_thread::sleep_for(5ms);
     }
     throw std::runtime_error("Timed out validating complete four-channel PCM frames");
+}
+
+void measureWarmTransfer(Consumer& consumer, Signal& signal, uint64_t baselineDropped, uint64_t previousGeneration) {
+    uint64_t received = 0, validated = 0, silent = 0, lastDropped = baselineDropped;
+    uint64_t calls = 0, generationChanges = 0;
+    std::chrono::nanoseconds longestRead{0};
+    auto started = std::chrono::steady_clock::now();
+    auto deadline = started + 1s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        float samples[madsense::kReadFrames * madsense::kChannels];
+        uint32_t frames = 0, active = 0;
+        uint64_t generation = 0;
+        auto readStarted = std::chrono::steady_clock::now();
+        int result = ms_audio_read(consumer.handle, samples, madsense::kReadFrames,
+            &frames, &lastDropped, &active, &generation);
+        auto readEnded = std::chrono::steady_clock::now();
+        longestRead = std::max(longestRead, std::chrono::duration_cast<std::chrono::nanoseconds>(readEnded - readStarted));
+        ++calls;
+        check(result, "Warm transfer read");
+        require(!signal.wrongLayout.load(std::memory_order_relaxed), "Wrong HAL layout during warm transfer");
+        require(generation > 0 && frames <= madsense::kReadFrames, "Invalid warm transfer metadata");
+        if (generation != previousGeneration) { ++generationChanges; previousGeneration = generation; }
+        received += frames;
+        for (uint32_t frame = 0; frame < frames; ++frame) {
+            bool allSilent = true;
+            for (uint32_t channel = 0; channel < madsense::kChannels; ++channel)
+                allSilent &= samples[frame * madsense::kChannels + channel] == 0;
+            if (allSilent) { ++silent; continue; }
+            require(active >= 1, "Warm PCM arrived without an active client");
+            for (uint32_t channel = 0; channel < madsense::kChannels; ++channel) {
+                float sample = samples[frame * madsense::kChannels + channel];
+                require(std::isfinite(sample) && std::abs(sample - level(0, channel)) < 0.00001f,
+                    "Corrupt channel value during warm transfer");
+            }
+            ++validated;
+        }
+        // Match the backend's pacing: drain full packets immediately, otherwise
+        // wait five milliseconds. Scheduler stalls are measured, not hidden by
+        // raising priorities or a synthetic latency pass/fail threshold.
+        if (frames < madsense::kReadFrames) std::this_thread::sleep_for(5ms);
+    }
+    double elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    require(lastDropped >= baselineDropped, "Dropped frame counter moved backwards");
+    std::cout << "warm_measurement_not_latency_guarantee"
+              << " elapsed_ms=" << elapsed << " read_calls=" << calls
+              << " received_frames=" << received << " received_samples=" << received * madsense::kChannels
+              << " verified_frames=" << validated << " silent_frames=" << silent
+              << " dropped_delta=" << lastDropped - baselineDropped
+              << " max_read_rpc_ms=" << std::chrono::duration<double, std::milli>(longestRead).count()
+              << " generation_changes=" << generationChanges << '\n';
+    require(validated > 0, "No four-channel signal received during warm transfer measurement");
 }
 
 int holdOwner() {
@@ -208,7 +262,9 @@ int main(int argc, char** argv) {
         Stream stream;
         stream.create(device, signal);
         stream.start();
-        uint64_t firstGeneration = receive(consumer, signal, 0);
+        uint64_t baselineDropped = 0;
+        uint64_t firstGeneration = receive(consumer, signal, 0, 0, &baselineDropped);
+        measureWarmTransfer(consumer, signal, baselineDropped, firstGeneration);
 
         stream.stop();
         signal.phase.store(1, std::memory_order_relaxed);

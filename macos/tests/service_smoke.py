@@ -10,8 +10,8 @@ import threading
 import time
 
 
-def start(executable, environment):
-    process = subprocess.Popen([executable, "--service"], stdin=subprocess.PIPE,
+def start(executable, environment, arguments=()):
+    process = subprocess.Popen([executable, "--service", *arguments], stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                text=True, bufsize=1, env=environment)
     messages = queue.Queue()
@@ -47,6 +47,16 @@ def expect(messages, state, speaker=None):
 def command(process, value):
     process.stdin.write(value + "\n")
     process.stdin.flush()
+
+
+def expect_first(messages, state, speaker):
+    # Unlike expect(), this must not skip an earlier waiting/connecting/error:
+    # --start-paused promises that discovery cannot run before the first status.
+    value = messages.get(timeout=15)
+    print(json.dumps(value), flush=True)
+    assert value.get("state") == state, f"First status was not {state}: {value}"
+    assert value.get("speaker") == speaker
+    return value
 
 
 def run(executable, environment, home):
@@ -99,7 +109,26 @@ def run(executable, environment, home):
         if process.poll() is None:
             process.kill()
             process.wait(timeout=5)
-    print("PASS service speaker commands/persistence, pause/resume, live diagnostics, single instance, quit, and parent EOF")
+    before_restart = preferences.read_text()
+    for arguments, expected_state in ((["--start-paused"], "paused"),
+                                      (["--start-paused"], "paused"), ([], "waiting")):
+        process, messages = start(executable, environment, arguments)
+        try:
+            first = expect_first(messages, expected_state, "high")
+            assert first["reports"] == 0 and first["battery"] == -1
+            if expected_state == "paused":
+                assert first["detail"] == "Controller released."
+                command(process, "resume")
+                expect(messages, "waiting", "high")
+            command(process, "quit")
+            expect(messages, "stopped", "high")
+            assert process.wait(timeout=15) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+    assert preferences.read_text() == before_restart, "startup pause must not mutate user preferences"
+    print("PASS service speaker persistence, initial/restarted pause, resume, diagnostics, single instance, quit, and parent EOF")
 
 
 def main(executable):

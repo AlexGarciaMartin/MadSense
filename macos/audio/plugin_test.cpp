@@ -69,6 +69,13 @@ int main() {
     AudioServerPlugInClientInfo client{42, getpid(), true, CFSTR("org.madsense.audio.test")};
     require((*driver)->AddDeviceClient(driver, kDevice, &client) == noErr, "register client");
     require((*driver)->StartIO(driver, kDevice, client.mClientID) == noErr, "start IO");
+    auto clockSeed = [&]() {
+        Float64 sample = 0; UInt64 ticks = 0, seed = 0;
+        require((*driver)->GetZeroTimeStamp(driver, kDevice, client.mClientID, &sample, &ticks, &seed) == noErr &&
+            ticks > 0 && seed > 0, "device clock");
+        return seed;
+    };
+    const uint64_t firstClockSeed = clockSeed();
     // launchd gives a real, live process belonging to another UID. Reading its
     // public process snapshot must work; starting its stream under our owner
     // must still fail. No privileged test helper or synthetic UID is needed.
@@ -104,6 +111,8 @@ int main() {
         kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "queue previous stream tail");
     require((*driver)->StopIO(driver, kDevice, client.mClientID) == noErr, "rapid stop");
     require((*driver)->StartIO(driver, kDevice, client.mClientID) == noErr, "rapid restart");
+    const uint64_t restartedClockSeed = clockSeed();
+    require(restartedClockSeed != firstClockSeed, "actual IO restart must reset the HAL clock seed");
     for (float& value : frames) value = 0.75f;
     require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
         kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "new stream write");
@@ -134,6 +143,7 @@ int main() {
     CFRelease(data);
     require(packet.frames == 0 && packet.activeClients == 1 && packet.generation != restartedGeneration,
         "lease expiry must discard queued PCM and change generation");
+    require(clockSeed() == restartedClockSeed, "lease recovery must not reset the HAL clock");
     require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
         kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "write after lease renewal");
     uint64_t resumedGeneration = packet.generation;
@@ -145,9 +155,33 @@ int main() {
     CFRelease(data);
     require(packet.frames == 64 && packet.generation == resumedGeneration && packet.samples[0] == 0.75f,
         "lease renewal must recover without repeated generation changes");
-    Float64 sample = 0; UInt64 ticks = 0, seed = 0;
-    require((*driver)->GetZeroTimeStamp(driver, kDevice, client.mClientID, &sample, &ticks, &seed) == noErr &&
-        ticks > 0 && seed == packet.generation, "device clock generation");
+    require(clockSeed() == restartedClockSeed, "steady IO must retain the HAL clock seed");
+    // Transfer the live same-user stream to another actual process. This starts
+    // a new PCM generation but does not change the running device's clock.
+    require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
+        kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "queue before owner transfer");
+    addr = address(kOwner); claim = kCFBooleanFalse;
+    require((*driver)->SetPropertyData(driver, kDevice, getpid(), &addr, 0, nullptr,
+        sizeof(claim), &claim) == noErr, "release running owner");
+    claim = kCFBooleanTrue;
+    require((*driver)->SetPropertyData(driver, kDevice, child, &addr, 0, nullptr,
+        sizeof(claim), &claim) == noErr, "transfer same-user running owner");
+    addr = address(kRead); data = nullptr;
+    require((*driver)->GetPropertyData(driver, kDevice, child, &addr, 0, nullptr,
+        sizeof(data), &written, &data) == noErr && data, "transferred owner read");
+    packet = {};
+    std::memcpy(&packet, CFDataGetBytePtr(data), CFDataGetLength(data));
+    CFRelease(data);
+    require(packet.frames == 0 && packet.generation != resumedGeneration && packet.activeClients == 1,
+        "owner transfer must flush PCM and advance its generation");
+    require(clockSeed() == restartedClockSeed, "owner transfer must not reset the HAL clock");
+    addr = address(kOwner); claim = kCFBooleanFalse;
+    require((*driver)->SetPropertyData(driver, kDevice, child, &addr, 0, nullptr,
+        sizeof(claim), &claim) == noErr, "release transferred owner");
+    claim = kCFBooleanTrue;
+    require((*driver)->SetPropertyData(driver, kDevice, getpid(), &addr, 0, nullptr,
+        sizeof(claim), &claim) == noErr, "reclaim original owner");
+    require(clockSeed() == restartedClockSeed, "owner reclaim must not reset the HAL clock");
     require((*driver)->StopIO(driver, kDevice, client.mClientID) == noErr, "stop IO");
     require((*driver)->RemoveDeviceClient(driver, kDevice, &client) == noErr, "remove client");
     addr = address(kOwner); claim = kCFBooleanFalse;
