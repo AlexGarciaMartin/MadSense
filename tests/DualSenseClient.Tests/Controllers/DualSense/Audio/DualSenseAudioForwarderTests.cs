@@ -170,11 +170,13 @@ public class DualSenseAudioForwarderTests
         public ConnectionType ConnectionType { get; init; } = ConnectionType.Bluetooth;
 
         public bool NeedsOutputStateBlock { get; set; }
+        public int ReportDelayMilliseconds { get; init; }
 
         public int ResetCount { get; private set; }
-        public int PrimeCount { get; private set; }
-        public int CombinedReportCount { get; private set; }
-        public int AudioOnlyReportCount { get; private set; }
+        private int _primeCount, _combinedReportCount, _audioOnlyReportCount;
+        public int PrimeCount => Volatile.Read(ref _primeCount);
+        public int CombinedReportCount => Volatile.Read(ref _combinedReportCount);
+        public int AudioOnlyReportCount => Volatile.Read(ref _audioOnlyReportCount);
         public int AudioOutputApplyCount { get; private set; }
         public byte? LastAppliedSpeakerVolume { get; private set; }
         public AudioControl? LastAppliedControl { get; private set; }
@@ -207,25 +209,26 @@ public class DualSenseAudioForwarderTests
 
         public void SendBluetoothAudioPrime(SetStateData state)
         {
-            PrimeCount++;
             state.CopyTo(LastPrimeStateBlock, 0);
+            Interlocked.Increment(ref _primeCount);
         }
 
         public void SendBluetoothAudioAndHaptics(SetStateData state, ReadOnlySpan<byte> opusFrame, ReadOnlySpan<byte> hapticsPcm, BluetoothAudioRoute route)
         {
-            CombinedReportCount++;
+            if (ReportDelayMilliseconds > 0) Thread.Sleep(ReportDelayMilliseconds);
             state.CopyTo(LastStateBlock, 0);
             LastOpusFrameLength = (byte)opusFrame.Length;
             LastHapticsLength = (byte)hapticsPcm.Length;
             LastHapticsFrame = hapticsPcm.ToArray();
             HapticsFrames.Enqueue(LastHapticsFrame);
             AnyHapticsNonZero |= LastHapticsFrame.Any(b => b != 0);
+            Interlocked.Increment(ref _combinedReportCount);
         }
 
         public void SendBluetoothAudio(ReadOnlySpan<byte> opusFrame, BluetoothAudioRoute route)
         {
-            AudioOnlyReportCount++;
             LastOpusFrameLength = (byte)opusFrame.Length;
+            Interlocked.Increment(ref _audioOnlyReportCount);
         }
 
         public byte? LastAppliedPreGain { get; private set; }
@@ -316,20 +319,29 @@ public class DualSenseAudioForwarderTests
         forwarder.Stop();
     }
 
-    [Test]
-    public void LongIdleGap_RePrimesTheStreamOnResume()
+    [TestCase(0)]
+    [TestCase(50)]
+    public void LongIdleGap_RePrimesTheStreamOnResume(int reportDelayMilliseconds)
     {
         FakeAudioOutputs fake = new FakeAudioOutputs
         {
-            ConnectionType = ConnectionType.Bluetooth
+            ConnectionType = ConnectionType.Bluetooth,
+            ReportDelayMilliseconds = reportDelayMilliseconds
         };
         using DualSenseAudioForwarder forwarder = new DualSenseAudioForwarder(fake, null);
-        forwarder.Start();
+        Assert.That(forwarder.Start(), Is.True);
 
         forwarder.FeedPcm(AudioBlock);
-        WaitUntil(() => fake.ReportCount > 0 && fake.PrimeCount == 1, TimeSpan.FromSeconds(3));
+        // The first report is only the start of eight warmup writes. A slow
+        // writer/VM can still be draining them 400 ms later, so wait for all
+        // warmup reports AND the fed PCM block before measuring an idle gap.
+        WaitUntil(() => fake.ReportCount >= 9, TimeSpan.FromSeconds(3));
+        Assert.That(fake.ReportCount, Is.EqualTo(9), "eight warmup writes and the first PCM block must finish");
+        Assert.That(fake.PrimeCount, Is.EqualTo(1));
 
         Thread.Sleep(400);
+        Assert.That(fake.ReportCount, Is.EqualTo(9), "the lane must actually remain idle before resuming");
+        Assert.That(forwarder.LastFault, Is.Null);
 
         forwarder.FeedPcm(AudioBlock);
         WaitUntil(() => fake.PrimeCount >= 2, TimeSpan.FromSeconds(3));
