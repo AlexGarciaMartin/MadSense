@@ -5,6 +5,7 @@ This test actor/polkit fixture is never installed with the application or broker
 The existing native broker baseline must have passed in this exact guest first.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,7 +22,7 @@ sys.path.insert(0, str(LINUX / "research"))
 sys.path.insert(0, str(LINUX / "platform/tests"))
 sys.path.insert(0, str(LINUX / "platform/integration"))
 from ci_environment import validate_environment
-from kernel_probe import owned_nodes, ports, wait_for
+from kernel_probe import owned_nodes, ports, sysfs_bitmap, wait_for
 from qemu_broker import verify_result
 from production_fixture import SyntheticDualSense
 from actor_staging import stage_probe, verify_actor_execution
@@ -45,6 +46,7 @@ def main():
     parser.add_argument("--probe-directory", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--extended-protocol", action="store_true")
+    parser.add_argument("--xbox-ff-probe", type=Path)
     args = parser.parse_args()
     require(os.geteuid() == 0, "Root observer required inside owned guest")
     scope = validate_environment(args.owned_guest_token)
@@ -57,6 +59,7 @@ def main():
                   applicationUiExercised=False, physicalDevices=False, radioInitialized=False,
                   temporaryVmTestPolicies=True, cases=[])
     result["protocolExtension"] = dict(requested=args.extended_protocol, result="not-requested", cases=[])
+    result["xboxForceFeedback"] = dict(requested=args.xbox_ff_probe is not None, result="not-requested")
     user = "madsense-app-ci"
     root = Path("/opt", "madsense-app-ci-" + uuid.uuid4().hex)
     actor = root / "output"
@@ -274,6 +277,22 @@ def main():
             wait_for(lambda: settings(0, 0, setting))
             require(not old_usb.exists() or old_usb == usb, "Previous virtual node remains after mode switch")
             passed("mode_" + mode.lower() + "_uses_production_settings_and_kernel_persona", vendorId=vid, productId=pid)
+            if mode == "Xbox" and args.xbox_ff_probe is not None:
+                from xbox_ff import run as observe_xbox_ff
+                def xbox_events():
+                    return [node for node in owned_nodes(usb, "input", "event*")
+                            if (sysfs_bitmap((node / "device/capabilities/key").read_text()) >> 304) & 1]
+                events = wait_for(xbox_events)
+                require(len(events) == 1, "Xbox FF observer requires one exact gamepad evdev interface")
+                save("xbox-consumer-ready.json", dict(ownedGuestToken=args.owned_guest_token,
+                     usbParent=str(usb), localBusId=usb.name, vendorId=vid, productId=pid,
+                     hidrawPath=None, evdevPath=str(Path("/dev/input", events[0].name)),
+                     uhidEventsPath=str(fixture.output / "uhid-events.jsonl"), coreOutputDirectory=str(actor)))
+                result["xboxForceFeedback"]["readySha256"] = hashlib.sha256((output / "xbox-consumer-ready.json").read_bytes()).hexdigest()
+                result["xboxForceFeedback"]["consumer"] = observe_xbox_ff(output / "xbox-consumer-ready.json",
+                    args.xbox_ff_probe, output / "xbox-ff-consumer", fixture.parent)
+                result["xboxForceFeedback"]["result"] = "passed"
+                save("result.json", result)
 
         action("pause")
         observed_state(lambda state: state["paused"] and not state["releasing"])
@@ -320,7 +339,11 @@ def main():
         if args.extended_protocol:
             result["protocolExtension"]["result"] = "passed"
         result["result"] = "passed"
+        if args.xbox_ff_probe is not None:
+            from xbox_ff import verify_result as verify_xbox_ff
+            verify_xbox_ff(result, args.owned_guest_token, output / "xbox-consumer-ready.json")
     except BaseException as error:
+        result["result"] = "failed"
         result["reason"] = f"{type(error).__name__}: {error}"
     finally:
         try:

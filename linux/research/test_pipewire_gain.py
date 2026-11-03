@@ -15,6 +15,56 @@ from pipewire_gain import (CHANNELS, control_snapshot, marked_pcm, measure_pcm,
                            same_target, stream_binding, target_state)
 
 
+# Reduced, unmodified binding fields from native run 41632075665, commit 4d5cc8.
+# Original pipewire-gain/005-baseline.json SHA256: 2002d3ba39ca458972b58839f87967ec76c1deb12a0bba2a5c619d8b90f8f533
+NATIVE_PLAYBACK = [{'id': 40, 'type': 'PipeWire:Interface:Port', 'info': {'props': {'node.id': 37, 'audio.channel': 'FL'}}},
+ {'id': 42, 'type': 'PipeWire:Interface:Port', 'info': {'props': {'node.id': 37, 'audio.channel': 'FR'}}},
+ {'id': 44, 'type': 'PipeWire:Interface:Port', 'info': {'props': {'node.id': 37, 'audio.channel': 'RL'}}},
+ {'id': 46, 'type': 'PipeWire:Interface:Port', 'info': {'props': {'node.id': 37, 'audio.channel': 'RR'}}},
+ {'id': 50,
+  'type': 'PipeWire:Interface:Client',
+  'info': {'props': {'pipewire.sec.pid': 11333,
+                     'pipewire.sec.uid': 1001,
+                     'pipewire.sec.gid': 1001,
+                     'application.process.id': 11333,
+                     'object.serial': 57}}},
+ {'id': 51,
+  'type': 'PipeWire:Interface:Node',
+  'info': {'props': {'client.id': 50, 'media.class': 'Stream/Output/Audio', 'object.serial': 58}}},
+ {'id': 52, 'type': 'PipeWire:Interface:Port', 'info': {'props': {'node.id': 51, 'audio.channel': 'FL'}}},
+ {'id': 53, 'type': 'PipeWire:Interface:Port', 'info': {'props': {'node.id': 51, 'audio.channel': 'FR'}}},
+ {'id': 54, 'type': 'PipeWire:Interface:Port', 'info': {'props': {'node.id': 51, 'audio.channel': 'RL'}}},
+ {'id': 55, 'type': 'PipeWire:Interface:Port', 'info': {'props': {'node.id': 51, 'audio.channel': 'RR'}}},
+ {'id': 56,
+  'type': 'PipeWire:Interface:Link',
+  'info': {'state': 'active',
+           'output-node-id': 51,
+           'input-node-id': 37,
+           'output-port-id': 52,
+           'input-port-id': 40}},
+ {'id': 57,
+  'type': 'PipeWire:Interface:Link',
+  'info': {'state': 'active',
+           'output-node-id': 51,
+           'input-node-id': 37,
+           'output-port-id': 53,
+           'input-port-id': 42}},
+ {'id': 58,
+  'type': 'PipeWire:Interface:Link',
+  'info': {'state': 'active',
+           'output-node-id': 51,
+           'input-node-id': 37,
+           'output-port-id': 54,
+           'input-port-id': 44}},
+ {'id': 59,
+  'type': 'PipeWire:Interface:Link',
+  'info': {'state': 'active',
+           'output-node-id': 51,
+           'input-node-id': 37,
+           'output-port-id': 55,
+           'input-port-id': 46}}]
+
+
 class GainEvidenceTests(unittest.TestCase):
     def setUp(self):
         # Reduced shape of the real Noble 7d9f906 card/route, not a claim that
@@ -74,21 +124,53 @@ class GainEvidenceTests(unittest.TestCase):
 
     def test_playback_binding_rejects_other_sink_and_channel_swap(self):
         target = self.target()
+        client = dict(id=79, type=PREFIX + 'Client', info=dict(props={
+            'pipewire.sec.pid': 456, 'pipewire.sec.uid': 1001, 'pipewire.sec.gid': 1002, 'object.serial': 89}))
         stream = dict(id=80, type=PREFIX + 'Node', info=dict(props={
-            'media.class': 'Stream/Output/Audio', 'application.process.id': 456, 'object.serial': 90}))
-        extra = [stream]
+            'media.class': 'Stream/Output/Audio', 'client.id': 79, 'object.serial': 90}))
+        extra = [client, stream]
         for i, channel in enumerate(CHANNELS):
-            extra.extend([dict(id=100+i, type=PREFIX+'Port', info=dict(props={'audio.channel': channel})),
-                          dict(id=110+i, type=PREFIX+'Port', info=dict(props={'audio.channel': channel})),
+            extra.extend([dict(id=100+i, type=PREFIX+'Port', info=dict(props={'audio.channel': channel, 'node.id': 80})),
+                          dict(id=110+i, type=PREFIX+'Port', info=dict(props={'audio.channel': channel, 'node.id': 35})),
                           dict(id=120+i, type=PREFIX+'Link', info={
-                              'output-node-id': 80, 'input-node-id': 35, 'output-port-id': 100+i, 'input-port-id': 110+i})])
+                              'state': 'active', 'output-node-id': 80, 'input-node-id': 35,
+                              'output-port-id': 100+i, 'input-port-id': 110+i})])
         snapshot = self.snapshot + extra
-        self.assertEqual(stream_binding(snapshot, 456, target)['streamId'], 80)
+        self.assertEqual(stream_binding(snapshot, 456, 1001, 1002, target)['streamId'], 80)
         snapshot[-1]['info']['input-node-id'] = 99
-        with self.assertRaises(RuntimeError): stream_binding(snapshot, 456, target)
+        with self.assertRaises(RuntimeError): stream_binding(snapshot, 456, 1001, 1002, target)
         snapshot[-1]['info']['input-node-id'] = 35
         snapshot[-2]['info']['props']['audio.channel'] = 'FL'
-        with self.assertRaises(RuntimeError): stream_binding(snapshot, 456, target)
+        with self.assertRaises(RuntimeError): stream_binding(snapshot, 456, 1001, 1002, target)
+
+    def test_native_client_node_join_without_node_process_property(self):
+        target = {'identity': {'nodeId': 37}}
+        binding = stream_binding(NATIVE_PLAYBACK, 11333, 1001, 1001, target)
+        self.assertEqual((binding['clientId'], binding['clientSerial'], binding['streamId'], binding['streamSerial']),
+                         (50, 57, 51, 58))
+        self.assertEqual(len(binding['links']), 4)
+        # An application-supplied node PID or name cannot replace peer identity.
+        for field, value in (('pipewire.sec.pid', 11334), ('pipewire.sec.uid', 1002), ('pipewire.sec.gid', 1002)):
+            changed = copy.deepcopy(NATIVE_PLAYBACK)
+            client = next(row for row in changed if row['id'] == 50)
+            client['info']['props'][field] = value
+            node = next(row for row in changed if row['id'] == 51)
+            node['info']['props']['application.process.id'] = 11333
+            with self.subTest(field=field):
+                if field.endswith('.pid'):
+                    self.assertIsNone(stream_binding(changed, 11333, 1001, 1001, target))
+                else:
+                    with self.assertRaises(RuntimeError): stream_binding(changed, 11333, 1001, 1001, target)
+
+    def test_native_playback_missing_client_wrong_port_owner_and_inactive_links_are_not_bound(self):
+        target = {'identity': {'nodeId': 37}}
+        self.assertIsNone(stream_binding([row for row in NATIVE_PLAYBACK if row['id'] != 50], 11333, 1001, 1001, target))
+        changed = copy.deepcopy(NATIVE_PLAYBACK)
+        next(row for row in changed if row['id'] == 52)['info']['props']['node.id'] = 99
+        with self.assertRaises(RuntimeError): stream_binding(changed, 11333, 1001, 1001, target)
+        changed = copy.deepcopy(NATIVE_PLAYBACK)
+        next(row for row in changed if row['id'] == 56)['info']['state'] = 'paused'
+        self.assertIsNone(stream_binding(changed, 11333, 1001, 1001, target))
 
 
 class PcmGainTests(unittest.TestCase):

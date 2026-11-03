@@ -156,9 +156,19 @@ def measure_pcm(reference, captured):
                 alignmentIsLatency=False, physicalGainValidated=False), b"".join(struct.pack("<hhhh", *row) for row in actual)
 
 
-def stream_binding(snapshot, pid, target):
+def stream_binding(snapshot, pid, uid, gid, target):
+    # Native 1.0.5 exports process credentials on Client, not necessarily Node.
+    # Use the protocol's peer credentials, then the explicit client.id edge.
+    clients = [client for client in objects(snapshot, "Client") if props(client).get("pipewire.sec.pid") == pid]
+    if not clients:
+        return None
+    require(len(clients) == 1, "Ambiguous owned playback client")
+    client = clients[0]
+    require(all(type(props(client).get(key)) is int and props(client)[key] == value for key, value in
+                (("pipewire.sec.pid", pid), ("pipewire.sec.uid", uid), ("pipewire.sec.gid", gid))),
+            "Playback client peer credentials differ from the owned child")
     streams = [node for node in objects(snapshot, "Node") if
-               props(node).get("media.class") == "Stream/Output/Audio" and str(props(node).get("application.process.id")) == str(pid)]
+               props(node).get("media.class") == "Stream/Output/Audio" and props(node).get("client.id") == client["id"]]
     if not streams:
         return None
     require(len(streams) == 1, "Ambiguous owned playback stream")
@@ -172,10 +182,16 @@ def stream_binding(snapshot, pid, target):
     for link in links:
         require(link.get("input-node-id") == target["identity"]["nodeId"], "Playback linked to a different sink")
         left, right = ports[link["output-port-id"]], ports[link["input-port-id"]]
+        require(left.get("node.id") == stream["id"] and right.get("node.id") == target["identity"]["nodeId"],
+                "Playback ports belong to another node")
         require(left.get("audio.channel") == right.get("audio.channel"), "Playback channel link was remapped")
         channels.append(left.get("audio.channel"))
     require(len(channels) == 4 and set(channels) == set(CHANNELS), "Playback needs exactly four attributed channel links")
-    return dict(streamId=stream["id"], streamSerial=object_serial(stream), processId=pid, links=links)
+    if any(link.get("state") != "active" for link in links):
+        return None
+    return dict(clientId=client["id"], clientSerial=object_serial(client),
+                streamId=stream["id"], streamSerial=object_serial(stream),
+                processId=pid, uid=uid, gid=gid, links=links)
 
 
 def stop_private_processes(session):
@@ -268,16 +284,31 @@ def run(ready_path, output, physical_parent, *, adjust_owned_rear_unity=False):
                     "--target", str(state["identity"]["nodeSerial"]), "--channel-map", ",".join(CHANNELS), str(source_path)])
                 started = time.monotonic_ns()
                 binding = None
+                failure = None
+                playback = dict(label=label, processId=player.pid, startedMonotonicNs=started,
+                                captureOffsetBytes=before_size)
+                session.result.setdefault("playbacks", []).append(playback)
                 deadline = time.monotonic() + 15
                 try:
+                    player_identity = process_identity(player.pid)
+                    require(player_identity is not None and player_identity[0] == (session.uid,) * 4,
+                            "Playback child identity is unavailable or outside the owned account")
+                    playback["processStart"] = player_identity[1]; session.save()
                     while player.poll() is None:
                         require(time.monotonic() < deadline, "Owned PCM playback exceeded deadline")
+                        require(process_identity(player.pid) == player_identity, "Playback child identity changed")
                         raw, current = snapshot(label)
                         same_target(current, state)
                         require(current == state, "Recorded route/node volumes changed during marked playback")
-                        binding = stream_binding(raw, player.pid, state) or binding
+                        # Do not attribute a dump after reaping this child; its
+                        # PID could then refer to an unrelated new process.
+                        if player.poll() is not None:
+                            break
+                        require(process_identity(player.pid) == player_identity, "Playback child identity changed during observation")
+                        binding = stream_binding(raw, player.pid, session.uid, session.gid, state) or binding
                         time.sleep(.05)
-                    require(player.returncode == 0 and binding is not None, "Playback failed or its exact four links were not observed")
+                except Exception as error:
+                    failure = error
                 finally:
                     # Finish this exact child before any route rollback, even
                     # when link/identity evidence fails during playback.
@@ -287,6 +318,9 @@ def run(ready_path, output, physical_parent, *, adjust_owned_rear_unity=False):
                             player.wait(timeout=2)
                         except subprocess.TimeoutExpired:
                             player.kill(); player.wait(timeout=2)
+                    playback.update(exitCode=player.returncode, binding=binding, endedMonotonicNs=time.monotonic_ns(),
+                                    error=str(failure) if failure is not None else None)
+                    session.save()
                 last = None
                 for _ in range(20):
                     size = capture_path.stat().st_size
@@ -295,6 +329,11 @@ def run(ready_path, output, physical_parent, *, adjust_owned_rear_unity=False):
                     last = size; time.sleep(.05)
                 data = bounded_bytes(capture_path, 16 * 1024 * 1024)[before_size:]
                 (session.output / (label + ".pcm")).write_bytes(data)
+                playback["capturedSha256"] = hashlib.sha256(data).hexdigest(); session.save()
+                if failure is not None:
+                    raise failure
+                require(player.returncode == 0 and binding is not None,
+                        "Playback failed or its exact four links were not observed; inspect playback PID/exit and retained PCM")
                 measurement, aligned = measure_pcm(marker, data)
                 (session.output / (label + "-aligned.pcm")).write_bytes(aligned)
                 phase = dict(label=label, startedMonotonicNs=started, endedMonotonicNs=time.monotonic_ns(),

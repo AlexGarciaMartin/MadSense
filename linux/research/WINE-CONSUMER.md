@@ -124,3 +124,55 @@ starts UDEV only if SDL is disabled or fails to initialize. Thus the default SDL
 backend is a candidate explanation for the missing native feature surface,
 pending the new capability evidence. An explicit UDEV variant needs its own
 fresh prefix and result label; it must not replace or relabel this default run.
+
+Run [41632075665](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41632075665)
+at `4d5cc8df2466f4697438a4f789f55b9773906c75` executed both prefixes. The runtime
+artifact SHA-256 is `991fcd83c1eac0bb8cce99ef99545eed12bb5541a39fe0f757cb8ebb6832ef79`.
+Default Wine 9.0 exposed input/output/feature lengths 15/0/0. The explicitly
+configured UDEV variant exposed 64/48/64, matched the virtual feature-09 MAC,
+returned exact features 09/20/05, and observed south/neutral through Raw Input.
+Both sessions completed account/process/ACL cleanup. The variant did not pass:
+ContainerId was unavailable, and its PE reported a short HID write without
+recording the transferred count. The appended Win32 997 was potentially stale;
+the original code already waited on pending writes, so that number alone cannot
+establish a missing wait or a bridge failure.
+
+Independent capture shows each configured-prefix invocation delivered the exact
+48-byte USB RGB report (`02 00 04`, remaining fields zero except final `12 34 56`)
+and one matching CRC-valid 78-byte Bluetooth report inside its command interval.
+The raw USB timestamps were 154722045403 and 155089415249 ns; corresponding
+Bluetooth timestamps were 154722399077 and 155089824167 ns on the same guest
+monotonic clock. Final raw capture had zero rejected/unwritten snapshots and no
+error. This establishes synthetic report forwarding; it does not prove the API
+reported the correct byte count or that a physical LED changed. The original PE
+failure and the missing ContainerId remain failures. WASAPI was not attempted.
+
+The observer now records `hid-write-completion` before evaluating the same
+strict 48-byte requirement. It follows Microsoft's
+[WriteFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-writefile)
+and [GetOverlappedResult](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-getoverlappedresult)
+contracts: the latter supplies the count for immediate and pending completion,
+and errors are captured only when their API fails. A three-second wait is
+followed, if still pending, by
+[CancelIoEx](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-cancelioex)
+and a separate three-second drain. If completion remains outstanding, the probe
+terminates without unwinding its event, OVERLAPPED or buffer. Timeout remains
+failure even if completion races it. Fourteen portable scripted-API regressions
+cover immediate/pending success, zero/short/oversized counts, API failures,
+cancellation races and undrained I/O; these do not replace native Wine execution.
+The artifact retains their source, header, source hashes and test output.
+
+Container association is a separate runtime capability. Stock Wine 9's
+[winebus](https://github.com/wine-mirror/wine/blob/wine-9.0/dlls/winebus.sys/main.c)
+does not implement `BusQueryContainerID`, and its
+[Pulse backend](https://github.com/wine-mirror/wine/blob/wine-9.0/dlls/winepulse.drv/pulse.c)
+does not supply the matching ContainerId property. Valve's Wine at
+`b8fdff8e1f855b5276ec4ddca0f31b2792554322` implements this
+[PnP query](https://github.com/ValveSoftware/wine/blob/b8fdff8e1f855b5276ec4ddca0f31b2792554322/dlls/winebus.sys/main.c),
+using matching USB ancestry inputs in its
+[UDEV](https://github.com/ValveSoftware/wine/blob/b8fdff8e1f855b5276ec4ddca0f31b2792554322/dlls/winebus.sys/bus_udev.c)
+and [Pulse](https://github.com/ValveSoftware/wine/blob/b8fdff8e1f855b5276ec4ddca0f31b2792554322/dlls/winepulse.drv/pulse.c)
+backends. This source difference explains why a newer derivative is a useful
+separate experiment; it is not proof that any installed GE/UMU or official Valve
+Proton runtime has passed this probe. No fallback to an unrelated audio endpoint
+is allowed.

@@ -33,6 +33,7 @@ extern "C" {
 #include <string>
 #include <vector>
 #include <utility>
+#include "wine_overlapped.hpp"
 
 static std::string utf8(const std::wstring &s)
 {
@@ -314,15 +315,43 @@ static void sony_probe(unsigned vendor, unsigned product, const std::array<unsig
     std::array<unsigned char, 48> output{}; output[0] = 2; output[2] = 4;
     output[45] = 0x12; output[46] = 0x34; output[47] = 0x56;
     Handle event(CreateEventW(nullptr, TRUE, FALSE, nullptr)); require(event.value != nullptr, "Output completion event");
-    OVERLAPPED operation{}; operation.hEvent = event.value; DWORD written = 0;
-    BOOL immediate = WriteFile(handle.value, output.data(), static_cast<DWORD>(output.size()), &written, &operation);
-    if (!immediate) {
-        require(GetLastError() == ERROR_IO_PENDING, "Write virtual HID RGB marker");
-        DWORD wait = WaitForSingleObject(event.value, 3000);
-        if (wait != WAIT_OBJECT_0) { CancelIoEx(handle.value, &operation); GetOverlappedResult(handle.value, &operation, &written, TRUE); }
-        require(wait == WAIT_OBJECT_0 && GetOverlappedResult(handle.value, &operation, &written, FALSE), "HID output completion");
+    OVERLAPPED operation{}; operation.hEvent = event.value;
+    struct Api {
+        HANDLE file; OVERLAPPED *operation; const unsigned char *data; DWORD size;
+        bool submit() { return WriteFile(file, data, size, nullptr, operation) != FALSE; }
+        std::uint32_t error() { return GetLastError(); }
+        std::uint32_t wait(std::uint32_t ms) { return WaitForSingleObject(operation->hEvent, ms); }
+        bool result(std::uint32_t &bytes) {
+            DWORD count = 0; BOOL ok = GetOverlappedResult(file, operation, &count, FALSE);
+            bytes = count; return ok != FALSE;
+        }
+        bool cancel() { return CancelIoEx(file, operation) != FALSE; }
+    } api{handle.value, &operation, output.data(), static_cast<DWORD>(output.size())};
+    static_assert(ERROR_IO_PENDING == owned_io::pending && ERROR_IO_INCOMPLETE == owned_io::incomplete
+                  && WAIT_OBJECT_0 == owned_io::signaled && WAIT_FAILED == owned_io::failed_wait);
+    auto completed = owned_io::write(api, static_cast<std::uint32_t>(output.size()));
+    auto boolean = [](bool value) { return value ? "true" : "false"; };
+    std::cout << "{\"kind\":\"hid-write-completion\",\"requested\":" << completed.requested
+              << ",\"transferred\":" << completed.transferred << ",\"immediate\":" << boolean(completed.immediate)
+              << ",\"writeError\":" << completed.write_error << ",\"waited\":" << boolean(completed.waited)
+              << ",\"waitStatus\":" << completed.wait_status << ",\"waitError\":" << completed.wait_error
+              << ",\"completionChecked\":" << boolean(completed.completion_checked)
+              << ",\"completed\":" << boolean(completed.completed) << ",\"succeeded\":" << boolean(completed.succeeded)
+              << ",\"completionError\":" << completed.completion_error
+              << ",\"cancelAttempted\":" << boolean(completed.cancel_attempted)
+              << ",\"cancelSucceeded\":" << boolean(completed.cancel_succeeded) << ",\"cancelError\":" << completed.cancel_error
+              << ",\"drainWaited\":" << boolean(completed.drain_waited) << ",\"drainWaitStatus\":" << completed.drain_wait_status
+              << ",\"drainWaitError\":" << completed.drain_wait_error << "}\n" << std::flush;
+    if (!completed.completed) {
+        // There is no safe C++ unwind while the OS can still reference this
+        // stack operation/buffer/event. The owning session reaps this process.
+        std::cout << "{\"kind\":\"result\",\"result\":\"failed\",\"error\":\"HID output cancellation did not drain; terminating without releasing IO storage\"}\n" << std::flush;
+        TerminateProcess(GetCurrentProcess(), 1);
+        for (;;) Sleep(INFINITE); // no unwind even if termination unexpectedly fails
     }
-    require(written == output.size(), "Short HID output write");
+    if (!completed.passed()) throw std::runtime_error("HID output completion failed: requested="
+        + std::to_string(completed.requested) + ", transferred=" + std::to_string(completed.transferred)
+        + "; see hid-write-completion (no residual GetLastError attribution)");
     std::cout << "{\"kind\":\"hid-output\",\"hex\":" << json(hex(output.data(), output.size()))
               << ",\"outputDeliveryVerified\":false}\n";
 }

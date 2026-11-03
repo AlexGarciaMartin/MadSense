@@ -106,6 +106,7 @@ jobs:
           --neutral-probe-directory dist/linux-platform-probe --core-probe-directory dist/linux-core-probe
           --app-probe-directory dist/linux-app-probe
           --extended-protocol
+          --xbox-force-feedback
           --output dist/linux-platform-guest --work dist/platform-qemu-private
       - uses: actions/upload-artifact@v4
         if: always()

@@ -39,6 +39,9 @@ waveform or audible volume. It complements the core harness's exact PCM ingress
 assertion. Standard DualSense is covered. The separate
 [protocol extension](../../platform/integration/PROTOCOL-EXTENSION.md) also passed
 Edge variant selection, Fn/paddle input, trigger and headset-routing cases.
+The separate optional [Xbox force-feedback extension](XBOX-FF.md) adds an
+ordinary-user evdev rumble marker and explicit stop after the original gates;
+its native execution is still pending.
 Authorization denial/dialog interaction, delayed-feature cancellation and helper-crash UI
 transitions remain additional scenarios. Existing unit and broker tests are not
 relabelled as coverage of those whole application flows.

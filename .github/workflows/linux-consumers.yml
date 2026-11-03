@@ -39,6 +39,8 @@ on:
       - 'linux/research/GE-UMU.md'
       - 'linux/research/ci_environment.py'
       - 'linux/research/wine_consumer.cpp'
+      - 'linux/research/wine_overlapped.hpp'
+      - 'linux/research/test_wine_overlapped.cpp'
       - 'linux/research/build_wine_consumer.sh'
       - 'linux/research/WINE-CONSUMER.md'
       - 'LICENSE'
@@ -71,7 +73,7 @@ jobs:
       - name: Prepare MinGW Windows compiler
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y g++-mingw-w64-x86-64
+          sudo apt-get install -y g++ g++-mingw-w64-x86-64
       - name: Compile Windows API observer without executing it
         shell: bash
         run: |

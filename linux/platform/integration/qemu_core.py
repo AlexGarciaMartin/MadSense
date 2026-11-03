@@ -47,7 +47,8 @@ def prepare_combined_payload(payload, neutral_probe, core_probe, app_probe):
         raise RuntimeError("Publish the self-contained Linux core probe first")
     shutil.copytree(core_probe, payload / "core-probe")
     research = Path(__file__).resolve().parents[2] / "research"
-    for name in ("host_probe.c", "test_kvm_acceleration.py"):
+    for name in ("host_probe.c", "test_kvm_acceleration.py", "ff_probe.c", "consumer_guard.h",
+                 "consumer_session.py", "run_consumers.py"):
         shutil.copy2(research / name, payload / "linux/research" / name)
     hashes = {path.relative_to(payload).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in sorted(payload.rglob("*")) if path.is_file() and path.name != "PAYLOAD-SHA256SUMS"}
@@ -55,7 +56,7 @@ def prepare_combined_payload(payload, neutral_probe, core_probe, app_probe):
     return hashes
 
 
-def run_stages(guest, extended_protocol=False):
+def run_stages(guest, extended_protocol=False, xbox_force_feedback=False):
     stages = (
         ("baseline", "linux/platform/tests/run_broker_experiment.sh", 900, ""),
         ("core", "linux/platform/integration/run_core_experiment.sh", 300, ""),
@@ -63,6 +64,8 @@ def run_stages(guest, extended_protocol=False):
     )
     if extended_protocol:
         stages += (("protocol", "linux/platform/integration/run_protocol_experiment.sh", 900, ""),)
+    if xbox_force_feedback:
+        stages += (("xbox-ff", "linux/tests/app-integration/run_xbox_ff_experiment.sh", 660, ""),)
     for name, script, timeout, extra in stages:
         result = guest.run(name + "-run", "bash /home/ubuntu/madsense/" + script + " "
                            + shlex.quote(guest.token) + extra, timeout=timeout, required=False)
@@ -79,6 +82,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--extended-protocol", action="store_true")
+    parser.add_argument("--xbox-force-feedback", action="store_true")
     args = parser.parse_args()
     guest = OwnedQemu(args.output, args.work)
     provenance = guest.provenance
@@ -93,7 +97,7 @@ def main():
         guest.run("payload-check", "cd /home/ubuntu/madsense && sha256sum --check --strict PAYLOAD-SHA256SUMS")
         guest.run("probe-permissions", "chmod +x /home/ubuntu/madsense/probe/MadSense.Linux.Probe")
         try:
-            run_stages(guest, args.extended_protocol)
+            run_stages(guest, args.extended_protocol, args.xbox_force_feedback)
         finally:
             for name in ("prepare.log", "usbip-binary.txt", "result"):
                 guest.collect(name)
@@ -135,6 +139,14 @@ def main():
             provenance["protocolExtension"] = dict(result="passed", coreCases=1, appCases=6,
                 coreResultSha256=hashlib.sha256(paths[0].read_bytes()).hexdigest(),
                 appResultSha256=hashlib.sha256(paths[1].read_bytes()).hexdigest())
+        if args.xbox_force_feedback:
+            from xbox_ff import verify_result as verify_xbox_ff
+            path = guest.output / "result/xbox-ff-app/result.json"
+            if provenance.get("xbox-ffExit") != 0 or not path.exists():
+                raise RuntimeError("Optional Xbox FF experiment failed; inspect its separate app evidence")
+            verify_xbox_ff(json.loads(path.read_text()), guest.token, path.parent / "xbox-consumer-ready.json")
+            provenance["xboxForceFeedback"] = dict(result="passed", appCases=10, deliveryCases=1,
+                resultSha256=hashlib.sha256(path.read_bytes()).hexdigest())
         provenance["result"] = "passed"
     except BaseException as error:
         provenance["reason"] = f"{type(error).__name__}: {error}"

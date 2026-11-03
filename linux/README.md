@@ -22,15 +22,15 @@ mandos. La conexión permanece bloqueada hasta verificar el componente de acceso
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
 
-En la revisión `fc141e9`, el
-[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966405)
+En la revisión `4d5cc8d`, el
+[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41632075369)
 pasó en ambas arquitecturas: 425 pruebas compartidas, 100 de plataforma y 17 de
 aplicación, las seis interfaces y el ciclo de escritorio de los paquetes extraídos.
 Las [tres pruebas del kernel en `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966377)
 pasaron con DualSense, Edge y Xbox, incluida la retirada de la VM y restauración
 de permisos KVM. Las dos Sony conservaron las 48.000 muestras por canal en la
 reproducción ALSA y el audio ISO IN sintético.
-El [servicio nativo en `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966389)
+El [servicio nativo en `4d5cc8d`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41632075372)
 pasó diez casos de aislamiento/recuperación, dos actualizaciones en reposo y
 cuatro casos de desinstalación/reinstalación. El núcleo pasó
 sus nueve casos: identidad y calibración física del fixture, entrada completa,
@@ -44,13 +44,17 @@ no certifican el funcionamiento de un mando físico.
 
 La [primera ejecución SDL/Wine](research/CONSUMER-RUN-7d9f906.md) ya aporta
 capturas: SDL2/SDL3 reciben entrada y envían efectos; su parada explícita limpia
-los selectores. En [el ensayo `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966438)
+los selectores. En [el ensayo `4d5cc8d`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41632075665)
 pasaron los cuatro casos SDL, con el informe USB completo y el Bluetooth con CRC
 válido, incluida la fase de parada separada de LED/cierre. Eso verifica reenvío,
-no actuación física. El ensayo completo falló durante el cierre de Wine: una
-carrera al inspeccionar descriptores de procesos terminó el aislamiento y dejó
-sin confirmar la limpieza del consumidor. La variante UDEV no llegó a arrancar;
-su guard de limpieza bloqueó correctamente la continuación.
+no actuación física. La corrección de la carrera al inspeccionar descriptores
+permitió cerrar Wine y completar la limpieza del núcleo y de ambos consumidores.
+La prueba real de reutilización de descriptores también pasó en x64 y ARM64.
+La variante Wine UDEV recibió las características nativas y Raw Input completo;
+sus marcadores RGB llegaron a USB y Bluetooth. Sigue fallando la comprobación
+del contador de escritura y no publica el ContainerId necesario para asociar
+HID/audio en nuestra prueba. El diagnóstico detallado y las diferencias con
+Proton están en [WINE-CONSUMER.md](research/WINE-CONSUMER.md).
 Wine 9 predeterminado falla antes de verificar las características nativas HID;
 no se ha validado WASAPI.
 La [repetición en `0325da7`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41628578603)

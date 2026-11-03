@@ -1,11 +1,24 @@
 # Private PipeWire rear-volume experiment
 
-This is prepared research, not production policy. The standalone opt-in runner
-has not executed natively. Its sixteen portable tests cover identity, channel
+This is prepared research, not production policy. Its eighteen portable tests cover identity, channel
 binding, PCM alignment/gain evidence, conservative control restoration, staged
 imports and the mandatory cleanup boundary before subsequent consumers. The
 target/control parsers also accept the retained real dumps from both observations
-below; native mutation, playback and restoration remain unvalidated.
+below. Native run `41632075665` at `4d5cc8` stopped after baseline playback because
+the observer incorrectly looked for process identity directly on a Node. The
+actual dump contains credentials on Client 50, referenced by Node 51's
+`client.id`, and four active matching links to the owned sink. The corrected
+join is covered by unmodified reduced fields from that dump and negative peer,
+port-owner and inactive-link cases. A new full native measurement is pending.
+
+That failed run made no route-volume request. It restored the pre-stack ALSA
+snapshot byte for byte, all five device ACLs, and removed the private account and
+processes. Separate post-hoc analysis of its saved WAV against core PCM found one
+unique 128-frame sign anchor and compared all 48,000 marked frames. Fitted gains
+were approximately 0.9040036 on **all four** channels, with maximum residual below
+0.502 LSB and no sign mismatches. This supports the baseline software attenuation
+observation; it does not turn the failed runtime gate into a pass. Adjusted and
+restored PCM phases did not run.
 
 The first private observations at commits `7d9f906` and `0325da7` used PipeWire
 1.0.5 / WirePlumber 0.4.17 on Noble. Both exposed the owned virtual card as
@@ -75,7 +88,11 @@ the target. Only one ALSA card and one sink on it are allowed.
    default. Play a saved 48 kHz S16LE quad WAV containing silence and a one-second
    marked sequence. `pw-play --target` uses the captured object serial. The dump
    must show that exact child's stream linked to that sink on four matching
-   channels.
+   channels. The join uses Node `client.id` and the Client's protocol-provided
+   PID/UID/GID, not an application name or an assumed Node PID field. The child
+   PID/start identity is checked around observations before it is reaped. Its
+   exit status, capture offset, binding and captured PCM survive a failed
+   playback assertion.
 2. Set only the owned device's active output `Route` parameter, with `save=false`
    and rear `channelVolumes` equal to 1.0. Retain front raw requests. Do not force
    `softVolumes`: let ACP expose its decomposition, then record it and the ALSA
@@ -120,6 +137,12 @@ accepts a target serial and explicit channel map. The
 [ALSA ACP device](https://github.com/PipeWire/pipewire/blob/1.0.5/spa/plugins/alsa/alsa-acp-device.c)
 publishes raw and software volume properties; neither alone substitutes for the
 marked PCM comparison.
+
+PipeWire 1.0.5 [identity keys](https://github.com/PipeWire/pipewire/blob/1.0.5/src/pipewire/keys.h)
+define the client credential properties. The
+[native protocol](https://github.com/PipeWire/pipewire/blob/1.0.5/src/modules/module-protocol-native.c)
+obtains the Linux PID/UID/GID from `SO_PEERCRED`; the observer joins that Client
+to its stream rather than trusting a player-supplied display property.
 
 No upstream code or configuration is copied into this implementation. The shared
 observer retains installed package notices and configuration in runtime artifacts;
