@@ -32,11 +32,11 @@ def input_overlays():
     trace = INPUT_TRACE
     return {
         "linux/platform/LinuxPhysicalSession.cs": [
-            ("sealed record InputReport(byte[] Bytes, long ReceivedTimestamp);",
-             "sealed record InputReport(byte[] Bytes, long ReceivedTimestamp, long ResearchBrokerReadNs);"),
-            ("            var inputReport = new InputReport(report, timestamp);",
+            ("sealed record InputReport(byte[] Bytes, long ReceivedTimestamp, long Sequence);",
+             "sealed record InputReport(byte[] Bytes, long ReceivedTimestamp, long Sequence, long ResearchBrokerReadNs);"),
+            ("            var inputReport = new InputReport(report, timestamp, sequence);",
              f"            {trace}.Record(1, report, timestamp, brokerReadNs, input.Reader.Count);\n"
-             "            var inputReport = new InputReport(report, timestamp, brokerReadNs);"),
+             "            var inputReport = new InputReport(report, timestamp, sequence, brokerReadNs);"),
             ("                lock (inputAvailable) Monitor.PulseAll(inputAvailable);\n                return true;",
              "                lock (inputAvailable) Monitor.PulseAll(inputAvailable);\n"
              f"                {trace}.Record(2, report.Bytes, report.ReceivedTimestamp, report.ResearchBrokerReadNs, input.Reader.Count);\n"

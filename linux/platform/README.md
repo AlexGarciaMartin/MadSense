@@ -25,7 +25,8 @@ The socket accepts newline-delimited JSON objects of at most 16,384 bytes. Each
 request has an integer `id` and an `op`; responses preserve the id and contain
 either `ok:true,result:{...}` or `ok:false,error:{code,message}`. Supported
 operations are `preflight`, `acquire`, `write`, `get_feature`, `send_feature`,
-`attach`, `detach`, and `release`. HID payloads are base64 encoded and bounded to
+`attach`, `detach`, `release`, and the negotiated one-way `input_ack` notification.
+HID payloads are base64 encoded and bounded to
 4,096 bytes. Input reports arrive as `{"event":"input","data":"..."}` with an
 optional `brokerReadMonotonicNs` timestamp captured after the broker's HID read;
 isolation failure emits `{"event":"isolation_lost","reason":"..."}` and
@@ -213,17 +214,61 @@ of leaving an apparently available broker. A stalled ioctl stops heartbeats and
 triggers recovery; uninterruptible kernel I/O can delay process termination, so
 this is not an unconditional bound on physical recovery time.
 
-Both helper and client input queues hold at most eight reports. The helper and
-the active client reader end the lease on a ninth pending report. Before the
-client's first nonempty `Read`/`ReadAsync`, the shared controller constructor must
-read firmware and pairing features. During this setup phase only, the client
-retains the latest eight input reports and counts every superseded report in
-`InitializationDiscardedReports`. Once reading begins, that behavior cannot
-resume; an active queue overflow always ends isolation. Every client discard is counted.
-The helper counts a report until its complete JSON frame has been passed to the
-socket and requests a 4,096-byte socket send buffer. Kernel socket and hidraw
-buffers are separate and can still hold earlier input. This limit is not an
-end-to-end latency measurement.
+Both helper and client input queues retain their eight-report capacity. New
+clients require preflight's `inputFlow:{version:1,window:8}` before attempting
+acquisition, then send `inputFlowVersion:1`. A helper without that capability
+leaves the physical controller untouched and produces an explicit update error.
+The acquire result adds a fresh 32-character lower-case hexadecimal `leaseId`
+inside `inputFlow`. Each negotiated input carries that identity, an increasing
+64-bit `sequence` starting at one, and the helper's cumulative
+`creditBlockedCount`, `creditBlockedNs` and `creditMaxBlockedNs` counters.
+
+The helper counts issued reports until the same owner acknowledges consumption,
+not until a socket accepts their bytes. With eight outstanding reports it stops
+selecting only the physical hidraw descriptor; client sockets, pidfd, isolation
+checks, attachment progress and control RPCs remain live. The notification
+`{"id":0,"op":"input_ack","leaseId":"...","through":N}` cumulatively
+releases reports through N and has no reply. Identity, bounds and monotonicity
+are checked; duplicate N is idempotent, a decrease or unissued sequence never
+grants credit, and a different peer cannot acknowledge another lease. Sequences
+never wrap. Five continuous seconds without credit ends the lease and records
+an operational stall, rather than treating an unresponsive consumer as success.
+
+The client releases a credit only after copying a dequeued report to its caller,
+or after an explicitly counted initialization discard. Concurrent reads use a
+fixed eight-bit completion mask so a later completed read cannot acknowledge an
+earlier unfinished report. One dedicated ACK thread coalesces the cumulative
+watermark and writes a fixed UTF-8 buffer through the existing serialized writer.
+It creates no task or RPC waiter per report; the input/response reader never
+writes or waits for an ACK. Writes have a five-second deadline, cancellation
+closes the socket, and shutdown disables credits before ordered release. Pending
+ACK writes are serialized ahead of release; a stopped writer cannot send after it.
+
+Before the first nonempty `Read`/`ReadAsync`, firmware and pairing setup may still
+receive input. On filling eight entries, the client discards the oldest, counts
+it in `InitializationDiscardedReports` and releases that credit, retaining seven
+recent reports. This also applies to acquisition's initial handoff. Once reading
+starts, setup discarding cannot resume; active overflow or a protocol/window
+violation ends isolation. No active input is replaced to make a slow consumer pass.
+
+An older client may still omit `inputFlowVersion`; the new helper retains the
+legacy socket-delivery accounting on that explicitly unnegotiated path. It does
+not claim consumer credits for that connection. The helper still requests a
+4,096-byte socket send buffer and retains its bounded outgoing frames.
+
+Credits defer backlog to the kernel. The Linux 6.8
+[per-open hidraw ring](https://github.com/torvalds/linux/blob/v6.8/drivers/hid/hidraw.c#L488)
+can drop arrivals when full without exposing a loss count to this reader. Neither
+eight outstanding reports nor the five-second operational bound proves that
+kernel input is lossless. `InputFlow` metrics expose the last received helper
+backpressure snapshot and local receive/consume/ACK counters; the helper's final
+`input-flow-ended` journal event includes complete blocked durations. Both mark
+kernel backlog as unmeasured. Synthetic missing-sequence evidence continues to
+classify `transport-limit`; these counters are not physical latency measurements.
+The client's `AcknowledgedThrough` records a completed socket write, not a
+response from the helper. The final helper journal's `acknowledged` counter is
+the watermark the helper actually validated. Native credit-flow validation is
+still pending; portable protocol/socket tests are not a loss-free hardware claim.
 
 At the end of helper acquisition, after the durable journal and FDSTORE barrier
 and before ACTIVE or the acquire reply, the helper drains the nonblocking hidraw

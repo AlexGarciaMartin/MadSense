@@ -36,8 +36,8 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
     /// <summary>Cancels only an in-flight import; the broker then owns ordered lease cleanup.</summary>
     public void CancelPendingAttach() => attachStrategy.CancelPendingAttach();
 
-    internal void AcceptInput(byte[] report, long timestamp, long brokerReadNs)
-    { if (IsolationVerified) device.AcceptInput(report, timestamp, brokerReadNs); }
+    internal void AcceptInput(byte[] report, long timestamp, long brokerReadNs, long sequence = 0)
+    { if (IsolationVerified) device.AcceptInput(report, timestamp, brokerReadNs, sequence); }
     internal void MarkLost(string reason)
     {
         lock (isolationGate)
@@ -48,6 +48,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
             Volatile.Write(ref isolationLostReason, reason);
             Volatile.Write(ref verified, 0);
         }
+        broker.StopInputFlow();
         device.EndInput(new IOException(reason));
         // A bridge shutdown may synchronously call back into the broker.
         // Never invoke its callback on the sole response-reading task.
@@ -57,6 +58,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
     internal void MarkClosed()
     {
         lock (isolationGate) Volatile.Write(ref verified, 0);
+        broker.StopInputFlow();
         device.EndInput(null);
     }
 
@@ -91,7 +93,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
         int reading;
         int queued;
         int disposed;
-        sealed record InputReport(byte[] Bytes, long ReceivedTimestamp);
+        sealed record InputReport(byte[] Bytes, long ReceivedTimestamp, long Sequence);
         public ushort VendorId { get; }
         public ushort ProductId { get; }
         public string DevicePath { get; }
@@ -102,21 +104,37 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
             this.session = session; this.broker = broker; this.name = name;
             DevicePath = path; VendorId = vendor; ProductId = product;
         }
-        internal void AcceptInput(byte[] report, long timestamp, long brokerReadNs)
+        internal void AcceptInput(byte[] report, long timestamp, long brokerReadNs, long sequence)
         {
             Interlocked.Increment(ref received); Interlocked.Exchange(ref lastReceived, timestamp);
             Interlocked.Exchange(ref lastBrokerReadNs, brokerReadNs);
-            var inputReport = new InputReport(report, timestamp);
-            if (TryEnqueue(inputReport)) return;
+            var inputReport = new InputReport(report, timestamp, sequence);
+            if (TryEnqueue(inputReport))
+            {
+                // A negotiated window cannot deliver a ninth setup report.
+                // Explicitly discard the oldest when eight are retained before
+                // the input reader starts; active readers never discard input.
+                lock (readerStartGate)
+                {
+                    if (reading == 0 && input.Reader.Count == 8 && input.Reader.TryRead(out var oldest))
+                    {
+                        Interlocked.Decrement(ref queued);
+                        Interlocked.Increment(ref initializationDiscarded);
+                        broker.ConsumeInput(oldest.Sequence);
+                    }
+                }
+                return;
+            }
             lock (readerStartGate)
             {
                 // DualSenseDevice reads firmware/pairing features before starting
                 // its input thread. Retain recent setup input and account for
                 // every superseded report; an active reader never takes this path.
-                if (reading == 0 && input.Reader.TryRead(out _))
+                if (reading == 0 && input.Reader.TryRead(out var oldest))
                 {
                     Interlocked.Decrement(ref queued);
                     Interlocked.Increment(ref initializationDiscarded);
+                    broker.ConsumeInput(oldest.Sequence);
                     if (TryEnqueue(inputReport)) return;
                 }
             }
@@ -148,7 +166,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
                 return new(Interlocked.Read(ref received), Interlocked.Read(ref read), Interlocked.Read(ref initializationDiscarded), Interlocked.Read(ref overflows),
                     Volatile.Read(ref queued), oldest, Interlocked.Read(ref lastReceived), Interlocked.Read(ref lastDelivered),
                     Stopwatch.Frequency, Interlocked.Read(ref lastBrokerReadNs), queueAge.Snapshot(), broker.HidRpcTiming.Snapshot(),
-                    session.setupReportsDrained);
+                    session.setupReportsDrained, broker.InputFlowMetrics);
             }
         }
         internal void EndInput(Exception? error)
@@ -206,6 +224,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
             Interlocked.Increment(ref read); Interlocked.Exchange(ref lastDelivered, delivered);
             int length = Math.Min(report.Bytes.Length, count);
             report.Bytes.AsSpan(0, length).CopyTo(buffer.AsSpan(offset, length));
+            broker.ConsumeInput(report.Sequence);
             return length;
         }
         static string Encode(byte[] buffer, int offset, int count)

@@ -1,10 +1,68 @@
 # Helper verification duration observer
 
-Prepared research experiment; no native measurement has run yet. The hypothesis
-comes from run 41646555561: three large broker-read gaps in each retained client
+The first native observation completed in run
+[41653223658](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653223658)
+at commit `00484dc7316963828b13f6711f0663a4eafda116`. It reproduced input queue
+limits; a successful research job does not mean loss-free transport. The original
+hypothesis came from run 41646555561: three large broker-read gaps in each retained client
 tail were about 503–504 ms apart, while injection remained near one millisecond.
 `lease.verify()` runs synchronously before reading hidraw and schedules its next
 check 500 ms after returning. This timing resemblance does not prove the cause.
+
+## First native observation
+
+The original helper passed the ten broker, nine core and ten application cases,
+two idle upgrades and four removal cases. The observed helper then passed its
+separate nine-case core cycle. Both observer architectures passed all 64 Python
+tests and the native bounded-recorder tests. The four timing cases retained
+277 complete helper scopes, with no overwritten/open scope or observer error.
+The service's original files/configuration and idle state were restored; the
+temporary source copy was removed, QEMU reaped and its temporary KVM ACL restored.
+
+The collected runtime ZIP has SHA-256
+`f7203eeade3c4f93684013d5ef81d1465635bf8c40d7e97211022d9d2725a03a`.
+The independent audit recomputed 112 payload source hashes, four installed helper
+hashes, both exact source transformations and the complete Git source archive.
+Journal chunks and input CSV joins were also decoded independently of the guest
+summary.
+
+| 1000 Hz case | Written / observed unique | Termination | Maximum verify / inventory wall time |
+|---|---:|---|---:|
+| control-1 | 3196 / 3102 | Helper's eight pending reports; ENODEV around 3.2 s | 8.555 / 7.382 ms |
+| input-1 | 644 / 610 | Client's eight-report queue; ENODEV around 0.65 s | 7.506 / 6.550 ms |
+| input-2 | 9987 / 9799 | Completed ten seconds | 8.019 / 6.904 ms |
+| control-2 | 9985 / 9831 | Completed ten seconds | 7.774 / 7.272 ms |
+
+All four retain the `transport-limit` classification and confirmed cleanup.
+The early cases leave 6798 and 9354 nominal reports unattempted respectively;
+they are not comparable ten-second throughput populations. The control-1 app
+snapshot preceded delivery of the helper failure and still had a null isolation
+reason; the exact owner's journal establishes the helper queue failure. No
+second acquisition/reconnection hid its metrics.
+
+The failed input-1 recorder retained all 1873 events, with no overwritten events,
+holes or collisions. A 7.506485 ms synchronous `verify` invocation, including
+6.549615 ms in `inventory`, lies inside the 8.516836 ms broker-read gap between
+source sequences 618 and 619. The helper then read sequences 619–627 within
+0.535805 ms; the client received them within 0.817244 ms. Sequences 619–626 were
+enqueued, and 627 failed at the eight-entry limit. The first subsequent dequeue
+of 619 occurred 2.155891 ms after its receipt, after the queue failure; dequeue
+alone does not prove delivery to the parser. A new `Read` had already started
+after the preceding dequeue. This records a synchronous helper pause followed
+by a burst that the client did not drain quickly enough. It does not identify
+why the waiting reader resumed when it did.
+
+There were zero .NET collection-count increments across this failed case, so a
+.NET GC collection does not explain this occurrence. In the retained input-2
+tail, the three largest broker-read gaps also contain synchronous verifications
+of 4.023, 4.756 and 4.352 ms. Other gaps have no overlapping verification. Full
+descriptor audits took up to 45.079 ms on their existing separate thread; the
+wall/process/thread CPU clocks do not establish GIL contention or scheduler
+causality. All timing cases used the observed helper, so these results do not
+quantify its overhead or prove that every historical failure has the same cause.
+No production scheduling, queue capacity or isolation rule was changed.
+
+## Experiment and validation contract
 
 Dispatch `run_native=true`, `trace_input=true`, `trace_helper=true`, with
 `trace_stages=false`. The original helper first completes the existing broker,
@@ -77,5 +135,8 @@ restoration. The owned VM remains the containment boundary for abnormal exit.
 Guest and host verify the original gates, separate core-cycle result, source
 overlay, service restoration and raw journal analysis independently. The source
 copy retains the commit, complete source-archive digest, original/modified file
-digests and copied recorder provenance. There is no offload, credit protocol,
-buffer enlargement, relaxed isolation check or production installation change.
+digests and copied recorder provenance. The observer itself adds no offload,
+flow-control protocol, buffer enlargement or relaxed isolation check. Existing
+production flow control remains part of the exact recorded source commit; an
+instrumented run does not silently remove it. The first observation documented
+above predates negotiated consumer credits. No production installation is changed.

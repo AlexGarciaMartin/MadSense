@@ -11,10 +11,13 @@ public sealed class LinuxBrokerClientTests
 {
     sealed class Peer : IAsyncDisposable
     {
+        public const string LeaseId = "0123456789abcdef0123456789abcdef";
         readonly TcpListener listener;
         readonly TcpClient server;
         readonly StreamReader input;
         readonly StreamWriter output;
+        long inputSequence;
+        public List<long> Acknowledgements { get; } = [];
         public LinuxBrokerClient Client { get; }
         Peer(TcpListener listener, TcpClient server, LinuxBrokerClient client)
         {
@@ -33,27 +36,82 @@ public sealed class LinuxBrokerClientTests
         }
         public async Task<JsonElement> RequestAsync()
         {
+            while (true)
+            {
+                JsonElement message = await ReadMessageAsync();
+                if (message.GetProperty("op").GetString() != "input_ack") return message;
+                RecordAcknowledgement(message);
+            }
+        }
+        async Task<JsonElement> ReadMessageAsync()
+        {
             string? line = await input.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(3));
             Assert.That(line, Is.Not.Null);
-            using var document = JsonDocument.Parse(line!);
-            return document.RootElement.Clone();
+            return JsonSerializer.Deserialize<JsonElement>(line!);
+        }
+        void RecordAcknowledgement(JsonElement message)
+        {
+            Assert.That(message.GetProperty("id").GetInt64(), Is.Zero);
+            Assert.That(message.GetProperty("leaseId").GetString(), Is.EqualTo(LeaseId));
+            long through = message.GetProperty("through").GetInt64();
+            Assert.That(through, Is.GreaterThan(Acknowledgements.LastOrDefault()));
+            Acknowledgements.Add(through);
+        }
+        public async Task<long> AcknowledgementAsync()
+        {
+            JsonElement message = await ReadMessageAsync();
+            Assert.That(message.GetProperty("op").GetString(), Is.EqualTo("input_ack"));
+            RecordAcknowledgement(message);
+            return Acknowledgements[^1];
+        }
+        public async Task<JsonElement> RequestAcquireAsync()
+        {
+            JsonElement request = await RequestAsync();
+            Assert.That(request.GetProperty("op").GetString(), Is.EqualTo("preflight"));
+            await ReplyAsync(request, new { available = true, detail = "ready", inputFlow = new { version = 1, window = 8 } });
+            request = await RequestAsync();
+            Assert.That(request.GetProperty("op").GetString(), Is.EqualTo("acquire"));
+            Assert.That(request.GetProperty("inputFlowVersion").GetInt32(), Is.EqualTo(1));
+            return request;
         }
         public Task ReplyAsync(JsonElement request, object result) => SendAsync(new
         { id = request.GetProperty("id").GetInt64(), ok = true, result });
-        public Task SendAsync(object message) => output.WriteLineAsync(JsonSerializer.Serialize(message));
+        public Task SendAsync(object message)
+        {
+            var fields = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(message))!;
+            if (fields.TryGetValue("event", out var kind) && kind.GetString() == "input")
+            {
+                fields["leaseId"] = JsonSerializer.SerializeToElement(LeaseId);
+                fields["sequence"] = JsonSerializer.SerializeToElement(++inputSequence);
+                fields["creditBlockedCount"] = JsonSerializer.SerializeToElement(0L);
+                fields["creditBlockedNs"] = JsonSerializer.SerializeToElement(0L);
+                fields["creditMaxBlockedNs"] = JsonSerializer.SerializeToElement(0L);
+            }
+            return output.WriteLineAsync(JsonSerializer.Serialize(fields));
+        }
         public Task SendRawAsync(string message) => output.WriteLineAsync(message);
-        public async Task<bool> ConnectionEndedAsync() => await input.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(3)) == null;
+        public async Task<bool> ConnectionEndedAsync()
+        {
+            while (true)
+            {
+                string? line = await input.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(3));
+                if (line is null) return true;
+                var message = JsonSerializer.Deserialize<JsonElement>(line);
+                if (message.GetProperty("op").GetString() != "input_ack") return false;
+                RecordAcknowledgement(message);
+            }
+        }
         public void Disconnect() => server.Dispose();
         public async Task<LinuxPhysicalSession> AcquireAsync(CancellationToken cancellation = default)
         {
             Task<LinuxPhysicalSession> acquiring = Client.AcquirePhysicalAsync("/dev/hidraw4", cancellation);
-            JsonElement request = await RequestAsync();
-            Assert.That(request.GetProperty("op").GetString(), Is.EqualTo("acquire"));
+            JsonElement request = await RequestAcquireAsync();
             await ReplyAsync(request, Identity);
             return await acquiring;
         }
         public static object Identity => new
-        { isolationVerified = true, path = "/dev/hidraw4", vendorId = 0x054c, productId = 0x0ce6, productName = "DualSense" };
+        { isolationVerified = true, path = "/dev/hidraw4", vendorId = 0x054c, productId = 0x0ce6, productName = "DualSense",
+          inputFlow = new { version = 1, window = 8, leaseId = LeaseId } };
         public async ValueTask DisposeAsync()
         {
             await Client.DisposeAsync(); output.Dispose(); input.Dispose(); server.Dispose(); listener.Stop();
@@ -96,6 +154,19 @@ public sealed class LinuxBrokerClientTests
         await peer.ReplyAsync(request, new { available = false, detail = "vhci_hcd is not installed" });
         Assert.That(await task, Is.EqualTo(new LinuxBrokerPreflight(false, "vhci_hcd is not installed")));
         Assert.That((await task).CleanupConfirmed, Is.False, "An older helper does not acknowledge lease recovery.");
+    }
+
+    [Test]
+    public async Task LegacyHelperIsRejectedBeforeAnyPhysicalAcquisition()
+    {
+        await using var peer = await Peer.OpenAsync();
+        var acquiring = peer.Client.AcquirePhysicalAsync("/dev/hidraw4");
+        var request = await peer.RequestAsync();
+        Assert.That(request.GetProperty("op").GetString(), Is.EqualTo("preflight"));
+        await peer.ReplyAsync(request, new { available = true, detail = "legacy helper" });
+        var error = await Assert.ThrowsAsync<IOException>(async () => await acquiring);
+        Assert.That(error!.Message, Does.Contain("Update the MadSense system helper"));
+        Assert.That(await peer.ConnectionEndedAsync(), Is.True, "No acquire request may follow unsupported capability.");
     }
 
     [TestCase(false, false, true)]
@@ -151,7 +222,7 @@ public sealed class LinuxBrokerClientTests
     {
         await using var peer = await Peer.OpenAsync();
         Task<LinuxPhysicalSession> acquiring = peer.Client.AcquirePhysicalAsync("/dev/hidraw4");
-        JsonElement request = await peer.RequestAsync();
+        JsonElement request = await peer.RequestAcquireAsync();
         var identity = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(Peer.Identity))!;
         if (wireCount is not null) identity["setupReportsDrained"] = JsonSerializer.Deserialize<JsonElement>(wireCount);
         await peer.ReplyAsync(request, identity);
@@ -179,7 +250,7 @@ public sealed class LinuxBrokerClientTests
     {
         await using var peer = await Peer.OpenAsync();
         Task<LinuxPhysicalSession> acquiring = peer.Client.AcquirePhysicalAsync("/dev/hidraw4");
-        JsonElement request = await peer.RequestAsync();
+        JsonElement request = await peer.RequestAcquireAsync();
         var identity = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(Peer.Identity))!;
         identity["setupReportsDrained"] = JsonSerializer.Deserialize<JsonElement>(wireCount);
         await peer.ReplyAsync(request, identity);
@@ -214,11 +285,14 @@ public sealed class LinuxBrokerClientTests
     {
         await using var peer = await Peer.OpenAsync();
         Task<LinuxPhysicalSession> task = peer.Client.AcquirePhysicalAsync("/dev/hidraw4");
-        JsonElement request = await peer.RequestAsync();
-        // Force delivery before the response continuation can publish the session.
-        await peer.SendAsync(new { @event = "input", data = "MQE=" });
-        await peer.SendAsync(new { @event = "input", data = "MQI=", brokerReadMonotonicNs = 123456789L });
-        await peer.ReplyAsync(request, Peer.Identity);
+        JsonElement request = await peer.RequestAcquireAsync();
+        // A single write puts input immediately after negotiation, without waiting
+        // for the acquisition continuation to publish its session.
+        await peer.SendRawAsync(JsonSerializer.Serialize(new { id = request.GetProperty("id").GetInt64(), ok = true, result = Peer.Identity }) + "\n" +
+            string.Concat(Enumerable.Range(1, 2).Select(sequence => JsonSerializer.Serialize(new
+            { @event = "input", data = Convert.ToBase64String(new byte[] { 0x31, (byte)sequence }),
+              leaseId = Peer.LeaseId, sequence, creditBlockedCount = 0, creditBlockedNs = 0,
+              creditMaxBlockedNs = 0, brokerReadMonotonicNs = sequence == 2 ? 123456789L : 0L }) + "\n")));
         LinuxPhysicalSession session = await task;
         byte[] buffer = new byte[64];
         Assert.That(session.Device.Read(buffer, 0, 64, 1000), Is.EqualTo(2));
@@ -231,13 +305,14 @@ public sealed class LinuxBrokerClientTests
     }
 
     [Test]
-    public async Task InputOverflowDuringAcquisitionNeverReturnsReady()
+    public async Task InputBeforeNegotiationNeverReturnsReady()
     {
         await using var peer = await Peer.OpenAsync();
         Task<LinuxPhysicalSession> task = peer.Client.AcquirePhysicalAsync("/dev/hidraw4");
-        await peer.RequestAsync();
-        await peer.SendRawAsync(string.Concat(Enumerable.Repeat("{\"event\":\"input\",\"data\":\"MQE=\"}\n", 9)));
-        await Assert.ThrowsAsync<IOException>(async () => await task.WaitAsync(TimeSpan.FromSeconds(3)));
+        await peer.RequestAcquireAsync();
+        await peer.SendAsync(new { @event = "input", data = "MQE=" });
+        var error = await Assert.ThrowsAsync<IOException>(async () => await task.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.That(error!.Message, Does.Contain("before flow-control negotiation"));
         Assert.That(peer.Client.IsConnected, Is.False);
     }
 
@@ -246,7 +321,7 @@ public sealed class LinuxBrokerClientTests
     {
         await using var peer = await Peer.OpenAsync();
         Task<LinuxPhysicalSession> task = peer.Client.AcquirePhysicalAsync("/dev/hidraw4");
-        JsonElement request = await peer.RequestAsync();
+        JsonElement request = await peer.RequestAcquireAsync();
         await peer.SendAsync(new { @event = "isolation_lost", reason = "node changed during acquire" });
         await peer.ReplyAsync(request, Peer.Identity);
         var error = await Assert.ThrowsAsync<IOException>(async () => await task);
@@ -434,7 +509,7 @@ public sealed class LinuxBrokerClientTests
     }
 
     [Test]
-    public async Task InputOverflowIsCountedAndEndsReadinessWithoutDroppingSilently()
+    public async Task BrokerExceedingNegotiatedInputCreditEndsReadinessWithoutAcceptingTheExtraReport()
     {
         await using var peer = await Peer.OpenAsync();
         LinuxPhysicalSession session = await peer.AcquireAsync();
@@ -445,11 +520,11 @@ public sealed class LinuxBrokerClientTests
             await peer.SendAsync(new { @event = "input", data = Convert.ToBase64String(new byte[] { 0x31, (byte)i }) });
         await lost.Task.WaitAsync(TimeSpan.FromSeconds(3));
         Assert.That(session.IsolationVerified, Is.False);
-        Assert.That(session.Metrics.ReceivedReports, Is.EqualTo(9));
-        Assert.That(session.Metrics.InputOverflows, Is.EqualTo(1));
+        Assert.That(session.Metrics.ReceivedReports, Is.EqualTo(8));
+        Assert.That(session.Metrics.InputOverflows, Is.Zero);
         Assert.That(session.Metrics.QueuedReports, Is.EqualTo(8));
         Assert.That(session.Metrics.ReadReports, Is.EqualTo(0));
-        Assert.That(session.IsolationLostReason, Is.EqualTo("The physical input proxy exceeded its eight-report queue; no input loss is hidden."));
+        Assert.That(session.IsolationLostReason, Does.Contain("credit window"));
         Assert.Throws<HidException>(() => session.Device.Read(new byte[64], 0, 64, 0));
     }
 
@@ -461,20 +536,77 @@ public sealed class LinuxBrokerClientTests
         // The shared controller constructor performs feature reads before its
         // input thread starts; model input arriving during that initialization.
         for (int i = 0; i < 20; ++i)
+        {
             await peer.SendAsync(new { @event = "input", data = Convert.ToBase64String(new byte[] { 0x31, (byte)i }) });
+            if (i >= 7) Assert.That(await peer.AcknowledgementAsync(), Is.EqualTo(i - 6), "Setup discard must return actual credit before more input.");
+        }
         long deadline = Environment.TickCount64 + 3000;
         while (session.Metrics.ReceivedReports < 20 && Environment.TickCount64 < deadline) await Task.Delay(1);
         Assert.That(session.IsolationVerified, Is.True);
-        Assert.That(session.Metrics.InitializationDiscardedReports, Is.EqualTo(12));
+        Assert.That(session.Metrics.InitializationDiscardedReports, Is.EqualTo(13));
         Assert.That(session.Metrics.InputOverflows, Is.Zero);
         byte[] buffer = new byte[64];
-        for (int i = 12; i < 20; ++i)
+        for (int i = 13; i < 20; ++i)
         {
             Assert.That(session.Device.Read(buffer, 0, 64, 0), Is.EqualTo(2));
             Assert.That(buffer[1], Is.EqualTo(i));
         }
         Assert.That(session.Metrics.ReceivedReports,
             Is.EqualTo(session.Metrics.ReadReports + session.Metrics.InitializationDiscardedReports));
+    }
+
+    [Test]
+    public async Task FullInputWindowStillDeliversFeatureRepliesAndConsumptionReturnsExactlyOneCredit()
+    {
+        await using var peer = await Peer.OpenAsync();
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        byte[] buffer = new byte[64];
+        Assert.That(session.Device.Read(buffer, 0, buffer.Length, 0), Is.Zero);
+        for (int i = 1; i <= 8; ++i)
+            await peer.SendAsync(new { @event = "input", data = Convert.ToBase64String(new byte[] { 0x31, (byte)i }) });
+        Task<byte[]> feature = Task.Run(() => session.Device.GetFeatureReport(0x20, 64));
+        var request = await peer.RequestAsync();
+        Assert.That(request.GetProperty("op").GetString(), Is.EqualTo("get_feature"));
+        await peer.ReplyAsync(request, new { data = "IAE=" });
+        Assert.That(await feature.WaitAsync(TimeSpan.FromSeconds(3)), Is.EqualTo(new byte[] { 0x20, 1 }));
+        Assert.That(session.Metrics.QueuedReports, Is.EqualTo(8));
+        Assert.That(peer.Acknowledgements, Is.Empty);
+        Assert.That(session.Device.Read(buffer, 0, buffer.Length, 0), Is.EqualTo(2));
+        Assert.That(buffer[1], Is.EqualTo(1));
+        Assert.That(await peer.AcknowledgementAsync(), Is.EqualTo(1));
+        await peer.SendAsync(new { @event = "input", data = "MQk=" });
+        for (int i = 2; i <= 9; ++i)
+        {
+            Assert.That(session.Device.Read(buffer, 0, buffer.Length, 1000), Is.EqualTo(2));
+            Assert.That(buffer[1], Is.EqualTo(i));
+        }
+        Assert.That(session.Metrics.InitializationDiscardedReports, Is.Zero);
+        Assert.That(session.Metrics.InputOverflows, Is.Zero);
+        Assert.That(session.Metrics.ReadReports, Is.EqualTo(9));
+        Assert.That(session.IsolationVerified, Is.True);
+    }
+
+    [Test]
+    public async Task BlockedAcknowledgementWriterNeverBlocksInputConsumptionOrConnectionDisposal()
+    {
+        using var writeEntered = new ManualResetEventSlim();
+        using var streamClosed = new ManualResetEventSlim();
+        InterruptedWriteStream? wrapped = null;
+        await using var peer = await Peer.OpenAsync(stream => wrapped = new(stream, () =>
+        {
+            writeEntered.Set();
+            if (!streamClosed.Wait(TimeSpan.FromSeconds(3))) throw new TimeoutException("Disposal did not close the ACK stream.");
+            throw new IOException("The blocked acknowledgement was interrupted by socket closure.");
+        }, streamClosed.Set));
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        wrapped!.InterceptWrite = true;
+        await peer.SendAsync(new { @event = "input", data = "MQE=" });
+        Assert.That(session.Device.Read(new byte[64], 0, 64, 1000), Is.EqualTo(2));
+        Assert.That(writeEntered.Wait(TimeSpan.FromSeconds(3)), Is.True);
+        await peer.Client.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.That(await peer.ConnectionEndedAsync(), Is.True);
+        Assert.That(session.IsolationVerified, Is.False);
+        Assert.That(session.Metrics.InputFlow!.AcknowledgementFrames, Is.Zero);
     }
 
     [Test]
@@ -565,7 +697,7 @@ public sealed class LinuxBrokerClientTests
     {
         await using var peer = await Peer.OpenAsync();
         Task<LinuxPhysicalSession> task = peer.Client.AcquirePhysicalAsync("/dev/hidraw4");
-        JsonElement request = await peer.RequestAsync();
+        JsonElement request = await peer.RequestAcquireAsync();
         await peer.SendAsync(new { id = request.GetProperty("id").GetInt64(), ok = false,
             error = new { code = "not_authorized", message = "Authorization was declined" } });
         await Assert.ThrowsAsync<UnauthorizedAccessException>(async () => await task);

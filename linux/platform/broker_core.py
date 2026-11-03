@@ -6,11 +6,16 @@ import os
 import re
 import stat
 import struct
+import time
 import zlib
 from pathlib import Path
 
 MAX_LINE = 16384
 MAX_REPORT = 4096
+INPUT_FLOW_VERSION = 1
+INPUT_WINDOW = 8
+MAX_INPUT_SEQUENCE = 2**63 - 1
+INPUT_CREDIT_TIMEOUT_NS = 5_000_000_000
 DEVICE_PATH = re.compile(r"/dev/(?:hidraw[0-9]+|input/(?:event|js|mouse)[0-9]+)\Z")
 HID_NAME = re.compile(r"0005:054[Cc]:(?:0[Cc][Ee]6|0[Dd][Ff]2)\.[0-9A-Fa-f]+\Z")
 BUS_ID = re.compile(r"([1-9][0-9]{0,4})-1\Z")
@@ -47,6 +52,51 @@ def integer(value, low, high):
     return type(value) is int and low <= value <= high
 
 
+class InputCredits:
+    """Eight issued reports, released only by this lease's cumulative consumer ACK."""
+    def __init__(self, lease_id, clock=None):
+        require(type(lease_id) is str and re.fullmatch(r"[0-9a-f]{32}", lease_id),
+                "invalid_ack", "Invalid input lease identity")
+        self.lease_id = lease_id
+        self.clock = clock or time.monotonic_ns
+        self.issued = self.acknowledged = 0
+        self.blocked_count = self.blocked_ns = self.max_blocked_ns = 0
+        self.blocked_since = None
+
+    def can_read(self):
+        return self.issued - self.acknowledged < INPUT_WINDOW
+
+    def check_timeout(self):
+        require(self.blocked_since is None or self.clock() - self.blocked_since < INPUT_CREDIT_TIMEOUT_NS,
+                "client_stalled", "Input credits remained exhausted for five seconds; kernel input backlog is unverified")
+
+    def reserve(self):
+        require(self.can_read() and self.issued < MAX_INPUT_SEQUENCE,
+                "client_stalled", "Input credit window or sequence limit reached")
+        self.issued += 1
+        if not self.can_read():
+            self.blocked_since = self.clock()
+            self.blocked_count += 1
+        return self.issued
+
+    def acknowledge(self, lease_id, through):
+        require(lease_id == self.lease_id and integer(through, 1, self.issued)
+                and through >= self.acknowledged, "invalid_ack", "Invalid input credit acknowledgement")
+        if through == self.acknowledged:
+            return  # Idempotent duplicate; never creates additional credit.
+        if self.blocked_since is not None:
+            elapsed = self.clock() - self.blocked_since
+            self.blocked_ns += elapsed
+            self.max_blocked_ns = max(self.max_blocked_ns, elapsed)
+            self.blocked_since = None
+        self.acknowledged = through
+
+    def metrics(self):
+        elapsed = 0 if self.blocked_since is None else self.clock() - self.blocked_since
+        return {"creditBlockedCount": self.blocked_count, "creditBlockedNs": self.blocked_ns + elapsed,
+                "creditMaxBlockedNs": max(self.max_blocked_ns, elapsed)}
+
+
 def request(line):
     require(len(line) <= MAX_LINE, "invalid_request", "Request exceeds the line limit")
     try:
@@ -64,13 +114,24 @@ def request(line):
             "invalid_request", "An integer request id is required")
     fields = {"preflight": set(), "acquire": {"path"}, "write": {"data"},
               "get_feature": {"reportId", "size"}, "send_feature": {"data"},
-              "attach": {"host", "port", "busId"}, "detach": {"busId"}, "release": set()}
+              "attach": {"host", "port", "busId"}, "detach": {"busId"}, "release": set(),
+              "input_ack": {"leaseId", "through"}}
     op = value.get("op")
     require(type(op) is str and op in fields, "invalid_request", "Unsupported operation")
-    require(set(value) == {"id", "op"} | fields[op], "invalid_request", "Unexpected or missing fields")
+    expected = {"id", "op"} | fields[op]
+    if op == "acquire" and "inputFlowVersion" in value:
+        expected.add("inputFlowVersion")
+    require(set(value) == expected, "invalid_ack" if op == "input_ack" else "invalid_request", "Unexpected or missing fields")
     if op == "acquire":
         require(type(value["path"]) is str and re.fullmatch(r"/dev/hidraw[0-9]+", value["path"]),
                 "invalid_request", "A physical hidraw node is required")
+        require("inputFlowVersion" not in value or integer(value["inputFlowVersion"], INPUT_FLOW_VERSION, INPUT_FLOW_VERSION),
+                "invalid_request", "Unsupported input flow-control version")
+    if op == "input_ack":
+        require(value["id"] == 0 and type(value["leaseId"]) is str
+                and re.fullmatch(r"[0-9a-f]{32}", value["leaseId"])
+                and integer(value["through"], 1, MAX_INPUT_SEQUENCE),
+                "invalid_ack", "Invalid input credit acknowledgement fields")
     if op in ("write", "send_feature"):
         value["decoded"] = report(value["data"])
     if op == "get_feature":

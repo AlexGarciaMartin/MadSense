@@ -25,7 +25,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from broker_core import (BrokerError, DEVICE_PATH, HID_NAME, MAX_LINE, MAX_REPORT,
                          foreign_device_owners, identity, process_start, request,
-                         require, same_node, validate_journal, neutral_report)
+                         require, same_node, validate_journal, neutral_report,
+                         InputCredits, INPUT_FLOW_VERSION, INPUT_WINDOW)
 
 RUN = Path("/run/madsense")
 JOURNAL = RUN / "lease.json"
@@ -935,6 +936,7 @@ def serve():
     clients = {}
     owner = None
     lease = None
+    input_credits = None
     attachment = None
     stopping = False
     next_check = time.monotonic()
@@ -948,8 +950,15 @@ def serve():
     def queue(client, value):
         queue_packet(client, value)
     def end_lease(reason=None):
-        nonlocal lease, owner, attachment
+        nonlocal lease, owner, attachment, input_credits
         if lease is not None:
+            if input_credits is not None:
+                print(json.dumps({"event": "input-flow-ended", "ownerPid": lease.pid,
+                    "version": INPUT_FLOW_VERSION, "window": INPUT_WINDOW,
+                    "leaseId": input_credits.lease_id, "issued": input_credits.issued,
+                    "acknowledged": input_credits.acknowledged, **input_credits.metrics(),
+                    "kernelBacklogMeasured": False}), flush=True)
+                input_credits = None
             if reason:
                 # Keep the first service-side cause even when a stalled client
                 # cannot receive its isolation_lost event before disconnection.
@@ -976,9 +985,16 @@ def serve():
             if time.monotonic() >= next_watchdog:
                 notify("WATCHDOG=1")
                 next_watchdog = time.monotonic() + 5
+            if input_credits is not None:
+                try:
+                    input_credits.check_timeout()
+                except BrokerError as error:
+                    end_lease(str(error))
             readable = [listener, *clients]
             if lease is not None:
-                readable += [lease.fd, lease.pidfd]
+                readable.append(lease.pidfd)
+                if input_credits is None or input_credits.can_read():
+                    readable.append(lease.fd)
             ready, writable, _ = select.select(readable, [sock for sock, value in clients.items() if value["out"]], [],
                                                .02 if attachment is not None else .2)
             for sock in writable:
@@ -997,8 +1013,12 @@ def serve():
                 try:
                     data = os.read(lease.fd, MAX_REPORT)
                     require(data, "isolation_lost", "Physical HID stream closed")
-                    queue(clients[owner], {"event": "input", "data": base64.b64encode(data).decode(),
-                                          "brokerReadMonotonicNs": time.monotonic_ns()})
+                    packet = {"event": "input", "data": base64.b64encode(data).decode(),
+                              "brokerReadMonotonicNs": time.monotonic_ns()}
+                    if input_credits is not None:
+                        packet.update(leaseId=input_credits.lease_id, sequence=input_credits.reserve(),
+                                      **input_credits.metrics())
+                    queue(clients[owner], packet)
                 except BlockingIOError:
                     pass
                 except (BrokerError, OSError) as error:
@@ -1033,6 +1053,13 @@ def serve():
                                 req_id, op = value["id"], value["op"]
                                 require(not client["failed"], "isolation_lost", "Reconnect before requesting a new lease")
                                 result = {}
+                                if op == "input_ack":
+                                    require(lease is not None and owner is endpoint and lease.active
+                                            and input_credits is not None, "invalid_ack", "Input acknowledgement has no owned negotiated lease")
+                                    lease.alive()
+                                    input_credits.check_timeout()
+                                    input_credits.acknowledge(value["leaseId"], value["through"])
+                                    continue  # A cumulative notification has no RPC reply or waiter.
                                 if op == "preflight":
                                     recovery_pending = lease is None and (JOURNAL.exists() or RULE.exists())
                                     try:
@@ -1042,6 +1069,7 @@ def serve():
                                     except BrokerError as error:
                                         result = {"available": False, "detail": str(error)}
                                     result.update(leaseActive=lease is not None, recoveryPending=recovery_pending)
+                                    result["inputFlow"] = {"version": INPUT_FLOW_VERSION, "window": INPUT_WINDOW}
                                 elif op == "acquire":
                                     require(lease is None, "busy", "Another lease already owns the broker")
                                     preflight()
@@ -1049,6 +1077,10 @@ def serve():
                                     owner = endpoint
                                     try:
                                         result = lease.acquire(value["path"])
+                                        if value.get("inputFlowVersion") == INPUT_FLOW_VERSION:
+                                            input_credits = InputCredits(lease.lease_id)
+                                            result["inputFlow"] = {"version": INPUT_FLOW_VERSION, "window": INPUT_WINDOW,
+                                                                   "leaseId": input_credits.lease_id}
                                     except Exception:
                                         end_lease()
                                         raise
@@ -1077,6 +1109,11 @@ def serve():
                                         end_lease()
                                 queue(client, {"id": req_id, "ok": True, "result": result})
                             except (BrokerError, OSError, ValueError) as error:
+                                if getattr(error, "code", None) == "invalid_ack":
+                                    client["closed"] = True
+                                    if owner is endpoint:
+                                        end_lease(str(error))
+                                    break
                                 queue(client, {"id": req_id, "ok": False, "error": {
                                     "code": getattr(error, "code", "operation_failed"), "message": str(error)[:512]}})
                         require(len(client["in"]) <= MAX_LINE, "invalid_request", "Request line exceeds the limit")

@@ -28,10 +28,11 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
     readonly Task reader;
     internal ProxyTiming HidRpcTiming { get; } = new();
     readonly object inputGate = new();
-    readonly Queue<(byte[] Bytes, long Timestamp, long BrokerReadNs)> startupInput = new();
+    readonly Queue<(byte[] Bytes, long Timestamp, long BrokerReadNs, long Sequence)> startupInput = new();
     LinuxPhysicalSession? session;
+    LinuxInputFlow? inputFlow;
     string? isolationFailureReason, terminationReason;
-    long nextId;
+    long nextId, acquireRequestId;
     int disposed, acquired, isolationLost;
 
     LinuxBrokerClient(string reason) { unavailableReason = reason; reader = Task.CompletedTask; }
@@ -91,7 +92,9 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
             throw new InvalidOperationException("Use a fresh broker connection for each physical session.");
         try
         {
-            JsonElement result = await RequestAsync("acquire", new() { ["path"] = path }, ct,
+            JsonElement capability = await RequestAsync("preflight", null, ct).ConfigureAwait(false);
+            LinuxInputFlow.RequireCapability(capability);
+            JsonElement result = await RequestAsync("acquire", new() { ["path"] = path, ["inputFlowVersion"] = LinuxInputFlow.Version }, ct,
                 TimeSpan.FromMinutes(2)).ConfigureAwait(false);
             if (!result.GetProperty("isolationVerified").GetBoolean())
                 throw new IOException("The device broker did not verify physical isolation.");
@@ -111,7 +114,7 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
                 Volatile.Write(ref session, created);
                 if (!IsConnected || Volatile.Read(ref isolationLost) != 0)
                     created.MarkLost(FailureReason ?? "The broker lost isolation while acquiring the controller.");
-                while (startupInput.TryDequeue(out var input)) created.AcceptInput(input.Bytes, input.Timestamp, input.BrokerReadNs);
+                while (startupInput.TryDequeue(out var input)) created.AcceptInput(input.Bytes, input.Timestamp, input.BrokerReadNs, input.Sequence);
             }
             if (!created.IsolationVerified) throw new IOException(created.IsolationLostReason ?? "Physical isolation ended during acquisition.");
             return created;
@@ -125,6 +128,13 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
     }
 
     internal bool IsConnected => stream is not null && Volatile.Read(ref disposed) == 0;
+    internal LinuxInputFlowMetrics? InputFlowMetrics => Volatile.Read(ref inputFlow)?.Metrics;
+    internal void StopInputFlow() => Volatile.Read(ref inputFlow)?.Stop();
+    internal void ConsumeInput(long sequence)
+    {
+        try { Volatile.Read(ref inputFlow)?.Consumed(sequence); }
+        catch (IOException error) { Terminate(error.Message); }
+    }
     string? FailureReason => Volatile.Read(ref session)?.IsolationLostReason ??
         Volatile.Read(ref isolationFailureReason) ?? Volatile.Read(ref terminationReason);
 
@@ -223,6 +233,7 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
         bool slot = false;
         long started = Stopwatch.GetTimestamp();
         long id = Interlocked.Increment(ref nextId);
+        if (operation == "acquire") Volatile.Write(ref acquireRequestId, id);
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
@@ -326,6 +337,8 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
             {
                 case "input":
                     long received = Stopwatch.GetTimestamp();
+                    LinuxInputFlow flow = Volatile.Read(ref inputFlow) ?? throw new IOException("Input arrived before flow-control negotiation.");
+                    long sequence = flow.Receive(message);
                     byte[] report = DecodeReport(message.GetProperty("data"));
                     long brokerReadNs = message.TryGetProperty("brokerReadMonotonicNs", out var stamp) ? stamp.GetInt64() : 0;
                     if (brokerReadNs < 0) throw new IOException("Invalid broker input timestamp.");
@@ -333,9 +346,9 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
                     {
                         // A response and the first input can arrive in the same read.
                         // The acquisition continuation has not necessarily run yet.
-                        if (session is not null) session.AcceptInput(report, received, brokerReadNs);
+                        if (session is not null) session.AcceptInput(report, received, brokerReadNs, sequence);
                         else if (Volatile.Read(ref acquired) != 0 && startupInput.Count < 8)
-                            startupInput.Enqueue((report, received, brokerReadNs));
+                            startupInput.Enqueue((report, received, brokerReadNs, sequence));
                         else throw new IOException("Unexpected or overflowing input before physical acquisition completed.");
                     }
                     return;
@@ -349,10 +362,20 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
             }
         }
         long id = message.GetProperty("id").GetInt64();
+        if (!pending.ContainsKey(id)) throw new IOException("Unknown broker response identifier.");
         bool ok = message.GetProperty("ok").GetBoolean();
         JsonElement result = default;
         Exception? failure = null;
-        if (ok) result = message.GetProperty("result").Clone();
+        if (ok)
+        {
+            result = message.GetProperty("result").Clone();
+            if (id != 0 && id == Volatile.Read(ref acquireRequestId))
+            {
+                var created = new LinuxInputFlow(result, stream!, writes, lifetime.Token, Terminate);
+                Volatile.Write(ref inputFlow, created);
+                if (!IsConnected) created.Stop();
+            }
+        }
         else
         {
             JsonElement error = message.GetProperty("error");
@@ -383,6 +406,7 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
         Volatile.Read(ref session)?.MarkLost(reason);
         reason = FailureReason ?? reason;
         Interlocked.CompareExchange(ref terminationReason, reason, null);
+        StopInputFlow();
         lifetime.Cancel();
         stream?.Dispose();
         foreach (var item in pending) item.Value.TrySetException(new IOException(reason));
@@ -396,12 +420,15 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
             string reason = FailureReason ?? "The broker session was disposed.";
             Interlocked.CompareExchange(ref terminationReason, reason, null);
             Volatile.Read(ref session)?.MarkClosed();
+            StopInputFlow();
             lifetime.Cancel();
             stream?.Dispose();
             foreach (var item in pending) item.Value.TrySetException(new IOException(reason));
             pending.Clear();
         }
         await reader.ConfigureAwait(false);
+        LinuxInputFlow? flow = Volatile.Read(ref inputFlow);
+        if (flow is not null) { flow.Stop(); await flow.Completion.ConfigureAwait(false); }
     }
 
     [StructLayout(LayoutKind.Sequential)]

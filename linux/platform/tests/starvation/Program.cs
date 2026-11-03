@@ -86,15 +86,28 @@ static class Program
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
                 JsonElement ReadRequest()
                 {
-                    using var value = JsonDocument.Parse(reader.ReadLine() ?? throw new IOException("Unexpected client EOF."));
-                    return value.RootElement.Clone();
+                    while (true)
+                    {
+                        using var value = JsonDocument.Parse(reader.ReadLine() ?? throw new IOException("Unexpected client EOF."));
+                        if (value.RootElement.GetProperty("op").GetString() != "input_ack") return value.RootElement.Clone();
+                        if (value.RootElement.GetProperty("id").GetInt64() != 0 ||
+                            value.RootElement.GetProperty("leaseId").GetString() != "0123456789abcdef0123456789abcdef" ||
+                            value.RootElement.GetProperty("through").GetInt64() != 1)
+                            throw new IOException("Invalid cumulative credit acknowledgement.");
+                    }
                 }
                 void Send(object value) => writer.WriteLine(JsonSerializer.Serialize(value));
+                JsonElement negotiation = ReadRequest();
+                if (negotiation.GetProperty("op").GetString() != "preflight") throw new IOException("Expected flow negotiation.");
+                Send(new { id = negotiation.GetProperty("id").GetInt64(), ok = true,
+                    result = new { available = true, detail = "Synthetic peer", inputFlow = new { version = 1, window = 8 } } });
                 JsonElement acquire = ReadRequest();
-                if (acquire.GetProperty("op").GetString() != "acquire") throw new IOException("Expected acquisition.");
+                if (acquire.GetProperty("op").GetString() != "acquire" || acquire.GetProperty("inputFlowVersion").GetInt32() != 1)
+                    throw new IOException("Expected negotiated acquisition.");
                 Send(new { id = acquire.GetProperty("id").GetInt64(), ok = true,
                     result = new { isolationVerified = true, path = "/dev/synthetic-hidraw", vendorId = 0x054c,
-                        productId = 0x0ce6, productName = "Synthetic starvation peer" } });
+                        productId = 0x0ce6, productName = "Synthetic starvation peer",
+                        inputFlow = new { version = 1, window = 8, leaseId = "0123456789abcdef0123456789abcdef" } } });
                 if (operation == "detach")
                 {
                     JsonElement setup = ReadRequest();
@@ -121,7 +134,9 @@ static class Program
                 if (!allowReply.Wait(5000)) throw new TimeoutException("Supervisor did not release reply.");
                 // An input event before the RPC reply distinguishes IPC-reader
                 // progress from completion of the blocked synchronous caller.
-                Send(new { @event = "input", data = Convert.ToBase64String(Input), brokerReadMonotonicNs = 123456789L });
+                Send(new { @event = "input", data = Convert.ToBase64String(Input), brokerReadMonotonicNs = 123456789L,
+                    leaseId = "0123456789abcdef0123456789abcdef", sequence = 1L,
+                    creditBlockedCount = 0L, creditBlockedNs = 0L, creditMaxBlockedNs = 0L });
                 if (operation != "read")
                 {
                     object result = operation switch
