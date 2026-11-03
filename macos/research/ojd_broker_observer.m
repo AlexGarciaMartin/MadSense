@@ -28,19 +28,41 @@ static NSArray *entries(const char *className) {
     while ((entry = IOIteratorNext(iterator))) {
         NSDictionary *snapshot = properties(entry);
         uint64_t identifier = 0;
-        if (!snapshot || IORegistryEntryGetRegistryEntryID(entry, &identifier) != KERN_SUCCESS || !identifier) {
+        io_name_t className;
+        if (!snapshot || IORegistryEntryGetRegistryEntryID(entry, &identifier) != KERN_SUCCESS || !identifier
+            || IOObjectGetClass(entry, className) != KERN_SUCCESS) {
             IOObjectRelease(entry);
             IOObjectRelease(iterator);
             return nil;
         }
         NSMutableDictionary *item = [snapshot mutableCopy];
         item[@"ProbeRegistryID"] = @(identifier);
+        item[@"ProbeRegistryClass"] = [NSString stringWithUTF8String:className];
         [result addObject:item];
         IOObjectRelease(entry);
     }
     BOOL valid = IOIteratorIsValid(iterator);
     IOObjectRelease(iterator);
     if (!valid) return nil;
+    return result;
+}
+// Deliberately exclude serials, names, addresses and location IDs. Only class,
+// standard transport and public numeric device/usage metadata may be logged.
+static NSArray *inventoryMetadata(NSArray *items) {
+    NSMutableArray *result = [NSMutableArray array];
+    NSArray *numeric = @[@"VendorID", @"ProductID", @"PrimaryUsagePage", @"PrimaryUsage",
+        @"idVendor", @"idProduct", @"bDeviceClass", @"bDeviceSubClass"];
+    for (NSDictionary *item in items) {
+        NSMutableDictionary *row = [NSMutableDictionary dictionary];
+        row[@"class"] = item[@"ProbeRegistryClass"];
+        for (NSString *key in numeric)
+            if ([item[key] isKindOfClass:NSNumber.class]) row[key] = item[key];
+        NSString *transport = item[@"Transport"];
+        if ([transport isKindOfClass:NSString.class])
+            row[@"transport"] = [@[@"USB", @"Bluetooth", @"Bluetooth Low Energy", @"Virtual", @"SPI", @"I2C"] containsObject:transport]
+                ? transport : @"other";
+        [result addObject:row];
+    }
     return result;
 }
 static BOOL ownGeneric(NSDictionary *p) {
@@ -94,7 +116,9 @@ int main(int argc, const char *argv[]) {
                     || [transport hasPrefix:@"Bluetooth"] || [transport isEqual:@"USB"]) ++unsafe;
             }
             emit(@{@"unsafeHIDCount": @(unsafe), @"usbDeviceCount": @(usb.count),
-                @"bluetoothControllerCount": @(bluetooth.count), @"feeds": feeds});
+                @"bluetoothControllerCount": @(bluetooth.count), @"feeds": feeds,
+                @"hidInventory": inventoryMetadata(hid), @"usbInventory": inventoryMetadata(usb),
+                @"bluetoothInventory": inventoryMetadata(bluetooth)});
             return 0;
         }
         if (argc != 3 || strcmp(argv[1], "inspect") != 0) return 2;
