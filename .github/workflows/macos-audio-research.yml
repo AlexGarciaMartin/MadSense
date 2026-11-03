@@ -19,6 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         runner: [macos-15, macos-15-intel]
+        timestamp_period: [256, 16384]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     steps:
@@ -29,7 +30,7 @@ jobs:
           cmake --build .build/audio --parallel
           ctest --test-dir .build/audio --output-on-failure
           bash macos/research/build_audio_probe.sh .build/audio-research
-          bash macos/research/build_audio_ingress.sh .build/audio-research .build/audio/MadSenseAudio.driver
+          bash macos/research/build_audio_ingress.sh .build/audio-research .build/audio/MadSenseAudio.driver ${{ matrix.timestamp_period }}
           mkdir -p dist/audio-research
           cp .build/audio-research/ingress-source.json dist/audio-research/
       - name: Install and validate endpoint only on disposable runner
@@ -41,10 +42,24 @@ jobs:
           sw_vers > dist/audio-research/environment.txt
           uname -a >> dist/audio-research/environment.txt
           git rev-parse HEAD >> dist/audio-research/environment.txt
-          cp "$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers/AudioServerPlugIn.h" dist/audio-research/AudioServerPlugIn-sdk.h
           python3 - <<'PY'
-          import pathlib, subprocess, sys
+          import hashlib, json, pathlib, re, subprocess, sys
           output = pathlib.Path('dist/audio-research')
+          sdk = pathlib.Path(subprocess.check_output(['xcrun', '--show-sdk-path'], text=True).strip())
+          header = sdk / 'System/Library/Frameworks/CoreAudio.framework/Headers/AudioServerPlugIn.h'
+          raw = header.read_bytes()
+          text = raw.decode('utf-8')
+          start = text.index('@constant       kAudioDevicePropertyZeroTimeStampPeriod')
+          minimum = re.search(r'minimum allowed value for this is (\d+) sample frames', text[start:start + 1000])
+          if minimum is None:
+              raise RuntimeError('SDK timestamp minimum contract missing; re-review required')
+          metadata = {
+              'sdk_version': subprocess.check_output(['xcrun', '--show-sdk-version'], text=True).strip(),
+              'header_path': str(header), 'header_sha256': hashlib.sha256(raw).hexdigest(),
+              'documented_minimum_timestamp_period_frames': int(minimum[1]),
+              'selected_timestamp_period_frames': ${{ matrix.timestamp_period }},
+              'counter_contract_summary': 'The cycle ordinal begins at one, advances each cycle, and returns to one when the IO thread resynchronizes.'}
+          (output / 'sdk-contract.json').write_text(json.dumps(metadata, indent=2) + '\n')
           with (output / 'audio-path.jsonl').open('w') as stdout, (output / 'audio-path.stderr').open('w') as stderr:
               try:
                   result = subprocess.run(
@@ -68,6 +83,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: audio-research-${{ matrix.runner }}
+          name: audio-research-${{ matrix.runner }}-period${{ matrix.timestamp_period }}
           path: dist/audio-research/*
           retention-days: 14

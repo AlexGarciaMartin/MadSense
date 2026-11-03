@@ -30,6 +30,19 @@ class InstrumentationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             instrument(instrument(self.source))
 
+    def test_only_clock_period_differs_between_variants(self):
+        baseline = instrument(self.source, 256)
+        compliant = instrument(self.source, 16384)
+        self.assertEqual(baseline.replace('kResearchTimestampPeriod = 256;',
+                                          'kResearchTimestampPeriod = 16384;'), compliant)
+        self.assertIn('copyValue<UInt32>(kResearchTimestampPeriod, capacity, written, out)', compliant)
+        self.assertIn('ticksPerFrame * kResearchTimestampPeriod', compliant)
+        self.assertIn('*sample = periods * kResearchTimestampPeriod;', compliant)
+
+    def test_arbitrary_period_not_accepted(self):
+        with self.assertRaises(ValueError):
+            instrument(self.source, 512)
+
 
 if __name__ == '__main__':
     unittest.main()

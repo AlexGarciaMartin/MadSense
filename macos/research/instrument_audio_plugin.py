@@ -6,7 +6,9 @@ import json
 import pathlib
 
 
-def instrument(source: str) -> str:
+def instrument(source: str, timestamp_period: int = 256) -> str:
+    if timestamp_period not in (256, 16384):
+        raise ValueError('Only the explicit baseline and SDK-compliant research variants are supported')
     def replace(old: str, new: str) -> None:
         nonlocal source
         if source.count(old) != 1:
@@ -14,7 +16,12 @@ def instrument(source: str) -> str:
         source = source.replace(old, new)
 
     replace('#include "AudioProtocol.hpp"', '#include "AudioProtocol.hpp"\n#include "AudioIngressTrace.hpp"')
-    replace('AudioRing ring;', 'AudioRing ring;\naudio_probe::IngressTrace ingressTrace;')
+    replace('AudioRing ring;', 'AudioRing ring;\naudio_probe::IngressTrace ingressTrace;\n'
+            f'constexpr UInt32 kResearchTimestampPeriod = {timestamp_period};')
+    replace('copyValue<UInt32>(256, capacity, written, out)',
+            'copyValue<UInt32>(kResearchTimestampPeriod, capacity, written, out)')
+    replace('ticksPerFrame * 256', 'ticksPerFrame * kResearchTimestampPeriod')
+    replace('*sample = periods * 256;', '*sample = periods * kResearchTimestampPeriod;')
     replace('const AudioServerPlugInCustomPropertyInfo customProperties[] = {',
             'const AudioServerPlugInCustomPropertyInfo customProperties[] = {\n'
             '    {audio_probe::kIngressProperty, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, '
@@ -65,14 +72,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=pathlib.Path)
     parser.add_argument('output', type=pathlib.Path)
+    parser.add_argument('--timestamp-period', type=int, choices=(256, 16384), default=256)
     args = parser.parse_args()
     raw = args.source.read_bytes()
     source = raw.decode('utf-8').replace('\r\n', '\n')
-    result = instrument(source).encode('utf-8')
+    result = instrument(source, args.timestamp_period).encode('utf-8')
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(result)
     print(json.dumps({'production_source_sha256': hashlib.sha256(raw).hexdigest(),
                       'instrumented_source_sha256': hashlib.sha256(result).hexdigest(),
+                      'timestamp_period_frames': args.timestamp_period,
                       'production_source_changed': False}))
 
 
