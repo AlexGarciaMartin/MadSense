@@ -83,7 +83,7 @@ marked PipeWire player then encountered an exclusive log-name collision with
 the already-running export client. The player logs now use their own
 `pcm-player-` namespace, also avoiding the later front-gain command's logs.
 The original failed evidence and complete cleanup remain recorded; marked
-PipeWire/gain validation is still pending.
+PipeWire/gain validation was still pending at that revision.
 
 Run `41663518548` at `1252b16` completed all four marked PCM phases: every one of
 48,000 frames per phase matched in all four channels, including FL/2, FR/4 and

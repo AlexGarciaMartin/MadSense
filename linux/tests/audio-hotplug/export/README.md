@@ -124,9 +124,12 @@ The separately enabled next stage is described in [PCM.md](PCM.md). Its first
 native run, `41659159847` at `86287d8`, repeated the functional/lifecycle passes
 and proved the direct ALSA control's 48,000 marked frames exact in all four
 channels. It stopped before PipeWire playback on an initial volume-array shape
-assumption, with cleanup complete. The full four-phase comparison remains
-pending; the initial state is retained and a separate silence stream now
-negotiates the format before the gain baseline, without a Props write.
+assumption, with cleanup complete. The initial state is retained and a separate
+silence stream now negotiates the format before the gain baseline, without a
+Props write. The full four-phase comparison later matched in `1252b16` (run
+`41663518548`, failed only on the read-only ALSA playback map) and passed
+completely in `9aff32c` (run `41683346411`), where that map is tracked across
+its unopened, negotiated and closed states; see PCM.md for the exact tables.
 
 `linux-audio-export.yml` runs Python, real descriptor tests and a Linux C build
 on push. A manual `run_native=true` dispatch runs the unchanged broker 10/core
@@ -136,9 +139,9 @@ extended-protocol or Xbox FF suites were rerun. Payload hashes, original source
 commit, copy transformation hashes, native cleanup and QEMU/KVM restoration are
 retained. No host audio session is restarted or configured.
 
-Before production adoption this still needs native results, exact four-channel
-PCM and front-gain/rear-unity checks, audio/HID ContainerId comparison in the
-supported Proton build, PipeWire restart and broker crash recovery, and a
-capability/setup contract. Native PulseAudio-only desktops cannot use this
+Before production adoption this still needs audio/HID ContainerId comparison in
+the supported Proton build, PipeWire restart and broker crash recovery, and a
+capability/setup contract; the native four-channel PCM and front-gain/rear-unity
+checks exist only as research-copy ingress evidence, not as product audio policy. Native PulseAudio-only desktops cannot use this
 PipeWire client without a separate supported backend. The private rule is a
 laboratory lifetime guard, not yet a production recovery implementation.
