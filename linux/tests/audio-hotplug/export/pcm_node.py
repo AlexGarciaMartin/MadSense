@@ -6,8 +6,9 @@ import struct
 from export_policy import validate_node, require
 
 NODE_VOLUMES_LUA = r'''local args = ...
-local id, serial = tonumber(args.nodeId), tonumber(args.nodeSerial)
+local id, serial, raw_channels = tonumber(args.nodeId), tonumber(args.nodeSerial), tonumber(args.rawChannels)
 assert(id and serial and id >= 0 and serial >= 0 and id % 1 == 0 and serial % 1 == 0)
+assert(raw_channels == 2 or raw_channels == 4, "invalid expected raw count")
 local om = ObjectManager { Interest { type = "node", Constraint { "bound-id", "=", id, type = "gobject" } } }
 local function read()
   assert(om:get_n_objects() == 1, "missing exact node")
@@ -23,13 +24,13 @@ local function read()
         assert(p.channelMap.pod_type == "Array" and #p.channelMap == 4, "invalid map")
         local names = { "FL", "FR", "RL", "RR" }
         for i = 1, 4 do assert(p.channelMap[i] == names[i], "channel map changed") end
-        local function array(a)
-          assert(a.pod_type == "Array" and a.value_type == "Spa:Float" and #a == 4, "invalid float array")
+        local function array(a, count)
+          assert(a.pod_type == "Array" and a.value_type == "Spa:Float" and #a == count, "invalid float array")
           local values = {}
-          for i = 1, 4 do assert(a[i] >= 0 and a[i] <= 1, "volume out of range"); values[i] = string.format("%.17g", a[i]) end
+          for i = 1, count do assert(a[i] >= 0 and a[i] <= 1, "volume out of range"); values[i] = string.format("%.17g", a[i]) end
           return "[" .. table.concat(values, ",") .. "]"
         end
-        answer = string.format('{"nodeId":%d,"nodeSerial":%d,"raw":%s,"soft":%s}',id,serial,array(p.channelVolumes),array(p.softVolumes))
+        answer = string.format('{"nodeId":%d,"nodeSerial":%d,"raw":%s,"soft":%s}',id,serial,array(p.channelVolumes,raw_channels),array(p.softVolumes,4))
       end
     end
   end
@@ -46,7 +47,7 @@ end)
 om:activate()
 '''
 
-def node_state(snapshot, plan, identity):
+def node_state(snapshot, plan, identity, allow_unnegotiated=False):
     rows=[row for row in snapshot if row.get('type')=='PipeWire:Interface:Node' and row.get('id')==identity['id']]
     require(len(rows)==1,'Export node missing')
     value=validate_node(rows[0],plan,require_format=True)
@@ -57,7 +58,8 @@ def node_state(snapshot, plan, identity):
     require(props.get('volume')==1 and props.get('mute') is False and props.get('softMute') is False
         and props.get('channelMap')==['FL','FR','RL','RR'],'Unexpected node map/mute/scalar gain')
     for name in ('channelVolumes','softVolumes'):
-        require(isinstance(props.get(name),list) and len(props[name])==4 and all(type(x) in (float,int)
+        counts=(2,4) if name=='channelVolumes' and allow_unnegotiated else (4,)
+        require(isinstance(props.get(name),list) and len(props[name]) in counts and all(type(x) in (float,int)
             and math.isfinite(x) and 0<=x<=1 for x in props[name]),'Incomplete node gain array')
     return dict(identity=identity,properties=value['properties'],volumeProps=props)
 
@@ -66,21 +68,23 @@ def exact_node(record,state):
         and record['nodeSerial']==state['identity']['serial'],'Precise reader identity/error differs')
     for name,field in (('raw','channelVolumes'),('soft','softVolumes')):
         values=record[name]
-        require(isinstance(values,list) and len(values)==4 and all(type(x) in (float,int) and math.isfinite(x)
+        count=len(state['volumeProps'][field])
+        require(count in ((2,4) if name=='raw' else (4,)) and isinstance(values,list) and len(values)==count and all(type(x) in (float,int) and math.isfinite(x)
             and 0<=x<=1 and struct.unpack('<f',struct.pack('<f',x))[0]==x for x in values),'Exact float32 gains required')
         require([float(format(x,'.6f')) for x in values]==state['volumeProps'][field],'Precise reader and snapshot disagree')
     return record
 
-def read_node(session,identity,label):
-    before=node_state(session.capture_snapshot(label+'-before'),session.plan,identity)
+def read_node(session,identity,label,allow_unnegotiated=False):
+    before=node_state(session.capture_snapshot(label+'-before'),session.plan,identity,allow_unnegotiated)
     if not hasattr(session,'pcm_volume_script'):
         source=session.output/'pcm-node-volumes.lua';source.write_text(NODE_VOLUMES_LUA)
         session.pcm_volume_script=session.stage(source)
-    _,raw=session.command(label,['wpexec',session.pcm_volume_script,f"nodeId={identity['id']}",f"nodeSerial={identity['serial']}"],timeout=10)
+    _,raw=session.command(label,['wpexec',session.pcm_volume_script,f"nodeId={identity['id']}",f"nodeSerial={identity['serial']}",
+        f"rawChannels={len(before['volumeProps']['channelVolumes'])}"],timeout=10)
     exact=exact_node(json.loads(raw),before)
-    after=node_state(session.capture_snapshot(label+'-after'),session.plan,identity)
+    after=node_state(session.capture_snapshot(label+'-after'),session.plan,identity,allow_unnegotiated)
     require(before==after,'Node changed during exact volume read')
-    session.result.setdefault('pcmNodeReads',[]).append(dict(label=label,state=before,exact=exact));session.save()
+    session.result.setdefault('pcmNodeReads',[]).append(dict(label=label,allowUnnegotiated=allow_unnegotiated,state=before,exact=exact));session.save()
     return before,exact
 
 def set_raw(session,identity,original,allowed,label,wanted):

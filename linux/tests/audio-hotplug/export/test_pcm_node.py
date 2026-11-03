@@ -1,9 +1,10 @@
-import copy
+import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from export_policy import snapshot_source
-from pcm_node import exact_node, node_state, set_raw
+from pcm_node import exact_node, node_state, set_raw, read_node
 from test_export import node, PLAN
 
 def snapshot():
@@ -16,6 +17,30 @@ IDENTITY=dict(id=45,serial=10,clientId=40)
 EXACT=dict(nodeId=45,nodeSerial=10,raw=[1,1,1,1],soft=[1,1,1,1])
 
 class NodeGainContracts(unittest.TestCase):
+    def test_pre_negotiation_two_raw_values_are_retained_without_padding(self):
+        before=snapshot();before[0]['info']['params']['Props'][0]['channelVolumes']=[1,1]
+        with self.assertRaisesRegex(RuntimeError,'Incomplete node gain array'):node_state(before,PLAN,IDENTITY)
+        state=node_state(before,PLAN,IDENTITY,allow_unnegotiated=True)
+        self.assertEqual(exact_node(EXACT|dict(raw=[1,1]),state)['raw'],[1,1])
+        with self.assertRaises(RuntimeError):exact_node(EXACT,state)
+        self.assertEqual(node_state(snapshot(),PLAN,IDENTITY)['volumeProps']['channelVolumes'],[1,1,1,1])
+        for invalid in ([],[1],[1,1,1],[1]*5):
+            changed=snapshot();changed[0]['info']['params']['Props'][0]['channelVolumes']=invalid
+            with self.assertRaises(RuntimeError):node_state(changed,PLAN,IDENTITY,allow_unnegotiated=True)
+
+    def test_precise_initial_reader_binds_raw_count_and_rejects_transition_during_read(self):
+        from types import SimpleNamespace
+        before=snapshot();before[0]['info']['params']['Props'][0]['channelVolumes']=[1,1]
+        with tempfile.TemporaryDirectory() as temp:
+            session=SimpleNamespace(output=Path(temp),plan=PLAN,result={},save=Mock(),stage=lambda path:path,
+                capture_snapshot=Mock(side_effect=[before,before]),command=Mock(return_value=(None,json.dumps(EXACT|dict(raw=[1,1])).encode())))
+            _,exact=read_node(session,IDENTITY,'pcm-pre-negotiation',allow_unnegotiated=True)
+            self.assertEqual(exact['raw'],[1,1])
+            self.assertIn('rawChannels=2',session.command.call_args.args[1])
+            session.capture_snapshot=Mock(side_effect=[before,snapshot()])
+            with self.assertRaisesRegex(RuntimeError,'changed during exact volume read'):
+                read_node(session,IDENTITY,'pcm-pre-negotiation',allow_unnegotiated=True)
+
     def test_actual_node_map_identity_and_precise_arrays_are_required(self):
         state=node_state(snapshot(),PLAN,IDENTITY)
         self.assertEqual(exact_node(EXACT,state),EXACT)

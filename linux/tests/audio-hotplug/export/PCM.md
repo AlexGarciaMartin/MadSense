@@ -1,4 +1,4 @@
-# Private export PCM experiment (native execution pending)
+# Private export PCM experiment
 
 `measure_pcm=true` is a second opt-in on `linux-audio-export.yml`, together with
 `run_native=true`. The same owned VM first completes the unchanged functional
@@ -31,6 +31,15 @@ The exact same WAV is used for four phases:
 3. Only that node's channel gains become FL=1/2, FR=1/4, RL=1, RR=1.
 4. Original node Props are restored, then the WAV is played again.
 
+Before the three marked PipeWire phases, a separate one-second four-channel
+silence stream negotiates the new adapter's format. This performs no Props
+write. Its own PID/start, peer credentials, four active links, default identities
+and all-zero captured PCM are required. Silence establishes observed activity;
+it cannot establish sample continuity or gain. The initial raw volume array is
+retained at its actual length. Only the initial read permits two raw entries;
+all soft entries and every post-negotiation read must have four. No missing
+values are filled in. The gain/restoration baseline is taken after negotiation.
+
 Player PID/start/UID/GID, PipeWire peer credentials, stream identity and exactly
 four active channel-preserving links attribute each PipeWire phase. Each phase
 uses one common alignment for all channels inside its actor bookmarks. Every
@@ -53,6 +62,18 @@ publication, exact USB parent, rule/ACL retirement and actor cleanup remain
 required. The independent host audit reconstructs source WAV, packet/chunk
 coverage, each bookmarked PCM comparison, graph attribution, exact node reads
 and restoration from the retained evidence.
+
+Run `41659159847` at `86287d8` passed the original functional gates and all four
+export lifecycle cases. The direct ALSA phase delivered all 48,000 marked frames
+exactly in FL/FR/RL/RR: 1,495 captured packets, 574,080 bytes and zero recorder
+rejections. The PCM experiment then stopped before PipeWire playback because the
+suspended adapter exposed two raw volume values but four software values. Its
+cleanup passed; the failed experiment is not promoted to a four-phase pass.
+The corrected negotiation phase preserves that initial state rather than
+rewriting it. PipeWire 1.0.5 `set_volume` invokes `remap_volumes` only once the
+direction has a format; mismatched array lengths are then mapped to that format.
+The next native run must demonstrate the expected transition. Source:
+[audioconvert volume remapping](https://github.com/PipeWire/pipewire/blob/1.0.5/spa/plugins/audioconvert/audioconvert.c#L1415).
 
 This stage proves only software PCM ingress if it passes. Native haptics and
 Opus transmission require separate comparisons against the samples actually

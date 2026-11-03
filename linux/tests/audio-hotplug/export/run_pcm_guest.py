@@ -19,7 +19,7 @@ from export_desktop import ExportDesktop
 from export_policy import IgnoreRule, configuration, publication, snapshot_source, validate_node, alsa_node
 from policy import predict_parents
 from evidence import compare, metadata_changes, preservation
-from pcm_evidence import marked_source, load_capture, verify_phase, digest, require
+from pcm_evidence import marked_source, load_capture, verify_phase, verify_negotiation, digest, require
 from pcm_node import read_node, set_raw, node_state, exact_node
 from consumer_session import process_identity
 from pipewire_gain import stream_binding, control_snapshot
@@ -35,9 +35,10 @@ class PcmActor(MarkedActor):
         require(isinstance(value,dict),'App did not publish a PCM bookmark')
         return value
 
-def playback(actor,audio,label,source,identity=None,wanted=None):
+def playback(actor,audio,label,source,identity=None,wanted=None,negotiation=False):
+    require(not negotiation or (label=='negotiate' and identity is not None and wanted is None), 'Invalid negotiation phase')
     row=dict(label=label,start=actor.mark(label+'-start'),binding=None)
-    audio.result.setdefault('pcmPlaybacks',[]).append(row);audio.save()
+    audio.result.setdefault('pcmNegotiations' if negotiation else 'pcmPlaybacks',[]).append(row);audio.save()
     command=(['aplay','-q','-D',f'hw:{audio.card},0',source] if identity is None else
         ['pw-play','--remote',audio.env['PIPEWIRE_REMOTE'],'--target',str(identity['serial']),
          '--channel-map','FL,FR,RL,RR',source])
@@ -48,7 +49,7 @@ def playback(actor,audio,label,source,identity=None,wanted=None):
     try:
         peer=process_identity(child.pid)
         require(peer is not None and peer[0]==(audio.uid,)*4,'Player identity unavailable')
-        row['processStart']=peer[1]
+        row['processStart']=int(peer[1]);require(row['processStart']>0,'Invalid player start time')
         attempt=0
         while child.poll() is None:
             require(time.monotonic()<deadline,'PCM player deadline exceeded')
@@ -58,9 +59,10 @@ def playback(actor,audio,label,source,identity=None,wanted=None):
             require(all(observation['defaultPreserved'].values()),'PCM phase replaced a desktop default')
             if identity is not None:
                 snapshot=json.loads((audio.output/(name+'.json')).read_text())
-                state=node_state(snapshot,audio.plan,identity)
-                require(state['volumeProps']['channelVolumes']==wanted['raw']
-                    and state['volumeProps']['softVolumes']==wanted['soft'],'Node gains changed during PCM')
+                if not negotiation:
+                    state=node_state(snapshot,audio.plan,identity)
+                    require(state['volumeProps']['channelVolumes']==wanted['raw']
+                        and state['volumeProps']['softVolumes']==wanted['soft'],'Node gains changed during PCM')
                 if child.poll() is None:
                     require(process_identity(child.pid)==peer,'Player identity changed during graph snapshot')
                     binding=stream_binding(snapshot,child.pid,audio.uid,audio.gid,{'identity':{'nodeId':identity['id']}})
@@ -153,19 +155,30 @@ def audit(directory,token,gates,export_hash):
     precise_reads={}
     for row in audio['pcmNodeReads']:
         label=row['label'];require(label not in precise_reads and label+'-before' in sources and label+'-after' in sources,'Precise node read label differs')
-        before=node_state(json.loads((directory/'audio'/(label+'-before.json')).read_text()),plan,identity)
-        after=node_state(json.loads((directory/'audio'/(label+'-after.json')).read_text()),plan,identity)
+        allow=label=='pcm-pre-negotiation'
+        require(row['allowUnnegotiated'] is allow,'Unexpected unnegotiated volume read')
+        before=node_state(json.loads((directory/'audio'/(label+'-before.json')).read_text()),plan,identity,allow)
+        after=node_state(json.loads((directory/'audio'/(label+'-after.json')).read_text()),plan,identity,allow)
         precise=exact_node(json.loads((directory/'audio'/(label+'.stdout')).read_text()),before)
         require(before==after==row['state'] and precise==row['exact'],'Precise node state differs from raw evidence')
         precise_reads[label]=precise
     require(audio['pcmOriginalExact']==precise_reads['pcm-original'] and audio['pcmRestoredExact']==precise_reads['pcm-restore-confirmed']
         and audio['pcmOriginalExact']['raw']==audio['pcmOriginalExact']['soft']==[1,1,1,1],'PCM unity baseline/restoration differs')
+    pre=precise_reads['pcm-pre-negotiation']
+    require(audio['pcmPreNegotiationExact']==pre and pre['raw'] in ([1,1],[1,1,1,1])
+        and pre['soft']==[1,1,1,1], 'Pre-negotiation state was changed or normalized')
+    with wave.open(str(directory/'negotiation.wav'),'rb') as stream:
+        require((stream.getnchannels(),stream.getsampwidth(),stream.getframerate(),stream.getnframes())==(4,2,48000,48000)
+            and stream.readframes(48000)==bytes(48000*8),'Negotiation source is not exact quad silence')
     require([row['label'] for row in audio['pcmNodeRequests']]==['pcm-front-gain','pcm-restore']
         and [row['wanted'] for row in audio['pcmNodeRequests']]==[[.5,.25,1,1],[1,1,1,1]],'PCM gain request contract differs')
     phases=audio['pcmPlaybacks'];require([row['label'] for row in phases]==[name for name,_ in PHASES],'Missing PCM phases')
+    negotiation=audio['pcmNegotiations'];require(len(negotiation)==1 and negotiation[0]['label']=='negotiate','Missing separate negotiation control')
     compared=[]
-    for row,(name,divisors) in zip(phases,PHASES):
+    silence=None
+    for row,(name,divisors) in zip(negotiation+phases,(('negotiate',None),)+PHASES):
         require(row['exitCode']==0 and row['error'] is None,'PCM player did not finish cleanly')
+        require(type(row['processStart']) is int and row['processStart']>0,'Player start time missing')
         for side in ('start','end'):
             require(row[side]==json.loads((directory/'actor/app'/f'pcm-mark-{name}-{side}.json').read_text()),'PCM bookmark differs from actor')
         if name=='direct':require(row['binding'] is None and row['argv'][:4]==['aplay','-q','-D',f"hw:{arrival['card']},0"],'Direct control differs')
@@ -174,12 +187,15 @@ def audit(directory,token,gates,export_hash):
             snapshot=json.loads((directory/'audio'/(row['bindingSnapshot']+'.json')).read_text())
             require(row['binding']==stream_binding(snapshot,row['pid'],audio['account']['uid'],audio['account']['gid'],
                 {'identity':{'nodeId':identity['id']}}),'PCM four-channel player binding differs from graph')
-        compared.append(dict(label=name,**verify_phase(capture,raw,source,row['start'],row['end'],divisors)))
+        if name=='negotiate':silence=verify_negotiation(capture,raw,row['start'],row['end'])
+        else:compared.append(dict(label=name,**verify_phase(capture,raw,source,row['start'],row['end'],divisors)))
+    require(phases[0]['end']['timestamp']<negotiation[0]['start']['timestamp']<negotiation[0]['end']['timestamp']
+        <phases[1]['start']['timestamp'],'Negotiation did not precede the marked PipeWire phases')
     require(audio['pcmPropsRestored'] and audio['pcmOriginalExact']==audio['pcmRestoredExact']
         and audio['pcmAlsaBefore']==audio['pcmAlsaAfter']
         and audio['pcmAlsaBefore']==control_snapshot((directory/'audio/pcm-alsa-before.stdout').read_text())
         and audio['pcmAlsaAfter']==control_snapshot((directory/'audio/pcm-alsa-after.stdout').read_text()),'Node Props or ALSA controls were not restored')
-    return dict(phases=compared,publication=observed,defaultsPreserved=preserved,cleanCapture=True,
+    return dict(phases=compared,negotiationControl=silence,publication=observed,defaultsPreserved=preserved,cleanCapture=True,
         exactFourChannelIngress=True,transmissionValidated=False,physicalAudioValidated=False)
 
 def main():
@@ -203,6 +219,8 @@ def main():
     with wave.open(str(output/'source.wav'),'wb') as stream:
         stream.setnchannels(4);stream.setsampwidth(2);stream.setframerate(48000)
         stream.writeframes(bytes(12000*8)+source+bytes(12000*8))
+    with wave.open(str(output/'negotiation.wav'),'wb') as stream:
+        stream.setnchannels(4);stream.setsampwidth(2);stream.setframerate(48000);stream.writeframes(bytes(48000*8))
     reference=json.loads(args.descriptor_reference.read_text());save(output/'descriptor-reference.json',reference)
     try:
         with rule:
@@ -218,7 +236,13 @@ def main():
                     audio.result['pcmAlsaBefore']=control_snapshot(control.decode())
                     staged=audio.stage(output/'source.wav');playback(actor,audio,'direct',staged)
                     audio.start_export('pcm-export');audio.settle('export-ready',True)
-                    identity=audio.exports[-1]['nodeIdentity'];original,precise=read_node(audio,identity,'pcm-original')
+                    identity=audio.exports[-1]['nodeIdentity']
+                    _,pre=read_node(audio,identity,'pcm-pre-negotiation',allow_unnegotiated=True)
+                    require(pre['raw'] in ([1,1],[1,1,1,1]) and pre['soft']==[1,1,1,1],
+                        'Preserve unexpected pre-negotiation gains without rewriting them')
+                    audio.result['pcmPreNegotiationExact']=pre;audio.save()
+                    playback(actor,audio,'negotiate',audio.stage(output/'negotiation.wav'),identity,negotiation=True)
+                    original,precise=read_node(audio,identity,'pcm-original')
                     require(precise['raw']==precise['soft']==[1,1,1,1],'First PCM control requires observed exact unity; preserve other baseline')
                     audio.result['pcmOriginalExact']=precise;audio.result['pcmPropsRestored']=False;audio.save()
                     primary=None

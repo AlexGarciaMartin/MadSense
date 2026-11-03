@@ -120,8 +120,13 @@ their original default replacement. Cleanup, QEMU shutdown and KVM ACL restore
 passed. Independent audit verified 108 guest sources, four installed files,
 source overlay and raw evidence. PCM and ContainerId remained unvalidated.
 
-The separately enabled next stage is described in [PCM.md](PCM.md); its native
-measurement is pending and does not change those completed lifecycle results.
+The separately enabled next stage is described in [PCM.md](PCM.md). Its first
+native run, `41659159847` at `86287d8`, repeated the functional/lifecycle passes
+and proved the direct ALSA control's 48,000 marked frames exact in all four
+channels. It stopped before PipeWire playback on an initial volume-array shape
+assumption, with cleanup complete. The full four-phase comparison remains
+pending; the initial state is retained and a separate silence stream now
+negotiates the format before the gain baseline, without a Props write.
 
 `linux-audio-export.yml` runs Python, real descriptor tests and a Linux C build
 on push. A manual `run_native=true` dispatch runs the unchanged broker 10/core

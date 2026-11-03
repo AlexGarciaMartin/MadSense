@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from pcm_evidence import marked_source, expected_gain, verify_phase, load_capture, digest, boundary_offset
+from pcm_evidence import marked_source, expected_gain, verify_phase, verify_negotiation, load_capture, digest, boundary_offset
 from stage_pcm import (ROOT, DEVICE, ACTOR, HELPER, RECORDER, transform_device, transform_actor,
     OBSERVE_OLD, OBSERVE_NEW, ACTOR_HOOKS, expected_changes, verify_pcm_overlay)
 from stage_export import OLD, NEW
@@ -73,12 +73,22 @@ class PcmEvidenceTests(unittest.TestCase):
         actor=SimpleNamespace(mark=Mock(side_effect=[{'packets':0,'bytes':0,'timestamp':1},RuntimeError('owner already closed')]))
         child=SimpleNamespace(pid=123,returncode=1,poll=lambda:1)
         audio=SimpleNamespace(result={},card=3,exporter=None,uid=1000,save=Mock(),start=Mock(return_value=child))
-        with patch.object(run_pcm_guest,'process_identity',return_value=((1000,)*4,8)),patch.object(run_pcm_guest.time,'sleep'):
+        with patch.object(run_pcm_guest,'process_identity',return_value=((1000,)*4,'8')),patch.object(run_pcm_guest.time,'sleep'):
             with self.assertRaisesRegex(RuntimeError,'PCM playback or four-channel binding failed'):
                 run_pcm_guest.playback(actor,audio,'direct','source.wav')
         row=audio.result['pcmPlaybacks'][0]
         self.assertEqual(row['error'],'PCM playback or four-channel binding failed')
         self.assertEqual(row['endBookmarkError'],'owner already closed')
+        self.assertEqual(row['processStart'],8)
+        self.assertIs(type(row['processStart']),int)
+
+    def test_negotiation_silence_is_observed_but_not_promoted_to_gain_or_continuity(self):
+        raw=bytes(1024);capture,start,end=phase(raw)
+        result=verify_negotiation(capture,raw,start,end)
+        self.assertEqual(result['capturedFrames'],128)
+        self.assertFalse(result['gainValidated']);self.assertFalse(result['sampleContinuityValidated'])
+        with self.assertRaises(RuntimeError):verify_negotiation(capture,bytes(1023)+b'\x01',start,end)
+        with self.assertRaises(RuntimeError):verify_negotiation(capture,raw,start,start)
 
     def test_file_hash_and_rejection_counters_are_required(self):
         source=marked_source(45,256)

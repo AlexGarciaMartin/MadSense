@@ -88,3 +88,11 @@ def verify_phase(capture, raw, source, start, end, divisors=(1,1,1,1)):
         markedFrames=len(source)//8, capturedFrames=len(window)//8, channelDivisors=list(divisors),
         exactChannels=exact, sourceSha256=digest(source), alignedSha256=digest(actual),
         alignmentIsLatency=False, physicalAudioValidated=False)
+
+def verify_negotiation(capture,raw,start,end):
+    begin,finish=boundary_offset(capture,start),boundary_offset(capture,end)
+    require(begin<finish and start['timestamp']<end['timestamp'], 'No observed negotiation PCM')
+    window=raw[begin:finish]
+    require(len(window)%8==0 and not any(window), 'Negotiation control contains nonzero PCM')
+    # Silence establishes stream activity, not unique sample delivery or gain.
+    return dict(capturedFrames=len(window)//8,allZero=True,sampleContinuityValidated=False,gainValidated=False)
