@@ -48,10 +48,40 @@ private func localizeBackendDetail(_ detail: String) -> String {
     return translations[detail]?[language] ?? detail
 }
 
+private func localizeBackendState(_ state: String) -> String {
+    switch state.lowercased() {
+    case "ready": return tr("Connected", "Conectado")
+    case "waiting": return tr("Waiting for controller", "Esperando al mando")
+    case "paused": return tr("Paused", "En pausa")
+    case "connecting": return tr("Connecting", "Conectando")
+    case "error": return tr("Needs attention", "Requiere atención")
+    case "blocked": return tr("Setup required", "Falta configuración")
+    case "starting": return tr("Starting", "Iniciando")
+    case "stopped": return tr("Stopped", "Detenido")
+    default: return state
+    }
+}
+
 private func smokeLog(_ message: String) {
     guard CommandLine.arguments.contains("--smoke-test") else { return }
     let line = "MadSense GUI smoke [\(ISO8601DateFormatter().string(from: Date()))]: \(message)\n"
     try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
+}
+
+private func onMainRunLoop(_ action: @escaping () -> Void) {
+    // AppKit's terminateLater runs NSModalPanelRunLoopMode. Main dispatch-queue
+    // blocks cannot re-enter their own serial queue, but CF run-loop blocks can
+    // run in that nested loop. Include the modal mode explicitly, not by guess.
+    let modes = [RunLoop.Mode.common.rawValue, RunLoop.Mode.modalPanel.rawValue] as CFArray
+    CFRunLoopPerformBlock(CFRunLoopGetMain(), modes, action)
+    CFRunLoopWakeUp(CFRunLoopGetMain())
+}
+
+private func afterOnMainRunLoop(_ delay: TimeInterval, _ action: @escaping () -> Void) {
+    precondition(Thread.isMainThread)
+    let timer = Timer(timeInterval: delay, repeats: false) { _ in action() }
+    RunLoop.main.add(timer, forMode: .common)
+    RunLoop.main.add(timer, forMode: .modalPanel)
 }
 
 private final class BrandView: NSView {
@@ -107,6 +137,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var detailLabel = label(tr("Opening the controller bridge…", "Abriendo el puente del mando…"), size: 14)
     private var telemetryLabel = label("—", size: 12, color: Palette.muted)
     private var capabilityLabel = label("", size: 12, color: Palette.muted)
+    private var displayedState: (() -> String)?
+    private var displayedDetail: (() -> String)?
+    private var displayedReady = false
     private var pauseButton: NSButton!
     private var pauseMenuItem: NSMenuItem!
     private var speakerPopup: NSPopUpButton!
@@ -119,9 +152,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var pendingOutput = Data()
     private var session = UUID()
     private var quitting = false
-    private var terminationScheduled = false
+    private var terminationReplied = false
     private var paused = false
+    private var blocked = false
     private var restarts = 0
+    private var healthySince: TimeInterval?
+    private var lastHealthyReport: TimeInterval?
     private var recovering = false
     private var log = ""
     private var logWindow: NSWindow?
@@ -144,6 +180,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 smokeLog("+4 seconds: capturing live content view")
                 self?.captureSmokeSnapshot()
             }
+            if ProcessInfo.processInfo.environment["MADSENSE_SMOKE_STALL_BACKEND"] == "1" {
+                let token = session
+                afterOnMainRunLoop(6) { [weak self] in
+                    guard let self = self, let child = self.process,
+                          self.owns(child, token: token), child.isRunning, !self.quitting else {
+                        smokeLog("stall test failed: original backend child is not running")
+                        return
+                    }
+                    let pid = child.processIdentifier
+                    guard pid > 0 else { return }
+                    if Darwin.kill(pid, SIGSTOP) == 0 {
+                        smokeLog("stall test: sent SIGSTOP to owned backend child \(pid)")
+                    } else {
+                        smokeLog("stall test: SIGSTOP failed (errno \(errno))")
+                    }
+                }
+            }
+            // Deliberately originate this request on GCD's main queue: the
+            // cleanup must still run in AppKit's nested modal termination loop.
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 smokeLog("+8 seconds: requesting normal application termination")
                 NSApp.terminate(nil)
@@ -328,6 +383,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let token = UUID()
         session = token
         recovering = false
+        blocked = false
+        healthySince = nil
+        lastHealthyReport = nil
         confirmedSpeaker = nil
         refreshSpeaker()
         pendingOutput.removeAll(keepingCapacity: true)
@@ -343,16 +401,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { handle.readabilityHandler = nil; return }
-            DispatchQueue.main.async { guard self?.session == token else { return }; self?.receive(data) }
+            onMainRunLoop { guard self?.session == token else { return }; self?.receive(data) }
         }
         stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { handle.readabilityHandler = nil; return }
             let text = String(decoding: data, as: UTF8.self)
-            DispatchQueue.main.async { guard self?.session == token else { return }; self?.appendLog(text) }
+            onMainRunLoop { guard self?.session == token else { return }; self?.appendLog(text) }
         }
         child.terminationHandler = { [weak self] child in
-            DispatchQueue.main.async {
+            onMainRunLoop {
                 guard let self = self, self.session == token else { return }
                 self.input = nil
                 self.process = nil
@@ -363,7 +421,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 self.appendLog("Backend exited: \(child.terminationStatus)\n")
                 self.restarts += 1
                 if self.restarts <= 3 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(self.restarts * 2)) { [weak self] in self?.startBackend() }
+                    afterOnMainRunLoop(Double(self.restarts * 2)) { [weak self] in self?.startBackend() }
                 } else {
                     self.setState(tr("Bridge could not start", "El puente no pudo arrancar"),
                         detail: tr("Open diagnostics to inspect the error, then use Resume to retry.", "Abre el diagnóstico para consultar el error y pulsa Reanudar para reintentar."), ready: false)
@@ -399,7 +457,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             guard let object = try? JSONSerialization.jsonObject(with: Data(line)),
                   let status = object as? [String: Any], let rawState = status["state"] as? String else { continue }
             lastStatusTime = Date()
-            restarts = 0
             let state = rawState.lowercased()
             if let speaker = status["speaker"] as? String, ["high", "low", "off"].contains(speaker) {
                 confirmedSpeaker = speaker
@@ -411,13 +468,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 }
                 continue
             }
+            // Fatal startup errors also emit valid JSON before exiting. Only
+            // thirty seconds of consecutive healthy reports reset retry limits.
+            if ["waiting", "connecting", "paused", "ready"].contains(state) {
+                let now = ProcessInfo.processInfo.systemUptime
+                if lastHealthyReport == nil || now - lastHealthyReport! > 3 { healthySince = now }
+                lastHealthyReport = now
+                if let since = healthySince, now - since >= 30 { restarts = 0 }
+            } else {
+                healthySince = nil
+                lastHealthyReport = nil
+            }
             let ready = state == "ready"
-            let names = ["ready": tr("Connected", "Conectado"), "waiting": tr("Waiting for controller", "Esperando al mando"),
-                         "paused": tr("Paused", "En pausa"), "connecting": tr("Connecting", "Conectando"),
-                         "error": tr("Needs attention", "Requiere atención"), "blocked": tr("Setup required", "Falta configuración"),
-                         "starting": tr("Starting", "Iniciando"), "stopped": tr("Stopped", "Detenido")]
-            setState(names[state] ?? rawState, detail: localizeBackendDetail(status["detail"] as? String ?? ""), ready: ready)
+            setState(localizeBackendState(rawState), detail: localizeBackendDetail(status["detail"] as? String ?? ""), ready: ready)
             paused = state == "paused"
+            blocked = state == "blocked"
             refreshPause()
             var parts: [String] = []
             if let battery = status["battery"] as? NSNumber, battery.intValue >= 0 {
@@ -443,12 +508,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
     }
 
-    private func setState(_ state: String, detail: String, ready: Bool) {
-        stateLabel.stringValue = state
-        stateLabel.textColor = ready ? NSColor(srgbRed: 0.18, green: 0.42, blue: 0.12, alpha: 1) : Palette.ink
-        detailLabel.stringValue = detail
-        statusItem?.button?.title = ready ? "M·S ●" : "M·S"
-        statusItem?.button?.toolTip = "MadSense · \(state)"
+    private func setState(_ state: @autoclosure @escaping () -> String,
+                          detail: @autoclosure @escaping () -> String, ready: Bool) {
+        // Retain the presentation expressions, not only their translated result.
+        // Rebuilding the UI can then preserve and retranslate a local startup
+        // failure even when no backend exists to emit another status message.
+        displayedState = state
+        displayedDetail = detail
+        displayedReady = ready
+        redrawState()
+    }
+
+    private func redrawState() {
+        let title = displayedState?() ?? tr("Starting", "Iniciando")
+        stateLabel.stringValue = title
+        stateLabel.textColor = displayedReady ? NSColor(srgbRed: 0.18, green: 0.42, blue: 0.12, alpha: 1) : Palette.ink
+        detailLabel.stringValue = displayedDetail?() ?? ""
+        statusItem?.button?.title = displayedReady ? "M·S ●" : "M·S"
+        statusItem?.button?.toolTip = "MadSense · \(title)"
     }
 
     private func send(_ command: String) {
@@ -462,30 +539,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func finishTermination() {
-        guard quitting, !terminationScheduled, process?.isRunning != true else { return }
-        terminationScheduled = true
-        smokeLog("backend exited; scheduling normal application termination")
-        // The first request returned terminateCancel, so there is no AppKit
-        // nested termination loop holding the main dispatch queue. Re-enter
-        // termination from the run loop only after the owned child has exited.
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopCommonModes) { [weak self] in
-            guard let self = self, self.quitting, self.process?.isRunning != true else { return }
-            NSApp.terminate(nil)
-        }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
+        guard quitting, !terminationReplied, process?.isRunning != true else { return }
+        terminationReplied = true
+        smokeLog("backend exited; replying to application termination")
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 
     private func stopBackend(_ child: Process, token: UUID) {
         guard owns(child, token: token), child.isRunning else { return }
         smokeLog("sending quit to backend child \(child.processIdentifier)")
         send("quit")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+        afterOnMainRunLoop(3) { [weak self] in
             guard let self = self, self.owns(child, token: token), child.isRunning else { return }
             self.appendLog("Backend did not exit after quit; sending SIGTERM to its child process.\n")
             smokeLog("backend quit grace expired; sending SIGTERM")
             child.terminate()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+        afterOnMainRunLoop(5) { [weak self] in
             guard let self = self, self.owns(child, token: token), child.isRunning else { return }
             // A native IOKit/CoreAudio call can block managed cancellation. Only
             // the captured, still-running child may be killed; never look up a
@@ -498,11 +568,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 self.appendLog("SIGKILL failed for the backend child (errno \(errno)).\n")
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 7) { [weak self] in
-            guard let self = self, self.quitting, !self.terminationScheduled,
+        afterOnMainRunLoop(7) { [weak self] in
+            guard let self = self, self.quitting, !self.terminationReplied,
                   self.session == token, self.process == nil || self.process === child else { return }
             if !child.isRunning {
-                // Normally the termination handler schedules the exit first. This covers
+                // Normally the termination handler replies first. This covers
                 // an exit whose notification was delayed or not delivered.
                 self.finishTermination()
             } else if self.owns(child, token: token) {
@@ -517,7 +587,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func refreshPause() {
-        let title = paused ? tr("Resume bridge", "Reanudar puente") : tr("Pause bridge", "Pausar puente")
+        let title = blocked ? tr("Retry bridge", "Reintentar puente") :
+            paused ? tr("Resume bridge", "Reanudar puente") : tr("Pause bridge", "Pausar puente")
         pauseButton.title = title
         pauseMenuItem.title = title
     }
@@ -577,7 +648,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             startBackend()
             return
         }
-        send(paused ? "resume" : "pause")
+        send(paused || blocked ? "resume" : "pause")
     }
 
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
@@ -595,8 +666,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         window.setFrame(frame, display: true)
         buildMenu()
         refreshPause()
+        redrawState()
+        logWindow?.title = "MadSense · " + tr("Diagnostics", "Diagnóstico")
         if visible { showWindow() }
-        // The next real service status restores the current connection state.
     }
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func showDiagnostics() {
@@ -632,15 +704,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         smokeLog("applicationShouldTerminate: backend running=\(process?.isRunning == true), already quitting=\(quitting)")
         healthTimer?.invalidate()
         guard let child = process, child.isRunning else { return .terminateNow }
-        if quitting { return .terminateCancel }
+        if quitting { return .terminateLater }
         quitting = true
         refreshSpeaker()
         stopBackend(child, token: session)
-        // Returning terminateLater here can enter an AppKit modal loop from
-        // inside a main-queue callback. That prevents the queued child-exit
-        // handler and cleanup deadlines from running. Cancel this first request
-        // and let finishTermination issue a fresh normal request after cleanup.
-        return .terminateCancel
+        // Child completion and deadlines are CF/NS run-loop sources explicitly
+        // available in modal mode, not GCD main-queue continuations. This keeps
+        // normal Quit and system logout/shutdown waiting for the same cleanup.
+        return .terminateLater
     }
     func applicationWillTerminate(_ notification: Notification) {
         smokeLog("applicationWillTerminate")

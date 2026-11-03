@@ -7,6 +7,7 @@
   "macOS · DEVELOPMENT BUILD": {"fr":"macOS · VERSION DE DÉVELOPPEMENT", "de":"macOS · ENTWICKLUNGSVERSION", "it":"macOS · VERSIONE DI SVILUPPO", "pt":"macOS · VERSÃO EM DESENVOLVIMENTO"},
   "Pause bridge": {"fr":"Suspendre", "de":"Verbindung pausieren", "it":"Metti in pausa", "pt":"Pausar conexão"},
   "Resume bridge": {"fr":"Reprendre", "de":"Verbindung fortsetzen", "it":"Riprendi", "pt":"Retomar conexão"},
+  "Retry bridge": {"fr":"Réessayer la connexion", "de":"Verbindung erneut versuchen", "it":"Riprova collegamento", "pt":"Tentar conexão novamente"},
   "Diagnostics": {"fr":"Diagnostic", "de":"Diagnose", "it":"Diagnostica", "pt":"Diagnóstico"},
   "Speaker · optional audio": {"fr":"Haut-parleur · audio facultatif", "de":"Lautsprecher · optionales Audio", "it":"Altoparlante · audio facoltativo", "pt":"Alto-falante · áudio opcional"},
   "High": {"fr":"Fort", "de":"Laut", "it":"Alto", "pt":"Alto"},

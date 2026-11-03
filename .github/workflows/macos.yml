@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Type-check native interface
+        run: swiftc -typecheck -swift-version 5 -framework AppKit macos/app/MadSense.swift
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'

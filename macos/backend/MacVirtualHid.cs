@@ -26,13 +26,27 @@ internal sealed unsafe class MacVirtualHid : IDisposable
         get = GetReport;
         set = SetReport;
         byte[] descriptor = persona.Descriptors.HidReportDescriptor!.Value.ToArray();
-        int result = Create(descriptor, (uint)descriptor.Length, 0x054c, edge ? (ushort)0x0df2 : (ushort)0x0ce6,
-            "MadSense-Mac-Virtual", get, set, IntPtr.Zero, out handle);
-        if (result != 0 || handle == IntPtr.Zero)
+        try
         {
-            if (handle != IntPtr.Zero) { Destroy(handle); handle = IntPtr.Zero; }
-            throw new InvalidOperationException($"Virtual HID unavailable (0x{result:x8}): {Diagnostic()}");
+            ValidateAbi(AbiVersion());
+            int result = Create(descriptor, (uint)descriptor.Length, 0x054c, edge ? (ushort)0x0df2 : (ushort)0x0ce6,
+                "MadSense-Mac-Virtual", get, set, IntPtr.Zero, out handle);
+            if (result != 0 || handle == IntPtr.Zero)
+            {
+                if (handle != IntPtr.Zero) { Destroy(handle); handle = IntPtr.Zero; }
+                throw new VirtualHidUnavailableException(result, Diagnostic());
+            }
         }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            throw new VirtualHidUnavailableException(e);
+        }
+    }
+
+    internal static void ValidateAbi(uint version)
+    {
+        if (version != 1)
+            throw new VirtualHidUnavailableException($"Native HID ABI {version} is incompatible; ABI 1 is required. Reinstall a matching MadSense package.");
     }
 
     private int GetReport(IntPtr context, uint type, uint id, byte* data, uint* length)
@@ -88,6 +102,8 @@ internal sealed unsafe class MacVirtualHid : IDisposable
         }
     }
 
+    [DllImport(Library, EntryPoint = "ms_hid_abi_version", CallingConvention = CallingConvention.Cdecl)]
+    private static extern uint AbiVersion();
     [DllImport(Library, EntryPoint = "ms_hid_create", CallingConvention = CallingConvention.Cdecl)]
     private static extern int Create(byte[] descriptor, uint length, ushort vid, ushort pid,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string serial, GetCallback get, SetCallback set,

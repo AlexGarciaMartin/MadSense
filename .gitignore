@@ -8,6 +8,8 @@ dist/
 .tools/
 test-results/
 *.user
+__pycache__/
+*.pyc
 
 # Estado de este PC: accesos directos absolutos, registros y ajustes en vivo
 MadSense.lnk

@@ -5,12 +5,14 @@ Esta rama añade una aplicación nativa de macOS y un puente HID propio. No es t
 ## Componentes
 
 - `app/`: interfaz AppKit y menú de la barra de macOS; arranca el backend incluido, muestra su estado real y ofrece pausa, reanudación, diagnóstico y cierre ordenado.
-- `backend/`: proceso .NET que reutiliza el protocolo DualSense del proyecto; el servicio emite estados JSON por stdout y registros por stderr. Acepta `pause`, `resume`, `diagnose` y `quit`, una orden por línea, por stdin.
+- `backend/`: proceso .NET que reutiliza el protocolo DualSense del proyecto; el servicio emite estados JSON por stdout y registros por stderr. Acepta `pause`, `resume`, `speaker high|low|off`, `diagnose` y `quit`, una orden por línea, por stdin.
 - `native/`: biblioteca IOKit que publica el HID virtual y recibe informes de salida y de características.
 - `audio/`: dispositivo CoreAudio HAL experimental de cuatro canales y biblioteca de lectura. Se distribuye aparte y no se instala automáticamente; consulta [su documentación](audio/README.md).
 - HIDAPI: acceso al mando físico por IOKit. La apertura exclusiva mantiene la captura durante la vida del identificador; al cerrarlo, macOS libera la captura.
 
 La interfaz ofrece inglés, español, francés, alemán, italiano y portugués de Brasil. Detecta el idioma del sistema y permite cambiarlo desde el menú de la barra; los mensajes técnicos del backend se conservan en inglés. Cerrar la ventana mantiene el servicio activo; **Salir de MadSense** lo detiene. No cambia preferencias de seguridad de macOS ni instala controladores automáticamente.
+
+El volumen del altavoz ofrece alto, bajo y apagado, con los mismos valores que Windows. Puede elegirse mientras se espera al mando y se conserva entre ejecuciones en `~/Library/Application Support/MadSense/preferences.json`. La interfaz muestra el valor confirmado por el servicio. Silenciar el altavoz conserva los canales de háptica; requiere que la ruta de audio opcional esté disponible para producir sonido.
 
 ## Compilar sin un Mac propio
 

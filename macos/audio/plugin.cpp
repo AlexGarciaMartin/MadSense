@@ -1,9 +1,9 @@
 #include "AudioProtocol.hpp"
 #include <CoreFoundation/CFPlugInCOM.h>
-#include <libproc.h>
 #include <mach/mach_time.h>
 #include <os/log.h>
-#include <sys/proc_info.h>
+#include <sys/sysctl.h>
+#include <sys/proc.h>
 #include <unistd.h>
 #include <atomic>
 #include <cerrno>
@@ -39,16 +39,30 @@ bool identityFor(pid_t pid, Identity& identity) {
         os_log_error(identityLog(), "Identity denied: HAL caller pid=%{public}d, host pid=%{public}d; anonymous caller", pid, getpid());
         return false;
     }
-    proc_bsdinfo info{};
+    // The HAL helper runs as _coreaudiod, not the application's user. Full
+    // PROC_PIDTBSDINFO requires the same UID. The public KERN_PROC_PID query
+    // returns UID and start time together from one referenced kernel process;
+    // never accept a bare PID or a caller-supplied identity as a substitute.
+    int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+    kinfo_proc info{};
+    size_t size = sizeof(info);
     errno = 0;
-    int result = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info));
-    if (result != sizeof(info)) {
+    int result = sysctl(mib, 4, &info, &size, nullptr, 0);
+    if (result != 0 || size != sizeof(info)) {
         int error = errno;
-        os_log_error(identityLog(), "Identity denied: caller pid=%{public}d, host pid=%{public}d, host euid=%{public}u, proc_pidinfo returned=%{public}d expected=%{public}zu errno=%{public}d",
-                     pid, getpid(), geteuid(), result, sizeof(info), error);
+        os_log_error(identityLog(), "Identity denied: caller pid=%{public}d, host pid=%{public}d, host euid=%{public}u, KERN_PROC_PID result=%{public}d size=%{public}zu expected=%{public}zu errno=%{public}d",
+                     pid, getpid(), geteuid(), result, size, sizeof(info), error);
         return false;
     }
-    identity = {pid, info.pbi_uid, info.pbi_start_tvsec, info.pbi_start_tvusec};
+    const auto& process = info.kp_proc;
+    if (process.p_pid != pid || process.p_stat == 0 || process.p_stat == SZOMB ||
+        process.p_starttime.tv_sec <= 0 || process.p_starttime.tv_usec < 0 || process.p_starttime.tv_usec >= 1000000) {
+        os_log_error(identityLog(), "Identity denied: caller pid=%{public}d, snapshot pid=%{public}d state=%{public}d; missing, dead, or invalid process identity",
+                     pid, process.p_pid, process.p_stat);
+        return false;
+    }
+    identity = {pid, info.kp_eproc.e_ucred.cr_uid,
+                static_cast<uint64_t>(process.p_starttime.tv_sec), static_cast<uint64_t>(process.p_starttime.tv_usec)};
     return true;
 }
 bool sameIdentity(const Identity& a, const Identity& b) {

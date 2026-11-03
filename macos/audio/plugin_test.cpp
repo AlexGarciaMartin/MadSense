@@ -6,6 +6,8 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <limits>
+#include <sys/wait.h>
 
 extern "C" void* MadSenseAudio_Create(CFAllocatorRef, CFUUIDRef);
 void require(bool condition, const char* reason) {
@@ -48,11 +50,34 @@ int main() {
     CFBooleanRef claim = kCFBooleanTrue;
     require((*driver)->SetPropertyData(driver, kDevice, 0, &addr, 0, nullptr,
         sizeof(claim), &claim) != noErr, "anonymous owner denied");
+    require((*driver)->SetPropertyData(driver, kDevice, std::numeric_limits<pid_t>::max(), &addr, 0, nullptr,
+        sizeof(claim), &claim) != noErr, "nonexistent owner denied");
     require((*driver)->SetPropertyData(driver, kDevice, getpid(), &addr, 0, nullptr,
         sizeof(claim), &claim) == noErr, "owner claim");
+    int childPipe[2];
+    require(pipe(childPipe) == 0, "child pipe");
+    pid_t child = fork();
+    require(child >= 0, "child process");
+    if (child == 0) {
+        close(childPipe[1]); char value;
+        (void)read(childPipe[0], &value, 1);
+        _exit(0);
+    }
+    close(childPipe[0]);
+    require((*driver)->SetPropertyData(driver, kDevice, child, &addr, 0, nullptr,
+        sizeof(claim), &claim) != noErr, "same-user foreign process cannot replace live owner");
     AudioServerPlugInClientInfo client{42, getpid(), true, CFSTR("org.madsense.audio.test")};
     require((*driver)->AddDeviceClient(driver, kDevice, &client) == noErr, "register client");
     require((*driver)->StartIO(driver, kDevice, client.mClientID) == noErr, "start IO");
+    // launchd gives a real, live process belonging to another UID. Reading its
+    // public process snapshot must work; starting its stream under our owner
+    // must still fail. No privileged test helper or synthetic UID is needed.
+    AudioServerPlugInClientInfo foreign{43, 1, true, CFSTR("org.madsense.audio.foreign-test")};
+    if (geteuid() != 0) {
+        require((*driver)->AddDeviceClient(driver, kDevice, &foreign) == noErr, "register cross-user process snapshot");
+        require((*driver)->StartIO(driver, kDevice, foreign.mClientID) != noErr, "cross-user audio mixing denied");
+        require((*driver)->RemoveDeviceClient(driver, kDevice, &foreign) == noErr, "remove cross-user client");
+    }
     float frames[64 * kChannels];
     AudioServerPlugInIOCycleInfo cycle{};
     for (uint32_t i = 0; i < 64 * kChannels; ++i) frames[i] = static_cast<float>(i) / 512;
@@ -62,6 +87,8 @@ int main() {
     CFDataRef data = nullptr;
     require((*driver)->GetPropertyData(driver, kDevice, getpid() + 100000, &addr, 0, nullptr,
         sizeof(data), &written, &data) != noErr && !data, "foreign reader denied");
+    require((*driver)->GetPropertyData(driver, kDevice, child, &addr, 0, nullptr,
+        sizeof(data), &written, &data) != noErr && !data, "same-user live foreign reader denied");
     require((*driver)->GetPropertyData(driver, kDevice, getpid(), &addr, 0, nullptr,
         sizeof(data), &written, &data) == noErr && data, "owner read");
     AudioPacket packet{};
@@ -94,6 +121,11 @@ int main() {
     require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
         kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "queue before lease expiry");
     std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    if (geteuid() != 0) {
+        auto ownerAddress = address(kOwner);
+        require((*driver)->SetPropertyData(driver, kDevice, 1, &ownerAddress, 0, nullptr,
+            sizeof(claim), &claim) != noErr, "expired lease cannot transfer active mixed audio to another user");
+    }
     data = nullptr;
     require((*driver)->GetPropertyData(driver, kDevice, getpid(), &addr, 0, nullptr,
         sizeof(data), &written, &data) == noErr && data, "resume expired lease");
@@ -124,5 +156,10 @@ int main() {
     addr = address(kRead); data = nullptr;
     require((*driver)->GetPropertyData(driver, kDevice, getpid(), &addr, 0, nullptr,
         sizeof(data), &written, &data) != noErr, "reads denied after release");
+    close(childPipe[1]);
+    require(waitpid(child, nullptr, 0) == child, "child terminated");
+    addr = address(kOwner); claim = kCFBooleanTrue;
+    require((*driver)->SetPropertyData(driver, kDevice, child, &addr, 0, nullptr,
+        sizeof(claim), &claim) != noErr, "exited owner denied");
     std::cout << "HAL plugin contract: passed (in-process host; installed driver not tested)\n";
 }

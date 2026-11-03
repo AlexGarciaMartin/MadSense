@@ -82,7 +82,10 @@ audio so a stalled reader does not replay an old full queue. The owner lease als
 flushes queued audio after a read stall of at least one second.
 
 One process owns the consumer. CoreAudio supplies the actual client PID; the
-plugin verifies its UID and process birth time with `proc_pidinfo`. Only the owner
+plugin obtains its effective UID and process birth time together with the public
+`sysctl(CTL_KERN, KERN_PROC, KERN_PROC_PID)` query. It requires a successful call,
+an exact `kinfo_proc` size, a matching PID, a live non-zombie process, and a valid
+birth time. Only the owner
 can retrieve PCM. IO may start only for registered clients with the same UID, so
 other users' audio is rejected before mixing. Unknown/inaccessible identities fail
 closed. The one-second lease stops collection if the reader dies or stalls. After
@@ -91,6 +94,15 @@ but cannot take a stream with another user's active clients. Same-user apps can
 play to the endpoint; this is not an application whitelist or a DRM boundary.
 The actual HAL sandbox's permission to query client identities must be verified
 with the installed probe; rejection must remain an error, not weaken checks.
+
+The original full `PROC_PIDTBSDINFO` lookup failed with `EPERM` in the installed
+HAL helper, which runs as a different system user. The replacement uses public
+headers and retains the identity checks, but its compatibility remains a
+development limitation: Apple's [QA1361](https://developer.apple.com/library/archive/qa/qa1361/_index.html)
+identifies `kinfo_proc` as `__APPLE_API_UNSTABLE` and recommends restricting its
+use to debug builds. Exact-size checks fail closed if that ABI changes. A passing
+installed-driver probe establishes behavior only on the tested macOS build;
+it does not establish a stable production identity API or shipping readiness.
 
 The transport deliberately avoids world-readable shared memory, arbitrary Unix
 sockets, and client CoreAudio API calls from inside the plugin. The latter are

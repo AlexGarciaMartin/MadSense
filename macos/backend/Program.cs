@@ -79,7 +79,7 @@ internal static class Program
         }
         BridgeSession? session = null;
         bool paused = false;
-        long nextAttempt = 0;
+        var retry = new BridgeRetryPolicy();
         string state = "waiting", detail = "Pair a DualSense in Bluetooth settings, then press PS.";
         (string State, string Detail, string? Audio)? lastLogged = null;
         try
@@ -92,7 +92,7 @@ internal static class Program
                     {
                         case "quit": stop.Cancel(); break;
                         case "pause": paused = true; session?.Dispose(); session = null; state = "paused"; detail = "Controller released."; break;
-                        case "resume": paused = false; nextAttempt = 0; state = "waiting"; detail = "Waiting for a paired Bluetooth DualSense."; break;
+                        case "resume": paused = false; retry.Resume(); state = "waiting"; detail = "Waiting for a paired Bluetooth DualSense."; break;
                         case "diagnose": Diagnose(enumerator, session, preferences.Speaker, state, detail); break;
                         default:
                             if (!preferences.TryApplyCommand(command, value => session?.SetSpeaker(value)))
@@ -106,11 +106,11 @@ internal static class Program
                     if (session != null && !session.Connected)
                     {
                         detail = session.Fault ?? "Controller disconnected. Waiting to reconnect.";
-                        session.Dispose(); session = null; state = "waiting"; nextAttempt = Environment.TickCount64 + 1000;
+                        session.Dispose(); session = null; state = "waiting"; retry.Delay(Environment.TickCount64, 1000);
                     }
-                    if (!paused && session == null && Environment.TickCount64 >= nextAttempt)
+                    if (!paused && session == null && retry.CanAttempt(Environment.TickCount64))
                     {
-                        nextAttempt = Environment.TickCount64 + 3000;
+                        retry.Delay(Environment.TickCount64, 3000);
                         var pads = enumerator.Enumerate(0x054c)
                             .Where(d => d.ProductId is 0x0ce6 or 0x0df2 && d.UsagePage == 1).ToArray();
                         var info = pads.FirstOrDefault(d => d.BusType == ConnectionType.Bluetooth);
@@ -138,7 +138,11 @@ internal static class Program
                 catch (Exception e)
                 {
                     try { session?.Dispose(); } finally { session = null; }
-                    state = "error"; detail = e.Message; nextAttempt = Environment.TickCount64 + 10000;
+                    retry.RecordFailure(e, Environment.TickCount64);
+                    state = retry.RequiresExplicitRetry ? "blocked" : "error";
+                    detail = retry.RequiresExplicitRetry
+                        ? $"{e.Message} Controller released. Automatic retries are stopped; correct the virtual HID setup, then retry the bridge."
+                        : e.Message;
                 }
                 var health = (state, detail, session?.AudioDetail);
                 if (lastLogged != health)
