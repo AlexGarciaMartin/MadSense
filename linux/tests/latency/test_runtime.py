@@ -45,6 +45,8 @@ class GateTests(unittest.TestCase):
             hashes = add_latency_payload(payload)
             expected = ["linux/tests/latency/run_latency_guest.py", "linux/tests/latency/run_latency_experiment.sh",
                         "linux/tests/latency/gates.py", "linux/tests/latency/latency_probe.c",
+                        "linux/tests/audio-hotplug/actor_files.py",
+                        "linux/tests/latency/capture_diagnostics.py",
                         "linux/platform/integration/actor_staging.py", "linux/research/qemu_kernel.py",
                         "linux/research/kvm_acceleration.py", "app-probe/MadSense.Linux.AppProbe"]
             self.assertTrue(set(expected).issubset(hashes))
@@ -57,7 +59,9 @@ class GateTests(unittest.TestCase):
                     "sys.path.insert(0,str(root/'linux/tests/latency')); import gates,qemu_latency; "
                     "import qemu_core,actor_staging; "
                     "assert pathlib.Path(qemu_core.__file__).is_relative_to(root); "
-                    "assert pathlib.Path(actor_staging.__file__).is_relative_to(root)")
+                    "assert pathlib.Path(actor_staging.__file__).is_relative_to(root); "
+                    "sys.path.insert(0,str(root/'linux/tests/audio-hotplug')); import actor_files; "
+                    "assert pathlib.Path(actor_files.__file__).is_relative_to(root)")
             if sys.platform == "linux":
                 code += "; import run_latency_guest"
             subprocess.run([sys.executable, "-I", "-c", code, str(payload)], cwd=root, check=True, timeout=15)

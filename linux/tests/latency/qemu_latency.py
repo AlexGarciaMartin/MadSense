@@ -28,6 +28,9 @@ def add_latency_payload(payload):
     """Also usable by an existing live-VM owner, before its one payload upload."""
     shutil.copytree(Path(__file__).resolve().parent, payload / "linux/tests/latency",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "bin", "obj"))
+    actor_helper = payload / "linux/tests/audio-hotplug"
+    actor_helper.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(LINUX / "tests/audio-hotplug/actor_files.py", actor_helper / "actor_files.py")
     hashes = {path.relative_to(payload).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in sorted(payload.rglob("*")) if path.is_file() and path.name != "PAYLOAD-SHA256SUMS"}
     (payload / "PAYLOAD-SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for name, digest in hashes.items()))

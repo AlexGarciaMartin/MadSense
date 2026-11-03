@@ -96,8 +96,8 @@ includes startup plus the drain, but excludes CSV/JSON serialization. Back-to-ba
 clock-read min/max estimates timestamp cost; it is not subtracted from samples.
 AppProbe takes diagnostics every 500 ms and checks commands every 25 ms. That
 observer overhead, fixture output logging, kernel work, shared hosted CPUs and
-KVM/TCG scheduling remain part of this synthetic workload. No clock calibration
-or no-observer baseline has yet quantified their total perturbation.
+KVM/TCG scheduling remain part of this synthetic workload. The trace experiment
+checks clock alignment, but no baseline has quantified their total perturbation.
 
 After each case, the application pauses and disposes. A fresh helper preflight
 must confirm cleanup, while the root observer independently requires removal of
@@ -200,4 +200,70 @@ replacement, but the label does not prove why the worker/pacer missed it. A
 returned send does not mean the kernel or game consumed the report. The analyzer
 rejects impossible stage chains and accepts a hidraw read before the writer's
 send returns, since those can race legitimately. The host recomputes attribution
-from the collected trace and original C CSV. Native measurements are pending.
+from the collected trace and original C CSV.
+
+### First paired native observation
+
+[Run 41638222617](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41638222617)
+at `f6e2d097153ab52942c003e16dcc138d8262b79d` completed the functional gates and
+eight fresh sessions. The collected CSVs and traces were independently
+recomputed using that commit's verifiers. All 95 payload sources, four installed
+helper files, five instrumentation hashes and the exact committed-source tar
+were checked. The source tar SHA-256 is
+`95043ca081d473e6abe50ee338836789331f6dafd5970541f0e33687bf43d521`;
+the runtime artifact SHA-256 is
+`01c910cee5989f5708a8124235cb0175c871fa5ac14bae6f2da2f017aaff2179`.
+
+| Case | Observed / written | Skipped deadlines | Upper interval p50 / p95 / p99 |
+|---|---|---|---|
+| 100 Hz control 1 | 1,000 / 1,000 | 0 | 0.306 / 0.813 / 5.509 ms |
+| 100 Hz trace 1 | 1,000 / 1,000 | 0 | 0.313 / 0.749 / 5.804 ms |
+| 100 Hz trace 2 | 1,000 / 1,000 | 0 | 0.333 / 0.888 / 5.570 ms |
+| 100 Hz control 2 | 1,000 / 1,000 | 0 | 0.364 / 0.873 / 5.711 ms |
+| 1,000 Hz trace 1 | 9,799 / 9,989 | 11 | 0.239 / 0.430 / 1.297 ms |
+| 1,000 Hz control 1 (ended early) | 180 / 219 | 2 | 0.284 / 1.011 / 1.523 ms |
+| 1,000 Hz control 2 | 9,842 / 9,987 | 13 | 0.236 / 0.431 / 1.369 ms |
+| 1,000 Hz trace 2 | 9,862 / 9,994 | 6 | 0.243 / 0.395 / 1.164 ms |
+
+The first 1,000 Hz control reader reported `ENODEV` before the requested pause;
+9,779 nominal samples were never attempted. Its approximately 0.332-second
+producer/reader interval is not a completed ten-second repetition. The retained
+events contain one connection and no reconnection. Its before/after metric
+snapshots retain the same feature-RPC count and setup-drain count. Those facts
+do not identify why the virtual reader ended. This run did not retain the
+broker/udev/kernel journals after timing, and the application's saved diagnostic
+text did not include the session's first isolation-loss reason. A zero client
+overflow counter therefore cannot establish the helper's reason for closure.
+
+For both 1,000 Hz trace sessions, every written sequence reached the parsed USB
+report and raw slot. The 190 and 132 missing reader sequences, respectively,
+were absent from the interrupt-payload stage. Every sequence observed there was
+also recorded after send returned and at the virtual hidraw reader. The two
+100 Hz traces lost no written sequence. All trace buffers stayed within their
+bounds, and the clock alignment checks passed. This localizes the observed
+trace losses to the slot-to-interrupt boundary; it does not establish a scheduling
+cause or show that the uninstrumented early closure had the same cause.
+
+All eight case cleanup checks, QEMU shutdown and exact KVM ACL restoration
+passed. The benchmark classification is `transport-limit`. Percentiles include
+only matched reports, excluding missing or unattempted samples. The truncated
+control and limited repetitions prevent a reliable numerical estimate of
+instrumentation overhead. Neither this table nor its stage attribution measures
+physical Bluetooth latency or justifies a production queue/scheduling change.
+
+### Post-case diagnosis
+
+After stopping/reaping the actor and attempting helper cleanup, the runner calls
+`capture_diagnostics.py` before destroying the fixture. The owned-QEMU/root guard
+is checked again. It records the newest 400 JSON entries from this boot's broker,
+udevd and kernel journals, plus the broker's current systemd state. Monotonic
+journal timestamps allow events from a shared service to be matched to a case;
+entries can include earlier cases and are not themselves causal proof.
+
+Each static read-only command has a ten-second deadline and separate one-MiB
+stdout/stderr bounds. Oversized output stops and reaps only that command's child;
+the retained prefix, truncation, timeout, exit status and hashes remain visible.
+No journal is cleared, no service is restarted and no guest policy is changed.
+Capture failure is retained independently and never replaces the original timing
+classification or confirms cleanup. These captures were added after the native
+run above, so they cannot retroactively explain its early closure.

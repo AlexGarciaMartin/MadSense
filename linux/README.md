@@ -156,8 +156,13 @@ su script rechaza ejecutarse como prueba automática sobre un PC de usuario.
 
 Dependencias de interfaz en Debian/Ubuntu: libX11, libICE, libSM, fontconfig,
 FreeType y DejaVu. La ruta HID usa `libhidapi-hidraw`; la ruta kernel necesita
-`vhci_hcd`, `snd_usb_audio`, `hid_playstation`, `xpad` y las utilidades usbip.
-Los resultados del CI deben confirmar su disponibilidad, no se presupone que
+`vhci_hcd`, `snd_usb_audio`, `hid_playstation` y `xpad`, según el modo.
+El servicio usa Python 3.10+, systemd 254+, polkit, udev, kmod y herramientas ACL;
+la sesión gráfica necesita un agente de autenticación polkit. El mando Bluetooth
+se empareja y conecta desde el sistema operativo. Las utilidades `usbip` y el
+decodificador independiente libopus pertenecen a los ensayos; el puente de
+producto adjunta mediante la interfaz del kernel y usa su encoder administrado.
+Los resultados del CI deben confirmar la disponibilidad de los módulos, no se presupone que
 toda distribución incluya los módulos.
 
 ## Fuentes y alternativas

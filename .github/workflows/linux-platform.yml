@@ -35,7 +35,8 @@ permissions:
   contents: read
 concurrency:
   group: linux-platform-${{ github.ref }}-${{ inputs.audio_hotplug && 'audio-hotplug' || 'default' }}
-  cancel-in-progress: true
+  # A live guest must reach its own QEMU/KVM/lease cleanup before another run.
+  cancel-in-progress: false
 jobs:
   portable:
     strategy:

@@ -17,6 +17,8 @@ on:
     paths:
       - '.github/workflows/linux-latency.yml'
       - 'linux/tests/latency/**'
+      - 'linux/tests/audio-hotplug/actor_files.py'
+      - 'linux/app/LinuxBridgeController.cs'
 permissions:
   contents: read
 jobs:

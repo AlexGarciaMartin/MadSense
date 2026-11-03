@@ -58,7 +58,11 @@ sealed class LinuxBridgeController : IAsyncDisposable
     {
         var current = Volatile.Read(ref physicalSession);
         return current == null ? Volatile.Read(ref lastMetrics) : JsonSerializer.Serialize(new
-        { scope = "Software broker IPC and client queue only; no radio, firmware or physical actuator latency", metrics = current.Metrics }, new JsonSerializerOptions { WriteIndented = true });
+        {
+            scope = "Software broker IPC and client queue only; no radio, firmware or physical actuator latency",
+            isolationVerified = current.IsolationVerified, isolationLostReason = current.IsolationLostReason,
+            metrics = current.Metrics
+        }, new JsonSerializerOptions { WriteIndented = true });
     }
     internal LinuxBridgeController(bool preview, string mode, string speaker, Func<CancellationToken, ValueTask>? connectOverride = null,
         Func<CancellationToken, ValueTask<LinuxBrokerPreflight>>? cleanupOverride = null)

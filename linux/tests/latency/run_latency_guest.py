@@ -22,10 +22,13 @@ LINUX = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(LINUX / "platform/tests"))
 sys.path.insert(0, str(LINUX / "platform/integration"))
 sys.path.insert(0, str(LINUX / "tests/app-integration"))
+sys.path.insert(0, str(LINUX / "tests/audio-hotplug"))
+import actor_files
 from kernel_probe import owned_nodes, ports, wait_for
 from actor_staging import stage_probe, verify_actor_execution
 from production_fixture import SyntheticDualSense
 from gates import verify_paths
+from capture_diagnostics import capture_diagnostics
 
 
 def load(path):
@@ -38,8 +41,9 @@ def case(args, output, executable, rate, *, trace_directory=None):
     user = "madsense-lat-" + uuid.uuid4().hex[:12]
     private = Path("/opt", user)
     actor = private / "actor"
-    fixture = process = log = baseline = None
+    fixture = process = log = baseline = account = None
     created_user, root_created, commands = False, False, 0
+    actor_snapshot_saved = False
     files = []
     nonce = 0x8000 + secrets.randbelow(0x8000)
 
@@ -76,16 +80,13 @@ def case(args, output, executable, rate, *, trace_directory=None):
     def status():
         require(process is not None and process.poll() is None, "Application actor exited")
         require(fixture.error is None, f"Fixture failed: {fixture.error}")
-        value = load(actor / "status.json")
+        value = actor_files.call(actor, account.pw_uid, account.pw_gid, "read", dict(name="status.json"))
         return value if value and value["lastQueuedCommand"] >= commands else None
 
     def action(operation):
         nonlocal commands
         commands += 1
-        target = actor / "commands" / f"{commands:06}.json"
-        temporary = target.with_suffix(".tmp")
-        temporary.write_text(json.dumps(dict(operation=operation)))
-        temporary.replace(target)
+        actor_files.call(actor, account.pw_uid, account.pw_gid, "command", dict(sequence=commands, operation=operation))
 
     def state(predicate, seconds=45):
         return wait_for(lambda: value if (value := status()) and predicate(value["state"]) else None, seconds)
@@ -96,7 +97,7 @@ def case(args, output, executable, rate, *, trace_directory=None):
         try:
             pwd.getpwnam(user)
         except KeyError:
-            command("create-actor", ["useradd", "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", user])
+            command("create-actor", ["useradd", "--system", "--user-group", "--no-create-home", "--shell", "/usr/sbin/nologin", user])
             created_user = True
         else:
             raise RuntimeError("Refusing existing test account")
@@ -160,15 +161,19 @@ def case(args, output, executable, rate, *, trace_directory=None):
         save(output / "fixture-restored.json", snapshot())
         action("exit")
         require(process.wait(timeout=30) == 0, "Application disposal failed")
-        stopped = load(actor / "stopped.json")
+        # Traverse only as the ordinary app UID, after the app has finished all
+        # writers. Analysis reads the resulting root-owned regular files.
+        actor_files.save_snapshot(actor, account.pw_uid, account.pw_gid, output / "app")
+        actor_snapshot_saved = True
+        stopped = load(output / "app/stopped.json")
         require(stopped and stopped.get("cleanupConfirmed") is True and idle(), "Missing fresh helper/kernel/ACL cleanup confirmation")
         if trace_directory is not None:
             from trace_analysis import analyze as analyze_trace
-            with (actor / "report-trace.csv").open(newline="") as trace_stream, (output / "samples.csv").open(newline="") as sample_stream:
-                result["attribution"] = analyze_trace(trace_stream, load(actor / "report-trace.json"),
+            with (output / "app/report-trace.csv").open(newline="") as trace_stream, (output / "samples.csv").open(newline="") as sample_stream:
+                result["attribution"] = analyze_trace(trace_stream, load(output / "app/report-trace.json"),
                                                      sample_stream, load(output / "probe.json"))
         else:
-            require(not (actor / "report-trace.csv").exists() and not (actor / "report-trace.json").exists(),
+            require(not (output / "app/report-trace.csv").exists() and not (output / "app/report-trace.json").exists(),
                     "Control unexpectedly contains instrumented evidence")
         result["cleanupConfirmed"] = True
     except BaseException as error:
@@ -191,20 +196,26 @@ def case(args, output, executable, rate, *, trace_directory=None):
         try:
             # Preserve snapshots even if recovery failed. In that case retain
             # the fixture/account/policies inside this disposable VM for diagnosis.
-            if actor.exists():
-                shutil.copytree(actor, output / "app")
+            if account is not None and actor.exists() and not actor_snapshot_saved:
+                actor_files.save_snapshot(actor, account.pw_uid, account.pw_gid, output / "app")
+                actor_snapshot_saved = True
+            if actor_snapshot_saved:
                 for path in [output / "app", *(output / "app").rglob("*")]:
                     path.chmod(0o755 if path.is_dir() else 0o644)
             if log is not None:
                 log.close()
         except BaseException as error:
             result.update(result="invalid", cleanupConfirmed=False, evidenceError=str(error))
+        # This read-only collection runs after the actor was reaped and the
+        # reset/idle check attempted. It never changes the timing classification
+        # or supplies a cleanup ACK; keep failures as diagnostic evidence.
+        result["postCaseDiagnostics"] = capture_diagnostics(output / "diagnostics", args.owned_guest_token)
         try:
             require(safe_to_remove, "Retaining owned fixture and test setup after incomplete recovery")
             if fixture is not None:
                 fixture.close()
             for path, content in reversed(files):
-                require(path.is_file() and path.read_text() == content, "Test policy changed externally")
+                require(path.is_file() and not path.is_symlink() and path.read_text() == content, "Test policy changed externally")
                 path.unlink()
             if files:
                 command("restore-rules", ["udevadm", "control", "--reload-rules"])

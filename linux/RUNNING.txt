@@ -23,9 +23,12 @@ Its file hashes cover the payload except build.json itself; the adjacent archive
 -c against its supplied .sha256 file before extracting it.
 
 For the Bluetooth bridge, an administrator must separately install the fixed
-helper files. It requires Python 3.10+, systemd 254+, polkit, udev, acl tools,
+helper files. It requires Python 3.10+, systemd 254+, polkit, udev, kmod, acl tools,
 and the distro's vhci_hcd kernel module. DualSense audio also needs snd_usb_audio;
 native controller support needs hid_playstation; Xbox mode needs xpad.
+Your graphical session needs a working polkit authentication agent to present
+the administrator prompt. Pair and connect the Bluetooth controller through
+the operating system before resuming MadSense.
 Read platform/README.md, then run from this extracted directory:
     sudo sh platform/install.sh
 
@@ -52,6 +55,9 @@ The default mode is the same native DualSense mode as Windows. Xbox mode exposes
 ordinary controls and rumble, without DualSense-only haptics, triggers or speaker.
 Steam Input remains a per-game user setting. A successful synthetic kernel test
 does not establish compatibility with every game or with physical Bluetooth.
+The usbip command-line tools and an independent libopus decoder are used by the
+research fixtures. The production bridge attaches through the kernel interface
+and bundles its managed Opus encoder.
 
 Pause releases the bridge. Quit in the tray menu or use:
     ./run.sh --stop
