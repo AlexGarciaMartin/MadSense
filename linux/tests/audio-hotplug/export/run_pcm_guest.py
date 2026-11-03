@@ -44,7 +44,9 @@ def playback(actor,audio,label,source,identity=None,wanted=None,negotiation=Fals
          '--channel-map','FL,FR,RL,RR',source])
     # Direct ALSA runs before any export exists; there is no competing adapter.
     require((audio.exporter is None)==(identity is None),'Direct PCM and export must not compete')
-    child=audio.start('pcm-'+label,command);row.update(pid=child.pid,argv=list(map(str,command)),startedMonotonicNs=time.monotonic_ns())
+    # Export-owner and Props commands have their own retained logs. Keep every
+    # player in a distinct namespace, including export and front-gain phases.
+    child=audio.start('pcm-player-'+label,command);row.update(pid=child.pid,argv=list(map(str,command)),startedMonotonicNs=time.monotonic_ns())
     deadline=time.monotonic()+15;observed=None;failure=None
     try:
         peer=process_identity(child.pid)

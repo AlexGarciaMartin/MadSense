@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from types import SimpleNamespace
+from types import SimpleNamespace, MethodType
 from unittest.mock import Mock, patch
 
 from pcm_evidence import marked_source, expected_gain, verify_phase, verify_negotiation, load_capture, digest, boundary_offset
@@ -89,6 +89,30 @@ class PcmEvidenceTests(unittest.TestCase):
         self.assertFalse(result['gainValidated']);self.assertFalse(result['sampleContinuityValidated'])
         with self.assertRaises(RuntimeError):verify_negotiation(capture,bytes(1023)+b'\x01',start,end)
         with self.assertRaises(RuntimeError):verify_negotiation(capture,raw,start,start)
+
+    def test_player_logs_do_not_collide_with_live_exporter_or_gain_command_logs(self):
+        import run_pcm_guest
+        from consumer_session import ConsumerSession
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            for label in ('pcm-export','pcm-front-gain'):
+                for stream in ('stdout','stderr'):(root/(label+'.'+stream)).write_bytes(b'owner evidence')
+            child=SimpleNamespace(pid=123,returncode=1,poll=lambda:1)
+            audio=SimpleNamespace(output=root,root=root,env={},logs=[],processes=[],uid=1000,gid=1000,
+                result={},card=3,exporter=None,save=Mock())
+            audio.start=MethodType(ConsumerSession.start,audio)
+            actor=SimpleNamespace(mark=Mock(return_value={'packets':0,'bytes':0,'timestamp':1}))
+            try:
+                with patch('consumer_session.subprocess.Popen',return_value=child), \
+                     patch.object(run_pcm_guest,'process_identity',return_value=((1000,)*4,'8')), \
+                     patch.object(run_pcm_guest.time,'sleep'):
+                    for label in ('export','front-gain'):
+                        with self.assertRaisesRegex(RuntimeError,'PCM playback or four-channel binding failed'):
+                            run_pcm_guest.playback(actor,audio,label,'source.wav')
+                        self.assertTrue((root/('pcm-player-'+label+'.stdout')).exists())
+                        self.assertEqual((root/('pcm-'+label+'.stdout')).read_bytes(),b'owner evidence')
+            finally:
+                for stream in audio.logs:stream.close()
 
     def test_file_hash_and_rejection_counters_are_required(self):
         source=marked_source(45,256)

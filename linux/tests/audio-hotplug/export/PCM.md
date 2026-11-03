@@ -75,6 +75,15 @@ direction has a format; mismatched array lengths are then mapped to that format.
 The next native run must demonstrate the expected transition. Source:
 [audioconvert volume remapping](https://github.com/PipeWire/pipewire/blob/1.0.5/spa/plugins/audioconvert/audioconvert.c#L1415).
 
+Run `41661802824` at `6a953b8` demonstrated that transition: the initial precise
+read retained raw `[1,1]`, and the separate silence stream was followed by exact
+raw/soft `[1,1,1,1]`. Direct ALSA again matched all 48,000 marked frames. The first
+marked PipeWire player then encountered an exclusive log-name collision with
+the already-running export client. The player logs now use their own
+`pcm-player-` namespace, also avoiding the later front-gain command's logs.
+The original failed evidence and complete cleanup remain recorded; marked
+PipeWire/gain validation is still pending.
+
 This stage proves only software PCM ingress if it passes. Native haptics and
 Opus transmission require separate comparisons against the samples actually
 selected by the forwarding queues, whose preroll/backlog policy can discard
