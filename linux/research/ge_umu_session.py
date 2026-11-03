@@ -4,10 +4,13 @@ The separate opt-in hook uses ConsumerSession's ordinary account,
 exact virtual device grants and mandatory process/ACL cleanup. Never changes
 AppArmor, sysctls, host Steam, production settings or existing Wine assertions.
 """
+import base64
 import hashlib
+import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import tarfile
 
@@ -20,6 +23,71 @@ fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 
 with os.fdopen(fd, 'wb') as stream:
     stream.write(b'ok\\n')
 """
+
+# Execute as the existing ordinary account. Never read paths chosen by the
+# runtime as root; directory/file descriptors reject symlinks and replacements.
+# Logs are diagnostic only and bounded, unlike private runtime/prefix payloads.
+READ_PROTON_LOGS_PROGRAM = r'''import base64,hashlib,json,os,re,stat,sys
+assert os.getuid()!=0 and os.geteuid()==os.getuid()
+fd=os.open(sys.argv[1],os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+try:
+    parent=os.fstat(fd);assert stat.S_ISDIR(parent.st_mode) and parent.st_uid==os.getuid()
+    names=sorted(x for x in os.listdir(fd) if re.fullmatch(r'steam-[A-Za-z0-9_-]{1,80}\.log',x))
+    assert len(names)<=4,'Too many Proton log files'
+    result=[];remaining=2*1024*1024
+    for name in names:
+        item=os.open(name,os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW,dir_fd=fd)
+        try:
+            before=os.fstat(item)
+            assert stat.S_ISREG(before.st_mode) and before.st_uid==os.getuid() and before.st_nlink==1
+            limit=min(1024*1024,remaining)
+            data=b''
+            while len(data)<limit:
+                chunk=os.read(item,min(65536,limit-len(data)))
+                if not chunk:break
+                data+=chunk
+            after=os.fstat(item)
+            assert (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns),'Log changed during snapshot'
+            remaining-=len(data)
+            result.append(dict(name=name,bytes=before.st_size,capturedBytes=len(data),truncated=before.st_size>len(data),
+                sha256=hashlib.sha256(data).hexdigest(),dataBase64=base64.b64encode(data).decode()))
+        finally:os.close(item)
+    print(json.dumps(dict(schema=1,uid=os.getuid(),logs=result)))
+finally:os.close(fd)
+'''
+
+
+def capture_proton_logs(session, label):
+    """Keep bounded UID-read diagnostics; failures never replace the PE result."""
+    try:
+        require(re.fullmatch(r"[A-Za-z0-9_-]{1,100}", label), "Unsafe Proton diagnostic label")
+        _, output = session.command(label + "-proton-logs",
+            ["python3", "-c", READ_PROTON_LOGS_PROGRAM, session.root / "home"], timeout=10)
+        value = json.loads(output)
+        require(value.get("schema") == 1 and value.get("uid") == session.uid and isinstance(value.get("logs"), list),
+                "Unexpected Proton log snapshot identity")
+        require(len(value["logs"]) <= 4, "Too many Proton log snapshots")
+        total = 0
+        for index, record in enumerate(value["logs"]):
+            data = base64.b64decode(record.pop("dataBase64"), validate=True)
+            total += len(data)
+            require(len(data) <= 1024*1024 and total <= 2*1024*1024
+                    and record["capturedBytes"] == len(data) and record["sha256"] == hashlib.sha256(data).hexdigest(),
+                    "Proton log snapshot bytes differ from their bounded digest")
+            target = session.output / f"{label}-proton-log-{index}.log"
+            with target.open("xb") as stream:
+                stream.write(data)
+            record["evidenceFile"] = target.name
+        session.result.setdefault("protonLogSnapshots", []).append(dict(label=label, snapshot=value,
+            stdoutSha256=hashlib.sha256(output).hexdigest(), runtimeCacheCollected=False))
+    except Exception as error:
+        session.result.setdefault("protonLogSnapshots", []).append(dict(label=label,
+            unavailable=f"{type(error).__name__}: {error}", runtimeCacheCollected=False))
+    try:
+        session.save()
+    except Exception:
+        # Saving diagnostics is secondary to the actual operation and cleanup.
+        pass
 
 
 def extract_payload(archive, destination):
@@ -146,8 +214,11 @@ actual input/output and PCM markers, and always close its ConsumerSession.
     with program.open("rb") as stream:
         require(stream.read(2) == b"MZ", "Expected the built Windows PE consumer")
     require(1 <= timeout <= 120, "Consumer timeout exceeds budget")
-    row, output = session.command(label, offline_command(prepared["launcher"], program, arguments),
-                                  env=prepared["environment"], timeout=timeout, required=False)
+    try:
+        row, output = session.command(label, offline_command(prepared["launcher"], program, arguments),
+                                      env=prepared["environment"], timeout=timeout, required=False)
+    finally:
+        capture_proton_logs(session, label)
     session.result["geUmuSession"].update(consumerLaunchAttempted=True, lastConsumerExit=row["exitCode"],
         consumerPeSha256=digest(program), lastRawOutputSha256=hashlib.sha256(output).hexdigest())
     session.save()

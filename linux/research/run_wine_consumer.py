@@ -192,7 +192,8 @@ def run_wine_suite(session, executable, fixture_state_callback, *, winebus_mode=
               session, hidapi_executable, fixture_state_callback)
 
 
-def run_windows_cases(session, invoke, fixture_state_callback, *, result_key="wineSession", label_prefix="wine"):
+def run_windows_cases(session, invoke, fixture_state_callback, *, result_key="wineSession", label_prefix="wine",
+                      prepare_sony_state=None):
     """The same PE/device/output/PCM assertions for explicitly separate runtimes."""
     token = session.ready["ownedGuestToken"]
     sony = session.ready["vendorId"] == 0x054c
@@ -201,7 +202,10 @@ def run_windows_cases(session, invoke, fixture_state_callback, *, result_key="wi
         fixture_state_callback(state); time.sleep(.1)
         label = label_prefix + "-" + ("sony-" if sony else "xinput-") + state
         try:
-            clear_sony_state(session, label + "-clear")
+            if sony and prepare_sony_state is not None:
+                prepare_sony_state(session, label)
+            else:
+                clear_sony_state(session, label + "-clear")
             if sony:
                 persona = "edge" if session.ready["productId"] == 0x0df2 else "dualsense"
                 arguments = ["sony", token, persona, session.ready["virtualMacHex"], state]

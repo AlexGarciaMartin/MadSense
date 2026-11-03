@@ -14,7 +14,8 @@ from unittest.mock import patch
 
 from ge_umu_acquire import (UpstreamRedirect, checked_url, checksum_entry, copy_response,
                             inventory_archive, load_lock, safe_name, verify_asset)
-from ge_umu_session import WRITE_MARKER_PROGRAM, extract_payload, offline_command, private_environment
+from ge_umu_session import (WRITE_MARKER_PROGRAM, READ_PROTON_LOGS_PROGRAM, extract_payload,
+                            offline_command, private_environment, run_consumer, capture_proton_logs)
 
 
 def archive_with(path, name, data=b"payload", kind=tarfile.REGTYPE, link=""):
@@ -133,6 +134,65 @@ class AcquisitionTests(unittest.TestCase):
         self.assertNotIn("--map-root-user", argv)
         self.assertEqual(argv[-1], "a;echo b")
         self.assertNotIn("sh", argv)
+
+    def test_secondary_log_snapshot_error_does_not_replace_runtime_failure(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);program=root/'consumer.exe';program.write_bytes(b'MZ-owned-test')
+            original=RuntimeError('Original runtime timeout')
+            session=SimpleNamespace(root=root,result={},save=lambda:None,
+                command=Mock(side_effect=[original,RuntimeError('Diagnostic unavailable')]))
+            with self.assertRaises(RuntimeError) as caught:
+                run_consumer(session,dict(launcher='umu',environment={}),program,[],label='case')
+            self.assertIs(caught.exception,original)
+            self.assertIn('Diagnostic unavailable',session.result['protonLogSnapshots'][0]['unavailable'])
+
+    def test_collected_log_bytes_stay_outside_result_json_and_paths_are_fixed(self):
+        import base64
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);data=b'Owned diagnostic\n'
+            value=dict(schema=1,uid=1001,logs=[dict(name='steam-default.log',bytes=len(data),capturedBytes=len(data),
+                truncated=False,sha256=hashlib.sha256(data).hexdigest(),dataBase64=base64.b64encode(data).decode())])
+            session=SimpleNamespace(root=root,output=root,uid=1001,result={},save=lambda:None,
+                command=Mock(return_value=({},json.dumps(value).encode())))
+            capture_proton_logs(session,'case')
+            row=session.result['protonLogSnapshots'][0]['snapshot']['logs'][0]
+            self.assertNotIn('dataBase64',row)
+            self.assertEqual((root/row['evidenceFile']).read_bytes(),data)
+            session.command.reset_mock();capture_proton_logs(session,'../escape')
+            session.command.assert_not_called()
+            self.assertIn('Unsafe Proton diagnostic label',session.result['protonLogSnapshots'][-1]['unavailable'])
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Real UID/dirfd/O_NOFOLLOW log snapshot requires Linux')
+    def test_log_snapshot_is_bounded_and_does_not_read_prefix_or_payload(self):
+        import base64
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);data=b'x'*(1024*1024+3)
+            (root/'steam-default.log').write_bytes(data);(root/'prefix-secret').write_bytes(b'not a log')
+            result=subprocess.run([sys.executable,'-c',READ_PROTON_LOGS_PROGRAM,root],capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            value=json.loads(result.stdout);self.assertEqual(value['uid'],os.getuid())
+            self.assertEqual(len(value['logs']),1);row=value['logs'][0]
+            self.assertTrue(row['truncated']);self.assertEqual(row['bytes'],len(data))
+            observed=base64.b64decode(row['dataBase64']);self.assertEqual(observed,data[:1024*1024])
+            self.assertEqual(row['sha256'],hashlib.sha256(observed).hexdigest())
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Real Linux link and descriptor rejection requires Linux')
+    def test_log_snapshot_rejects_directory_symlink_file_symlink_and_hardlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);home=root/'home';home.mkdir();outside=root/'outside';outside.write_bytes(b'retain')
+            alias=root/'alias';alias.symlink_to(home,target_is_directory=True)
+            for path in (alias,):
+                result=subprocess.run([sys.executable,'-c',READ_PROTON_LOGS_PROGRAM,path],capture_output=True)
+                self.assertNotEqual(result.returncode,0)
+            log=home/'steam-default.log';log.symlink_to(outside)
+            result=subprocess.run([sys.executable,'-c',READ_PROTON_LOGS_PROGRAM,home],capture_output=True)
+            self.assertNotEqual(result.returncode,0);log.unlink();os.link(outside,log)
+            result=subprocess.run([sys.executable,'-c',READ_PROTON_LOGS_PROGRAM,home],capture_output=True)
+            self.assertNotEqual(result.returncode,0);self.assertEqual(outside.read_bytes(),b'retain')
 
     @unittest.skipUnless(sys.platform == "linux", "Real O_NOFOLLOW marker creation requires Linux")
     def test_marker_is_exclusive_regular_file_and_never_replaces_existing_data(self):

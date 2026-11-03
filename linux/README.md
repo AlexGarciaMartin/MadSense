@@ -22,15 +22,15 @@ mandos. La conexión permanece bloqueada hasta verificar el componente de acceso
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
 
-En la revisión `0a9c30d`, el
-[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41643213250)
-pasó en ambas arquitecturas: 425 pruebas compartidas, 100 de plataforma y 18 de
+En la revisión `40e2de1`, el
+[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653899459)
+pasó en ambas arquitecturas: 429 pruebas compartidas, 100 de plataforma y 18 de
 aplicación, las seis interfaces y el ciclo de escritorio de los paquetes extraídos.
 Las [tres pruebas del kernel en `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966377)
 pasaron con DualSense, Edge y Xbox, incluida la retirada de la VM y restauración
 de permisos KVM. Las dos Sony conservaron las 48.000 muestras por canal en la
 reproducción ALSA y el audio ISO IN sintético.
-El [servicio nativo en `adccde1`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41641528110)
+El [servicio nativo en `40e2de1`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653899463)
 pasó diez casos de aislamiento/recuperación, dos actualizaciones en reposo y
 cuatro casos de desinstalación/reinstalación. El núcleo pasó
 sus nueve casos: identidad y calibración física del fixture, entrada completa,
@@ -83,7 +83,16 @@ el control de selección explícita corregido en `0a9c30d`, registró dos conexi
 en las que WirePlumber sustituyó tanto el altavoz como el micrófono automáticos
 por el virtual. En la sesión con selección explícita conservó ambos dispositivos
 en sus dos conexiones. Se investiga una política limitada al dispositivo
-virtual de la sesión, aplicada antes de publicar sus nodos de audio.
+virtual de la sesión, aplicada antes de publicar sus nodos de audio. El
+[prototipo privado de exportación en `40e2de1`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653922705)
+ya conserva ambos dispositivos predeterminados: una regla identifica el puerto
+y una cadena aleatoria de la interfaz AudioControl antes de descubrir la tarjeta;
+un cliente normal publica únicamente el altavoz de cuatro canales, con prioridad
+baja. Pasaron dos reconexiones, cierre forzado, recreación y cierre normal. Los
+controles con otro puerto o cadena no reciben esa política. No cambia el número
+de serie USB ni HID. Todavía es un experimento: faltan la comprobación del PCM
+de este exportador y su integración recuperable con el servicio de producto.
+El alcance y las fuentes están en [la prueba de exportación](tests/audio-hotplug/export/README.md).
 Estos resultados no equivalen a un escritorio ni a juegos reales.
 
 Una [prueba aislada de bloqueo del grupo de hilos](platform/tests/starvation/README.md)
@@ -109,8 +118,26 @@ segundos y localizaron sus pérdidas entre el último estado almacenado y la
 respuesta de interrupción USB. La instrumentación puede alterar la ejecución;
 estos resultados no prueban por qué el consumidor dejó de drenar la cola ni
 justifican aumentarla sin más. El cierre y la restauración pasaron en los ocho
-casos. No se ha medido Bluetooth físico: ninguno de estos resultados sustituye
+casos. La [observación del servicio en `00484dc`](tests/latency/HELPER-TRACE.md)
+reprodujo por separado desbordamientos en el servicio y en el cliente. En un caso
+sin recolecciones GC, una revisión síncrona de dispositivos ocupó 7,506 ms antes
+de una ráfaga de nueve informes que llenó la cola del cliente. Se está corrigiendo
+el control de flujo; no se han ampliado los límites ni ocultado los informes perdidos.
+No se ha medido Bluetooth físico: ninguno de estos resultados sustituye
 un mando o un juego real.
+
+La [captura del bloqueo de salida HID](research/KERNEL-WAIT-OBSERVER.md)
+localizó una espera de cinco segundos al adquirir el bloqueo compartido de
+hidraw. Linux ahora confirma la recepción completa de la interrupción USB antes
+de reenviarla al físico, conservando el orden sin añadir una cola. La
+[repetición completa en Debian](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653912192)
+pasó los cuatro casos SDL, entregó sus 7.718 informes sin desbordamientos y
+confirmó la limpieza de los consumidores y el núcleo; no reapareció aquella
+espera. El ensayo sigue fallando por contratos de Wine y por el lanzamiento de
+GE-Proton todavía no validado. Una ejecución GE independiente volvió a saturar
+la cola del servicio durante sus requisitos previos, por lo que el problema de
+flujo de entrada sigue abierto. La ruta de control USB `SET_REPORT` también
+requiere validación específica y no se modifica con esta corrección.
 
 El motor de la app ya conecta la sesión del broker con el servicio de emulación,
 los ajustes originales y el forwarder Bluetooth. Pausar cancela una adquisición

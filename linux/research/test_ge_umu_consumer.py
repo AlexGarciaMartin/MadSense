@@ -94,6 +94,18 @@ class GePrerequisiteTests(unittest.TestCase):
         self.assertTrue(all(case["passed"] is False for case in cases))
         self.assertIn("feature bytes differ", cases[0]["error"])
 
+    def test_explicit_ge_preparation_must_observe_each_state_before_pe_launch(self):
+        from unittest.mock import Mock
+        session = SimpleNamespace(ready=dict(ownedGuestToken="owned", vendorId=0x054c),
+            result=dict(geUmuSession=dict(cases=[])), save=lambda: None, check_device=lambda: None)
+        prepare = Mock(side_effect=RuntimeError("Priming marker not observed"));invoke=Mock()
+        with patch("run_wine_consumer.time.sleep"), patch("run_wine_consumer.clear_sony_state") as default_clear, \
+             self.assertRaisesRegex(RuntimeError,"Priming marker not observed"):
+            run_windows_cases(session, invoke, lambda _:None, result_key="geUmuSession", label_prefix="ge-umu",
+                              prepare_sony_state=prepare)
+        self.assertEqual([call.args[1] for call in prepare.call_args_list], ["ge-umu-sony-south","ge-umu-sony-neutral"])
+        default_clear.assert_not_called();invoke.assert_not_called()
+
     def test_default_suite_does_not_invoke_ge_and_opt_in_requires_udev(self):
         with patch("consumer_session._run_primary_suite", return_value="baseline") as primary, \
              patch("ge_umu_consumer.run_after_experiments") as ge:

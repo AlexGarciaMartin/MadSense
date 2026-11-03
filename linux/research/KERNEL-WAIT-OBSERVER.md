@@ -102,3 +102,28 @@ retains a nonzero report ID in the data stage, while the current virtual HID
 output handler prepends the ID from `wValue`. Interrupt OUT results do not prove
 that fallback path correct. No control-format or early-control-acknowledgement
 change is included in this candidate.
+
+## Repetition with interrupt completion enabled
+
+[Full Debian run 41653912192](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653912192)
+at `40e2de13b77482a1da3585cf23e6daeda39d2e86` has runtime ZIP SHA-256
+`c7abac46d936dc4348baec09796a13e0f64b2bbf9e6e9b3626625ec8a2613555`.
+Both SDL versions completed south/neutral with exact USB output and Bluetooth
+CRC checks. Default Wine, UDEV Wine and the GE experiment each cleaned up their
+accounts and ACLs. The core read all 7,718 received inputs with zero client
+overflows, maximum HID RPC duration 10.387 ms and confirmed final cleanup.
+The observer recorded three initial RCU-close waits and no blocked
+`hidraw_write`, compared with the preceding 47 such snapshots over five seconds.
+This supports the correction for the reproduced case, not a physical latency or
+universal deadlock guarantee. Wine 10 still lacks the tested ContainerId/HIDAPI
+contracts; GE did not establish execution of the PE consumer. The overall
+consumer workflow therefore remains failed.
+
+The separate [GE-only run 41653917398](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653917398)
+at the same commit failed its first core actor before GE could start: the helper
+reported eight pending physical inputs. Its runtime ZIP SHA-256 is
+`0442df8ee90a128909b6d6ad908d2a1a86e7029fea22de879bc75d556c727661`.
+The final client queue also contained eight reports, with no client overflow.
+The disposal gate detected incomplete cleanup; that does not establish that
+disposal or the interrupt completion change caused the earlier input stall.
+Input backpressure remains a separate required correction.

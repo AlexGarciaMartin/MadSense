@@ -73,9 +73,10 @@ def _run_ge_suite(ready_path, executable, fixture_state_callback, evidence, phys
                 require(not required or row["exitCode"] == 0, "GE/UMU Windows observer failed: " + label)
                 return row, output
 
-            from run_hidapi_windows import after_api
+            from run_hidapi_windows import after_api, prime_and_clear
             after_api(lambda: run_windows_cases(session, invoke, fixture_state_callback,
-                result_key="geUmuSession", label_prefix="ge-umu"), session, hidapi_executable, fixture_state_callback,
+                result_key="geUmuSession", label_prefix="ge-umu", prepare_sony_state=prime_and_clear),
+                session, hidapi_executable, fixture_state_callback,
                 invoke=lambda label, hidapi_program, arguments: run_consumer(session, prepared, hidapi_program,
                     arguments, label=label, timeout=120), label_prefix="ge-hidapi-windows")
             session.result["geUmuSession"]["consumerAssertionsPassed"] = True

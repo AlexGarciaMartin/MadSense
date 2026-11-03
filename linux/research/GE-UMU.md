@@ -203,9 +203,10 @@ remains mandatory. Do not overlap this session with distribution Wine or the
 default-audio observers. The caller supplies a private authenticated display and
 an explicitly labelled audio stack if needed.
 
-Still pending: UMU/pressure-vessel start, ordinary
-container device visibility, the PE assertions, SDL comparison, audio, cleanup
-under actual GE child processes and licensing work for any redistribution.
+Still pending: confirmed Windows PE execution, ordinary container device
+visibility, the PE assertions, SDL comparison under GE, audio and licensing work
+for any redistribution. The Debian attempt below started pressure-vessel and
+Proton and verified cleanup, but did not produce a PE result.
 Neither games, physical latency nor official Valve Proton compatibility is
 validated by this acquisition or the hook's implementation.
 
@@ -237,6 +238,50 @@ and the preflight failure is not a GE compatibility result. The opt-in
 ordinary-UID preflight evidence before any broker or core actor starts. Its
 official cloud image is verified through HTTPS and pinned SHA-512, explicitly
 without a GPG signature. It does not replace the signed Ubuntu default.
+
+## First Debian launch and retained failures
+
+[Run 41653912192](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653912192)
+at `40e2de13b77482a1da3585cf23e6daeda39d2e86` retained runtime artifact SHA-256
+`c7abac46d936dc4348baec09796a13e0f64b2bbf9e6e9b3626625ec8a2613555`.
+The unchanged Debian guest passed its ordinary-UID namespace preflight. GE
+preparation, including the mtree verifier and UMU 1.4.4 inventory, took 27.73
+seconds. Four native SDL cases passed separately. Distribution Wine 10 and its
+configured UDEV variant retained their ContainerId and HIDAPI failures.
+
+The GE Win32 cases stopped before launching their PE: a repeated clear of an
+already cleared synthetic state produced no new output, so the observer could
+not confirm the clear. The GE path now uses the existing HIDAPI priming helper
+before each Sony case: write a distinct RGB marker, require its CRC-valid
+Bluetooth observation, then require the clear. Silence still fails. The default
+distribution Wine path is unchanged.
+
+The separately primed HIDAPI cases did invoke UMU, pressure-vessel and Proton
+twice. Both returned exit 1 with empty PE stdout; neither reported a PE build ID
+or completed assertion result. Stderr included an i386 loader probe failure and
+an empty game-drive parent warning. These messages do not establish the cause
+of exit. `runtimeExecutionConfirmed` and `consumerAssertionsPassed` remain false.
+All three consumer accounts and their processes/files were removed, each set of
+five exact device ACLs was restored, and the core actor confirmed cleanup with
+zero rejected/unwritten input and raw-output snapshots.
+
+Each later GE invocation now attempts a bounded Proton log snapshot before
+cleanup, including when the launcher fails. The reader runs as the disposable
+ordinary UID, opens HOME and each log with `O_NOFOLLOW`/directory-relative file
+descriptors, and requires stable regular files owned by that UID with one hard
+link. It retains at most four logs, one MiB per log and two MiB in total, with
+SHA-256 and explicit truncation metadata. Root writes only fixed evidence names;
+prefixes and runtime caches remain excluded. Unavailable diagnostics cannot
+replace the original consumer failure. Linux-native tests of these new snapshot
+guards remain pending; portable lifecycle and error-preservation tests pass.
+
+The separate GE-only [run 41653917398](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653917398)
+retained artifact SHA-256
+`0442df8ee90a128909b6d6ad908d2a1a86e7029fea22de879bc75d556c727661`.
+Its first core actor reported eight physical input reports pending and failed
+the disposal assertion. The second actor and GE session never started. This is
+a distinct bridge/core failure, not a GE runtime result; distribution Wine was
+not executed in that mode.
 
 ## Primary references
 

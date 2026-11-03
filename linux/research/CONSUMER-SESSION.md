@@ -187,3 +187,14 @@ allows the exact versions 2.30.0, 2.32.4 and SDL3 3.2.28, not arbitrary releases
 That Debian run remains failed: a later broker timeout prevented consumer cleanup
 and GE execution. The posthoc observation does not convert it to a passing suite
 or claim a new native run of the updated verifier.
+
+The subsequent native [run 41653912192](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41653912192)
+at `40e2de13b77482a1da3585cf23e6daeda39d2e86` passed all four SDL south/neutral
+cases with SDL2 2.32.4 and SDL3 3.2.28. Its artifact SHA-256 is
+`c7abac46d936dc4348baec09796a13e0f64b2bbf9e6e9b3626625ec8a2613555`.
+An independent replay confirmed each isolated stop's complete USB48 and
+CRC-valid Bluetooth47 zero payload. The final core raw-output observer drained
+with zero rejected/unwritten snapshots and no error; core and consumer cleanup
+were confirmed. The complete suite still failed its separate Wine/GE cases,
+preserved in [GE-UMU.md](GE-UMU.md). These SDL results establish synthetic report
+forwarding and cleanup, not physical actuation or game compatibility.
