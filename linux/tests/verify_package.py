@@ -68,7 +68,7 @@ def main():
         original_app = file_hashes(args.tested_app.resolve())
         if file_hashes(payload / 'app') != original_app:
             raise AssertionError('Packaged binaries differ from the tested publish tree')
-        for name in ('run.sh', 'app/MadSense.Linux', 'platform/install.sh'):
+        for name in ('run.sh', 'app/MadSense.Linux', 'platform/install.sh', 'platform/uninstall.sh'):
             if not os.access(payload / name, os.X_OK):
                 raise AssertionError('Executable permission missing: ' + name)
         # The SDK embeds SourceRevisionId into AssemblyInformationalVersion.

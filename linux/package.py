@@ -144,10 +144,11 @@ def main():
         raise RuntimeError('The tested publish changed during packaging or differs from the staged application')
     helper = payload / 'platform'
     helper.mkdir()
-    for filename in ('broker.py', 'broker_core.py', 'install.sh', 'madsense-broker.service',
+    for filename in ('broker.py', 'broker_core.py', 'install.sh', 'uninstall.sh', 'madsense-broker.service',
                      'madsense-modules.conf', 'org.madsense.bridge.policy', 'README.md'):
         shutil.copyfile(ROOT / 'linux/platform' / filename, helper / filename)
     (helper / 'install.sh').chmod(0o755)
+    (helper / 'uninstall.sh').chmod(0o755)
     shutil.copyfile(ROOT / 'linux/RUNNING.txt', payload / 'RUNNING.txt')
     shutil.copyfile(ROOT / 'linux/README.md', payload / 'DEVELOPMENT.md')
     shutil.copyfile(ROOT / 'LICENSE', payload / 'LICENSE.txt')

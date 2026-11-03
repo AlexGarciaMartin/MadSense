@@ -6,6 +6,12 @@ stopped during fixture setup before starting C#. Production core behavior over
 UHID is therefore still unverified. Build and fixture checks on Windows do not
 validate the Linux device, permission, USB/IP or audio paths.
 
+The idle installer stage now also exercises explicit helper removal: it must
+refuse a modified installed file before stopping the service, preserve an unknown
+file during normal removal, tolerate repeated removal, and reinstall with an
+explicit idle preflight. These four assertions have no native pass yet. The
+launcher requires them separately from the two already-tested idle upgrades.
+
 The ordinary-user C# executable uses the real `HidDeviceEnumerator`,
 `LinuxBrokerClient`, `DualSenseDevice`, `ControllerTracker`, `EmulationService`,
 `VirtualControllerFactory`, USB/IP server and Bluetooth writers. A factory

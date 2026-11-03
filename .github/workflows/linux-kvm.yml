@@ -1,0 +1,36 @@
+name: Linux KVM scoped access diagnostic
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/linux]
+    paths:
+      - '.github/workflows/linux-kvm.yml'
+      - 'linux/research/kvm_*.py'
+      - 'linux/research/test_kvm_acceleration.py'
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install empty-machine diagnostic dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y qemu-system-x86 acl
+      - name: Record exact source and run ACL regressions
+        run: |
+          mkdir -p dist
+          git rev-parse HEAD > dist/source.txt
+          uname -a > dist/kernel.txt
+          python3 -m unittest discover -s linux/research -p 'test_kvm_acceleration.py' -v
+      - name: Own one empty QEMU and verify scoped access restoration
+        run: python3 linux/research/kvm_smoke.py --output dist/kvm-smoke --seconds 10
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-kvm-scoped-access
+          path: dist/**
+          retention-days: 14
+          if-no-files-found: warn

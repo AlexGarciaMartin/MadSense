@@ -34,9 +34,16 @@ installer checks the host prerequisites before writing files and refuses pending
 lease state. It stops the old helper and confirms that no recovery descriptors
 remain before replacing it, then starts the newly installed version.
 
+To remove the manually installed helper, pause and quit MadSense, then use the
+same package version that installed the helper:
+    sudo sh platform/uninstall.sh
+Removal requires idle recovery and unchanged installed files. It preserves
+preferences, logs, unknown files and loaded kernel modules. Afterwards you can
+remove this extracted app directory; disable its optional autostart first.
+
 Run MadSense without sudo. Resume requests authorization to isolate the selected
-Bluetooth controller. Close other software that already has its hidraw interface
-open. The helper refuses conflicting readers instead of terminating applications.
+Bluetooth controller. Close other software that already has its hidraw or
+force-feedback interface open. The helper refuses conflicting users instead of terminating applications.
 Denial waits for another explicit Resume. Missing kernel modules or helper support
 are errors, never a successful connection. Keep the physical USB controller on its
 normal native route; MadSense's bridge is for Bluetooth.

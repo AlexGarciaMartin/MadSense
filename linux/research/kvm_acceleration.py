@@ -21,6 +21,12 @@ import uuid
 DEVICE = Path("/dev/kvm")
 
 
+class AclRestorationError(RuntimeError):
+    def __init__(self, message, observation):
+        super().__init__(message)
+        self.observation = observation
+
+
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
@@ -63,7 +69,7 @@ def api_probe():
 
 
 def acl_text(fd):
-    return subprocess.check_output(["/usr/bin/getfacl", "--omit-header", "--numeric", "--no-effective",
+    return subprocess.check_output(["/usr/bin/getfacl", "--absolute-names", "--omit-header", "--numeric", "--no-effective",
                                     "/proc/self/fd/" + str(fd)], pass_fds=(fd,), text=True, timeout=5).strip() + "\n"
 
 
@@ -87,10 +93,21 @@ def restore_exact(fd, saved, uid, info):
     require(saved["schema"] == 1 and saved["uid"] == uid and saved["identity"] == node_identity(info),
             "Refusing to restore another KVM node or caller's grant")
     require(acl_for_uid(saved["original"], uid) == saved["granted"], "Invalid saved KVM ACL")
-    require(acl_text(fd) in (saved["original"], saved["granted"]), "KVM ACL changed outside this grant")
+    observed = acl_text(fd)
+    observation = dict(originalAcl=saved["original"], grantedAcl=saved["granted"], observedAcl=observed,
+                       expectedIdentity=saved["identity"], openedIdentity=node_identity(os.fstat(fd)),
+                       pathIdentity=node_identity(DEVICE.lstat()), expectedMode=saved["mode"],
+                       observedMode=stat.S_IMODE(os.fstat(fd).st_mode), capturedMonotonicNs=time.monotonic_ns())
+    if observed not in (saved["original"], saved["granted"]):
+        raise AclRestorationError("KVM ACL changed outside this grant; no restoration mutation was attempted", observation)
     set_acl(fd, saved["original"])
-    require(acl_text(fd) == saved["original"] and stat.S_IMODE(os.fstat(fd).st_mode) == saved["mode"]
-            and node_identity(DEVICE.lstat()) == saved["identity"], "KVM ACL restoration could not be verified")
+    observation["restoredAcl"] = acl_text(fd)
+    observation["restoredMode"] = stat.S_IMODE(os.fstat(fd).st_mode)
+    observation["finalPathIdentity"] = node_identity(DEVICE.lstat())
+    if (observation["restoredAcl"] != saved["original"] or observation["restoredMode"] != saved["mode"]
+            or observation["finalPathIdentity"] != saved["identity"]):
+        raise AclRestorationError("KVM ACL restoration could not be verified", observation)
+    return observation
 
 
 def private_state(token):
@@ -130,6 +147,7 @@ def root_operation(operation, token, uid):
             require(acl_text(fd) == granted, "KVM ACL grant verification failed")
             require(node_identity(DEVICE.lstat()) == saved["identity"], "KVM path changed during ACL grant")
             return dict(applied=True, uid=uid, identity=saved["identity"],
+                        originalAcl=original, grantedAcl=granted, originalMode=saved["mode"],
                         originalAclSha256=hashlib.sha256(original.encode()).hexdigest(),
                         grantedAclSha256=hashlib.sha256(granted.encode()).hexdigest())
         state_path = directory / "state.json"
@@ -139,9 +157,10 @@ def root_operation(operation, token, uid):
                     "Unsafe root KVM recovery state")
         require(state_path.stat().st_size <= 8192, "Oversized KVM recovery state")
         saved = json.loads(state_path.read_text())
-        restore_exact(fd, saved, uid, info)
+        observation = restore_exact(fd, saved, uid, info)
         state_path.unlink(); directory.rmdir()
-        return dict(restored=True, identity=saved["identity"], originalAclSha256=hashlib.sha256(saved["original"].encode()).hexdigest())
+        return dict(restored=True, identity=saved["identity"], observation=observation,
+                    originalAclSha256=hashlib.sha256(saved["original"].encode()).hexdigest())
     finally:
         os.close(fd)
 
@@ -157,8 +176,17 @@ class TemporaryKvmAccess:
         result = subprocess.run(["sudo", "-n", "--preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT", "/usr/bin/python3", "-I",
             str(Path(__file__).resolve()), "--operation", operation, "--token", self.token, "--uid", str(os.getuid())],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20)
-        require(result.returncode == 0, "KVM " + operation + " failed: " + result.stderr[-1500:])
-        return json.loads(result.stdout)
+        entry = dict(operation=operation, exitCode=result.returncode, stderr=result.stderr[-2000:])
+        self.evidence.setdefault("rootOperations", []).append(entry)
+        try:
+            require(len(result.stdout) <= 32768, "KVM root operation response exceeds its bound")
+            entry["response"] = json.loads(result.stdout)
+        except (RuntimeError, ValueError):
+            entry["stdout"] = result.stdout[-2000:]
+            raise RuntimeError("KVM " + operation + " did not return a bounded JSON response") from None
+        require(result.returncode == 0, "KVM " + operation + " failed: " +
+                str(entry["response"].get("error", result.stderr[-1500:])))
+        return entry["response"]
 
     def prepare(self):
         hosted()
@@ -317,4 +345,12 @@ if __name__ == "__main__":
     parser.add_argument("--token", required=True)
     parser.add_argument("--uid", type=int, required=True)
     arguments = parser.parse_args()
-    print(json.dumps(root_operation(arguments.operation, arguments.token, arguments.uid)))
+    try:
+        response = root_operation(arguments.operation, arguments.token, arguments.uid)
+    except Exception as error:
+        response = dict(error=dict(type=type(error).__name__, message=str(error)))
+        if isinstance(error, AclRestorationError):
+            response["error"]["observation"] = error.observation
+        print(json.dumps(response), flush=True)
+        raise SystemExit(1)
+    print(json.dumps(response))

@@ -37,6 +37,13 @@ device ACL or raw descriptor. At most two connections per UID and eight total ar
 accepted. Non-owner connections expire after ten seconds without incoming data;
 the active lease is governed by its owner lifetime and isolation checks.
 
+To remove a manually installed helper, pause the app and use
+`sudo sh linux/platform/uninstall.sh` from the same source revision/package that
+installed it. Removal refuses a pending lease/recovery, modified installed files
+or symlinks; it stops the service and verifies an empty descriptor store before
+removing its five fixed files. It retains user settings, logs, runtime recovery
+state and loaded kernel modules. It never recursively deletes the helper folder.
+
 While the authorization dialog is pending, the helper checks the exact requesting
 socket and the caller's pidfd at intervals of at most 100 ms between child waits.
 EOF, including a write-half close behind unread request bytes, cancels and reaps

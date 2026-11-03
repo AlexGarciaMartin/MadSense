@@ -1,9 +1,11 @@
 import errno
 import json
+import os
 from pathlib import Path
 import socket
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import types
@@ -42,10 +44,15 @@ class AclTests(unittest.TestCase):
         with patch.object(kvm, "set_acl") as mutate, self.assertRaises(RuntimeError):
             kvm.restore_exact(17, saved, 1001, replaced)
         mutate.assert_not_called()
-        with patch.object(kvm, "acl_text", return_value="changed by another actor"), \
-             patch.object(kvm, "set_acl") as mutate, self.assertRaises(RuntimeError):
+        device = MagicMock(); device.lstat.return_value = info
+        with patch.object(kvm, "DEVICE", device), patch.object(kvm.os, "fstat", return_value=info), \
+             patch.object(kvm, "acl_text", return_value="changed by another actor"), \
+             patch.object(kvm, "set_acl") as mutate, self.assertRaises(kvm.AclRestorationError) as error:
             kvm.restore_exact(17, saved, 1001, info)
         mutate.assert_not_called()
+        self.assertEqual(error.exception.observation["observedAcl"], "changed by another actor")
+        self.assertEqual(error.exception.observation["originalAcl"], saved["original"])
+        self.assertEqual(error.exception.observation["grantedAcl"], saved["granted"])
 
     def test_verified_restoration_uses_the_opened_exact_device(self):
         info, saved = self.saved()
@@ -64,6 +71,41 @@ class AclTests(unittest.TestCase):
             self.assertFalse(access.prepare())
         self.assertEqual(root.call_args_list, [unittest.mock.call("grant"), unittest.mock.call("restore")])
         self.assertTrue(evidence["temporaryAclRestored"])
+
+    def test_root_error_observation_survives_nonzero_helper_exit(self):
+        evidence = {}; access = kvm.TemporaryKvmAccess(evidence)
+        response = dict(error=dict(message="external ACL change", observation={"observedAcl": "unexpected"}))
+        completed = subprocess.CompletedProcess([], 1, json.dumps(response), "diagnostic\n")
+        with patch.object(kvm.subprocess, "run", return_value=completed), \
+             patch.object(kvm.os, "getuid", return_value=1001, create=True), self.assertRaises(RuntimeError):
+            access.root("restore")
+        self.assertEqual(evidence["rootOperations"][0]["response"], response)
+        self.assertEqual(evidence["rootOperations"][0]["exitCode"], 1)
+
+    @unittest.skipUnless(sys.platform == "linux" and Path("/usr/bin/getfacl").exists()
+                         and Path("/usr/bin/setfacl").exists(), "Real Linux ACL tools required")
+    def test_real_acl_roundtrip_on_own_temporary_inode_via_opath(self):
+        # Exercise the actual external ACL tools and /proc/self/fd interface;
+        # neither /dev/kvm nor any other existing machine permissions change.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "owned-acl-node")
+            path.touch(mode=0o640)
+            fd = os.open(path, os.O_PATH | os.O_CLOEXEC | os.O_NOFOLLOW)
+            try:
+                info = os.fstat(fd)
+                original = kvm.acl_text(fd)
+                uid = 1001 if os.getuid() != 1001 else 1002
+                granted = kvm.acl_for_uid(original, uid)
+                saved = dict(schema=1, uid=uid, identity=kvm.node_identity(info), mode=stat.S_IMODE(info.st_mode),
+                             original=original, granted=granted)
+                kvm.set_acl(fd, granted)
+                self.assertEqual(kvm.acl_text(fd), granted)
+                with patch.object(kvm, "DEVICE", path):
+                    observed = kvm.restore_exact(fd, saved, uid, os.fstat(fd))
+                self.assertEqual(observed["restoredAcl"], original)
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), saved["mode"])
+            finally:
+                os.close(fd)
 
 
 class QmpAndLifecycleTests(unittest.TestCase):

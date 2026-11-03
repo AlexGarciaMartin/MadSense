@@ -26,11 +26,22 @@ shutdown uses the same ordering. An unconfirmed reap or restoration fails the
 experiment rather than claiming cleanup or continuing with TCG.
 
 `hostKernelModified` remains false. Separate `kvmAcceleration` evidence records
-the initial API result, optional ACL hashes/identity, QMP confirmation, fallback
+the initial API result, optional ACL text/hashes/identity, QMP confirmation, fallback
 reason and verified restoration. Per-attempt arguments/stderr are retained as
 `qemu-kvm-*`/`qemu-kvm.stderr` and `qemu-tcg-*`/`qemu-tcg.stderr`; the successful
 arguments also retain the existing `qemu-arguments.json` name. QMP startup and SSH
 readiness timings are software measurements, not controller latency.
+
+Root-operation JSON is retained even on a nonzero exit. A restore mismatch records
+the original, granted and observed ACL, opened/path identities and modes before
+refusing mutation. This distinguishes a real external change from an ACL text
+difference; neither is silently normalized or overwritten.
+
+`python3 linux/research/kvm_smoke.py --output dist/kvm-smoke` isolates this lifecycle
+without downloading or booting a guest image. It creates an empty owned QEMU,
+records QMP plus ACL/udev snapshots for ten seconds, then reaps QEMU and restores.
+The helper still requires the ordinary disposable hosted runner and its existing
+registered KVM node. A TCG fallback is `not-applicable`, never proof of usable KVM.
 
 This cannot make a hard-killed launcher execute its cleanup; the root recovery
 record remains on that job's ephemeral VM. It does not install persistent rules

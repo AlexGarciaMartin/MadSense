@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import uuid
 
 SERVICE = "madsense-broker.service"
@@ -46,6 +47,32 @@ def wait_for(callback, seconds=15):
 def require(value, message):
     if not value:
         raise AssertionError(message)
+
+
+def prepare_generic_driver(command, fixture_file):
+    # Only called after validating a disposable owned guest with no Sony HID.
+    # udev's kmod builtin caches a context; modprobe's newly read blacklist does
+    # not update an already running udev worker. Start a fresh builtin context
+    # before unloading, then drain old events before creating either UHID.
+    fixture_file(Path("/run/modprobe.d/madsense-ci-fixture.conf"),
+                 "# Owned VM test only\nblacklist hid_playstation\ninstall hid_playstation /bin/false\n")
+    command("restart-fixture-udev", ["systemctl", "restart", "systemd-udevd.service"])
+    command("settle-before-fixtures", ["udevadm", "settle", "--timeout=5"])
+    if Path("/sys/module/hid_playstation").exists():
+        command("unload-fixture-driver", ["modprobe", "-r", "hid_playstation"])
+    command("load-uhid", ["modprobe", "uhid"])
+    command("load-generic", ["modprobe", "hid_generic"])
+
+
+def complete_generic_nodes(parent, nodes):
+    """sysfs publication alone does not mean every corresponding devnode exists."""
+    if not any(path.name.startswith("hidraw") for path in nodes) or not any(path.name.startswith("event") for path in nodes):
+        return False
+    try:
+        return ((parent / "driver").resolve(strict=True).name == "hid-generic"
+                and all(stat.S_ISCHR(path.stat().st_mode) for path in nodes))
+    except FileNotFoundError:
+        return False
 
 
 def actor_main():
@@ -197,7 +224,7 @@ class Uhid:
                 for path in Path("/sys/class", directory).glob(pattern):
                     if (path / "device").resolve().is_relative_to(self.parent):
                         found.append(Path(prefix, path.name))
-            return sorted(found) if any("event" in p.name for p in found) and any("hidraw" in p.name for p in found) else None
+            return sorted(found) if complete_generic_nodes(self.parent, found) else None
         self.nodes = wait_for(nodes)
         require((self.parent / "driver").resolve().name == "hid-generic", "fixture must use generic HID test driver")
         self.hidraw = next(path for path in self.nodes if path.name.startswith("hidraw"))
@@ -312,11 +339,7 @@ def main():
         require(not Path("/run/madsense/lease.json").exists(), "pre-existing broker lease")
         require(not list(Path("/sys/bus/hid/devices").glob("0005:054C:*")), "pre-existing Sony Bluetooth HID")
         require(all(row["localBusId"] == "0-0" for row in ports().values()), "pre-existing USB/IP import")
-        fixture_file(Path("/run/modprobe.d/madsense-ci-fixture.conf"), "# Owned VM test only\nblacklist hid_playstation\ninstall hid_playstation /bin/false\n")
-        if Path("/sys/module/hid_playstation").exists():
-            command("unload-fixture-driver", ["modprobe", "-r", "hid_playstation"])
-        command("load-uhid", ["modprobe", "uhid"])
-        command("load-generic", ["modprobe", "hid_generic"])
+        prepare_generic_driver(command, fixture_file)
         for username in ("madsense-ci", "madsense-ci-denied"):
             command(f"create-{username}", ["useradd", "--user-group", "--no-create-home", "--shell", "/usr/sbin/nologin", username])
             users.append(username)
@@ -339,6 +362,8 @@ def main():
         for index, device in enumerate(devices):
             command(f"apply-fixture-{index}", ["udevadm", "trigger", "--action=change", "--parent-match=" + str(device.parent)])
         command("settle-fixture-policy", ["udevadm", "settle", "--timeout=5"])
+        require(all(complete_generic_nodes(device.parent, device.nodes) for device in devices),
+                "Generic fixture binding/devnodes changed during udev processing")
         original, other_original = snapshot(first), snapshot(other)
         save("nodes-before.json", {"primary": original, "other": other_original})
         observer = [os.open(node, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC) for node in first.events]
@@ -495,7 +520,9 @@ def main():
         result["result"] = "passed"
     except BaseException as error:
         result["reason"] = f"{type(error).__name__}: {error}"
+        (output / "failure-traceback.txt").write_text(traceback.format_exc())
     finally:
+        command("fixture-kernel-log", ["dmesg", "--color=never"], check=False)
         for value in actors:
             value.close()
         # Owner EOF starts ordered import shutdown/reset. Stopping systemd at

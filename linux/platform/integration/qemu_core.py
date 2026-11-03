@@ -105,6 +105,11 @@ def main():
         upgrade = json.loads((guest.output / "result/idle-upgrade/result.json").read_text())
         if upgrade.get("result") != "passed" or len(upgrade.get("installations", [])) != 2:
             raise RuntimeError("Repeated idle installer check did not pass")
+        removal = upgrade.get("removal", {})
+        if removal.get("result") != "passed" or removal.get("cases") != [
+                "modified_file_preserved_before_service_stop", "idle_removal_preserves_unknown_file",
+                "repeated_removal_is_idempotent", "reinstall_after_removal_confirms_idle"]:
+            raise RuntimeError("Explicit helper removal and reinstallation did not pass")
         if provenance.get("coreExit") != 0 or not result_path.exists():
             raise RuntimeError("Production core experiment failed; inspect core-run and partial evidence")
         result = json.loads(result_path.read_text())

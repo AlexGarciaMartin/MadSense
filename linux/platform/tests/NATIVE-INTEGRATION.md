@@ -135,6 +135,28 @@ validate the C# application or pre-existing evdev force-feedback writers. Native
 artifact digest:
 `25612832078c0e35ea2d841ff77f1a8e181654f4cba9375c5b9227bf5048fa14`.
 
+[Run 41608705337](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41608705337)
+at `bda52129f13625140c497c9b8204d50f2c3e0827` proved actual KVM acceleration
+through QMP and reached SSH in 14.9 seconds, but passed no native baseline cases:
+the initial generic fixture snapshot found `/dev/hidraw0` absent. Its console
+also records hid-playstation probing both generic fixtures and rejecting feature09.
+This faster run exposes an incomplete fixture readiness check and a likely
+udev module-loader cache race; the logs do not establish the exact failing syscall
+order. The harness now starts a fresh udev worker context after installing its
+temporary blacklist, before unloading Sony or creating UHID, and verifies real
+character nodes plus the generic binding again after udev settles. It also saves
+a traceback and kernel log before teardown. This correction still needs a native
+run. The production-protocol core/app fixtures continue to use hid-playstation.
+The cache behavior follows systemd's [kmod builtin lifecycle](https://github.com/systemd/systemd/blob/v255/src/udev/udev-builtin-kmod.c).
+
+That run separately refused KVM ACL restoration because its observed ACL differed
+from the saved grant; cleanup was not recorded as successful. The QEMU process
+was stopped, and core/application actors were not started. All 52 payload source
+files and four installed helper files matched the commit. Portable x64/ARM each
+passed 82 C#, 67 broker/orchestration Python, nine core fixture/package, two app
+package and eight KVM tests. Native artifact digest:
+`777932724f1813b1e2a8f9efc628a61636b78b0f522f5cc30dfbffa687527779`.
+
 The workflow now gates the separate `integration/qemu_core.py` stage on this
 baseline, then checks two idle installer restarts and the production C# core on a
 full synthetic UHID fixture in the same guest. The core stage is not yet

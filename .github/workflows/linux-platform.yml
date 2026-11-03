@@ -62,7 +62,7 @@ jobs:
           dotnet run --project linux/platform/integration/MadSense.Linux.CoreProbe.csproj -c Release --no-restore -- --verify-fixtures linux/platform/integration/fixtures.json | tee dist/linux-platform-portable/core-parser.txt
           dotnet build linux/tests/app-integration/MadSense.Linux.AppProbe.csproj -c Release -p:RestoreLockedMode=true
           python3 -m py_compile linux/platform/broker.py linux/platform/broker_core.py linux/platform/tests/*.py linux/platform/integration/*.py linux/tests/app-integration/*.py linux/research/kvm_acceleration.py
-          for script in linux/platform/install.sh linux/platform/tests/run_native_broker_guest.sh linux/platform/tests/run_broker_experiment.sh linux/platform/integration/run_core_experiment.sh linux/tests/app-integration/run_app_experiment.sh; do bash -n "$script"; done
+          for script in linux/platform/install.sh linux/platform/uninstall.sh linux/platform/tests/run_native_broker_guest.sh linux/platform/tests/run_broker_experiment.sh linux/platform/integration/run_core_experiment.sh linux/tests/app-integration/run_app_experiment.sh; do bash -n "$script"; done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

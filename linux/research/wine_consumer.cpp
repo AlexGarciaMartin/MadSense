@@ -6,8 +6,11 @@
 #include <windows.h>
 #include <initguid.h>
 #include <setupapi.h>
+// MinGW's HID headers do not supply C++ linkage guards.
+extern "C" {
 #include <hidsdi.h>
 #include <hidpi.h>
+}
 #include <devpkey.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
@@ -382,7 +385,9 @@ static void audio_probe(IMMDeviceEnumerator *enumerator, const wchar_t *identity
     format.Format.nSamplesPerSec = 48000; format.Format.wBitsPerSample = 16;
     format.Format.nBlockAlign = 8; format.Format.nAvgBytesPerSec = 384000;
     format.Format.cbSize = sizeof(format) - sizeof(WAVEFORMATEX);
-    format.Samples.wValidBitsPerSample = 16; format.dwChannelMask = KSAUDIO_SPEAKER_QUAD; format.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+    // Use the SDK's static GUID initializer; this value requires no ksuser DLL.
+    const GUID pcm_subformat{STATIC_KSDATAFORMAT_SUBTYPE_PCM};
+    format.Samples.wValidBitsPerSample = 16; format.dwChannelMask = KSAUDIO_SPEAKER_QUAD; format.SubFormat = pcm_subformat;
     WAVEFORMATEX *closest = nullptr;
     HRESULT supported = client->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, &format.Format, &closest);
     if (closest) CoTaskMemFree(closest);
