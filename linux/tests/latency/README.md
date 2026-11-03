@@ -316,3 +316,64 @@ Capture failure is retained independently and never replaces the original timing
 classification or confirms cleanup. These captures were added after the f6
 native run and exercised in the adcc repeat; they cannot retroactively explain
 the f6 early closure.
+
+### Client-input tail experiment (prepared; native execution pending)
+
+`trace_input=true` on the timing workflow selects four fresh 1,000 Hz sessions
+in control/input/input/control order. It is mutually exclusive with
+`trace_stages`; the existing eight-case full-stage schedule and two-rate
+uninstrumented smoke remain available. The same functional gates must pass
+first, in the same owned VM. Production queue capacity, RPC behavior, priorities,
+and loss handling are unchanged.
+
+`stage_trace.py --kind input` exports the exact committed source into a fresh
+external directory and changes only `LinuxPhysicalSession.cs` and AppProbe's
+start/dispose calls. The added `InputTrace.cs` is copied from that same archive.
+All original/modified hashes, the source commit and the complete archive digest
+are recorded. This variant does not compile the full-stage recorder and inserts
+no parser, raw-slot or USB/IP hooks. Normal functional actors and timing controls
+still use the untouched publish tree.
+
+The copied client records accept, successful enqueue, failed enqueue, and
+dequeue-before-`EnsureConnected` events. A dequeue therefore means removal from
+the channel, not successful delivery, parsing or virtual output. Each record
+contains the synthetic nonce/sequence, monotonic event/receive/helper-read
+timestamps, managed thread ID, latest synchronous `Read` after validation and
+`BeginReading` (before its wait), and
+`Channel.Reader.Count`. That count is an unsynchronized snapshot: a dequeue may
+already have changed it after `TryWrite` failed. A successful enqueue hook may
+run after the consumer has dequeued the published input. Both races are allowed
+by the analyzer.
+
+Only the most recent 4,096 events are retained in roughly 256 KiB of fixed
+storage. The ring does no per-report allocation or file I/O and never waits for
+a slot. Reservation sequences identify every retained slot. Ordinary wrapping
+records total attempts, exact overwritten-prefix length and tail bounds; it is
+not silently described as complete history. A busy slot, delayed old writer,
+publication hole, malformed tagged report or unfinished writer invalidates
+attribution. The CSV is dumped after bridge disposal. Earlier overwritten events
+cannot support claims that an input was absent at any stage.
+
+The analyzer checks every retained tag against the C producer's actual writes,
+and validates timestamps with the same 32 `clock_gettime(CLOCK_MONOTONIC)` /
+Stopwatch bracket checks as the full-stage observer. It reports retained
+receive/helper-read/dequeue gaps, helper-to-receive and receive-to-dequeue
+intervals, and context around any retained enqueue failure. The original
+virtual-reader CSV remains authoritative for losses and timing. Guest and host
+recompute the same analysis; stale evidence from the other variant is rejected.
+
+The extra timestamp calls, atomics and channel-count reads can perturb timing.
+The copied `InputReport` also carries one additional `long` so its helper-read
+timestamp remains available when dequeued. GC collection counts, approximate
+allocated bytes and the latest GC index are sampled only before connect and
+after disposal, not for each report. These endpoint snapshots include setup and
+teardown and cannot identify an individual pause or establish that GC caused an
+overflow. Controls do not gain any GC instrumentation. Neither an overflow nor
+its absence in this variant alone establishes a scheduling cause or an overhead
+estimate.
+
+Local Windows validation: 45 Python tests passed, with the native C test skipped;
+the standalone recorder and complete copied AppProbe compile without warnings.
+Three native recorder checks (concurrent publication, repeated tail wrapping,
+and a deliberately busy slot) are wired on Linux x64 and arm64 before any VM
+run. Their native execution and the new four-case measurement remain pending.

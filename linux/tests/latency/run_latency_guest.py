@@ -168,13 +168,13 @@ def case(args, output, executable, rate, *, trace_directory=None):
         stopped = load(output / "app/stopped.json")
         require(stopped and stopped.get("cleanupConfirmed") is True and idle(), "Missing fresh helper/kernel/ACL cleanup confirmation")
         if trace_directory is not None:
-            from trace_analysis import analyze as analyze_trace
-            with (output / "app/report-trace.csv").open(newline="") as trace_stream, (output / "samples.csv").open(newline="") as sample_stream:
-                result["attribution"] = analyze_trace(trace_stream, load(output / "app/report-trace.json"),
-                                                     sample_stream, load(output / "probe.json"))
+            from trace_variant import analyze_directory
+            with (output / "samples.csv").open(newline="") as sample_stream:
+                result["attribution"] = analyze_directory(output / "app",
+                    load(trace_directory / "research-trace-overlay.json"), sample_stream, load(output / "probe.json"))
         else:
-            require(not (output / "app/report-trace.csv").exists() and not (output / "app/report-trace.json").exists(),
-                    "Control unexpectedly contains instrumented evidence")
+            from trace_variant import require_control
+            require_control(output / "app")
         result["cleanupConfirmed"] = True
     except BaseException as error:
         result["result"] = "invalid"
@@ -262,10 +262,13 @@ def main():
             schedule = [(f"{rate}hz", rate, False) for rate in (100, 1000)]
         else:
             from trace_schedule import schedule as paired_schedule
-            schedule = paired_schedule()
+            from trace_variant import kind
+            overlay = load(args.trace_probe_directory / "research-trace-overlay.json")
+            require(overlay, "Missing source overlay provenance")
+            schedule = paired_schedule(kind(overlay))
             result["attributionExperiment"] = dict(kind="paired-control-and-instrumented-copy",
                 cases=[name for name, _, _ in schedule], productionTuning=False,
-                sourceOverlay=load(args.trace_probe_directory / "research-trace-overlay.json"))
+                sourceOverlay=overlay)
             require(result["attributionExperiment"]["sourceOverlay"], "Missing source overlay provenance")
         for name, rate, instrumented in schedule:
             measured = case(args, output / name, executable, rate,

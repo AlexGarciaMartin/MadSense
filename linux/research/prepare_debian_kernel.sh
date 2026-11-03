@@ -9,9 +9,9 @@ sudo -n apt-get update -qq
 sudo -n apt-get install -y --no-install-recommends usbip usbutils alsa-utils kmod \
   libicu76 libssl3t64 libgssapi-krb5-2 libstdc++6 zlib1g
 for module in vhci_hcd hid_playstation snd_usb_audio xpad uhid; do
-  modinfo "$module" >/dev/null
-  sudo -n modprobe "$module"
-  modinfo -F vermagic "$module"
+  /usr/sbin/modinfo "$module" >/dev/null
+  sudo -n /usr/sbin/modprobe "$module"
+  /usr/sbin/modinfo -F vermagic "$module"
 done
 test -x /usr/sbin/usbip
 /usr/sbin/usbip version

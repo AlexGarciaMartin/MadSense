@@ -47,6 +47,7 @@ class GateTests(unittest.TestCase):
                         "linux/tests/latency/gates.py", "linux/tests/latency/latency_probe.c",
                         "linux/tests/audio-hotplug/actor_files.py",
                         "linux/tests/latency/capture_diagnostics.py",
+                        "linux/tests/latency/input_trace_analysis.py", "linux/tests/latency/trace_variant.py",
                         "linux/platform/integration/actor_staging.py", "linux/research/qemu_kernel.py",
                         "linux/research/kvm_acceleration.py", "app-probe/MadSense.Linux.AppProbe"]
             self.assertTrue(set(expected).issubset(hashes))
@@ -56,7 +57,9 @@ class GateTests(unittest.TestCase):
             # Isolated import resolves entirely from the staged tree, not this
             # checkout or an ambient PYTHONPATH. Runtime guard is not invoked.
             code = ("import pathlib,sys; root=pathlib.Path(sys.argv[1]); "
-                    "sys.path.insert(0,str(root/'linux/tests/latency')); import gates,qemu_latency; "
+                    "sys.path.insert(0,str(root/'linux/tests/latency')); import gates,qemu_latency,input_trace_analysis,trace_variant; "
+                    "assert pathlib.Path(input_trace_analysis.__file__).is_relative_to(root); "
+                    "assert pathlib.Path(trace_variant.__file__).is_relative_to(root); "
                     "import qemu_core,actor_staging; "
                     "assert pathlib.Path(qemu_core.__file__).is_relative_to(root); "
                     "assert pathlib.Path(actor_staging.__file__).is_relative_to(root); "
@@ -114,6 +117,7 @@ class CollectedEvidenceTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             verify_measurement(self.root, "guest", self.gates)
 
+
     def test_top_level_cleanup_claim_requires_fresh_helper_evidence(self):
         self.save(self.root / "100hz/app/stopped.json", dict(cleanupConfirmed=False))
         with self.assertRaises(RuntimeError):
@@ -126,6 +130,66 @@ class CollectedEvidenceTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             verify_measurement(self.root, "guest", self.gates)
 
+
+class PairedInputEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        from test_input_trace import InputTailTests, FIELDS as INPUT_FIELDS
+        from test_trace import stream
+        from input_trace_analysis import analyze
+        from trace_schedule import schedule
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.gates = {"baseline": {"sha256": "actual-gate-digest"}}
+        self.value = dict(schema=1, result="generator-limit", environment=dict(kind="owned-qemu-guest", instance="guest"),
+            functionalGate=False, physicalDevices=False, radioInitialized=False, physicalLatencyValidated=False,
+            applicationControllerExercised=True, applicationUiExercised=False, functionalGates=self.gates, cases=[],
+            attributionExperiment=dict(kind="paired-control-and-instrumented-copy", productionTuning=False,
+                cases=[name for name, _, _ in schedule("input")],
+                sourceOverlay=dict(schema=1, productionBinary=False, kind="instrumented-research-copy", traceKind="input")))
+        for name, rate, instrumented in schedule("input"):
+            fixture = InputTailTests()
+            fixture.fixture(6, rate)
+            directory = self.root / name
+            (directory / "app").mkdir(parents=True)
+            samples = stream(FIELDS, fixture.samples).read()
+            (directory / "samples.csv").write_text(samples)
+            self.save(directory / "probe.json", fixture.probe)
+            with (directory / "samples.csv").open() as source:
+                case = summarize(source, fixture.probe)
+            case.update(caseName=name, instrumented=instrumented, cleanupConfirmed=True,
+                        metricsAfter={"metrics": {"InputOverflows": 0}})
+            if instrumented:
+                (directory / "app/input-trace.csv").write_text(stream(INPUT_FIELDS, fixture.rows).read())
+                self.save(directory / "app/input-trace.json", fixture.meta)
+                case["attribution"] = analyze(stream(INPUT_FIELDS, fixture.rows), fixture.meta,
+                                              stream(FIELDS, fixture.samples), fixture.probe)
+            self.save(directory / "result.json", case)
+            self.save(directory / "app/stopped.json", dict(cleanupConfirmed=True))
+            self.save(directory / "fixture-before.json", dict(nodes=[dict(path="fixture", mode=432)]))
+            self.save(directory / "fixture-restored.json", [dict(path="fixture", mode=432)])
+            self.value["cases"].append(case)
+        self.save(self.root / "result.json", self.value)
+
+    @staticmethod
+    def save(path, value):
+        path.write_text(json.dumps(value))
+
+    def test_host_recomputes_the_four_case_input_schedule_from_raw_tail(self):
+        value = verify_measurement(self.root, "guest", self.gates)
+        self.assertEqual(len(value["cases"]), 4)
+
+    def test_top_level_and_case_agreement_cannot_hide_tampered_attribution(self):
+        self.value["cases"][1]["attribution"]["retainedEvents"] += 1
+        self.save(self.root / "result.json", self.value)
+        self.save(self.root / "1000hz-input-1/result.json", self.value["cases"][1])
+        with self.assertRaises(RuntimeError):
+            verify_measurement(self.root, "guest", self.gates)
+
+    def test_mixed_instrumentation_is_not_an_input_only_measurement(self):
+        (self.root / "1000hz-input-1/app/report-trace.json").write_text("{}")
+        with self.assertRaises(ValueError):
+            verify_measurement(self.root, "guest", self.gates)
 
 if __name__ == "__main__":
     unittest.main()

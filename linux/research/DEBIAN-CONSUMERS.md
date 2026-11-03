@@ -81,3 +81,15 @@ the image bytes, serial console and all namespace policies unchanged. This is
 a boot hypothesis, not a measured root cause. Failure now also retains QEMU's
 exit code before readiness; the independent namespace preflight still must pass
 before any GE experiment.
+
+The follow-up [run 41645341758](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41645341758)
+at `4109a34` booted the same image with emulated VGA and reached SSH in 14.36 s.
+The ordinary UID/GID 1000 namespace preflight passed with no network route;
+AppArmor remained enabled, and all recorded policy/process fields were identical
+before and after. Runtime ZIP SHA-256 is
+`758fe00807d1b29205851e6b8d3b6495c4d37e29501b316b57c8193c2685b9fa`.
+Preparation then stopped at `modinfo: command not found`: `kmod` was installed,
+but the ordinary account's PATH omitted its `/usr/sbin` directory. The adapter
+now uses the package's explicit `modinfo`/`modprobe` paths. No broker fixture,
+Windows consumer or GE runtime ran in this attempt; boot and namespace success
+do not imply their compatibility. QEMU and temporary host KVM ACL cleanup passed.

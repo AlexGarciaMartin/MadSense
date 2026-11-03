@@ -68,12 +68,13 @@ def verify_measurement(directory, token, functional_gates):
     cases = result.get("cases", [])
     if "attributionExperiment" in result:
         from trace_schedule import schedule
-        expected_cases = schedule()
+        from trace_variant import kind
         experiment = result["attributionExperiment"]
+        overlay = experiment.get("sourceOverlay", {})
+        expected_cases = schedule(kind(overlay))
         require(experiment.get("kind") == "paired-control-and-instrumented-copy"
                 and experiment.get("productionTuning") is False
                 and experiment.get("cases") == [name for name, _, _ in expected_cases], "Unexpected paired schedule")
-        overlay = experiment.get("sourceOverlay", {})
         require(overlay.get("schema") == 1 and overlay.get("productionBinary") is False
                 and overlay.get("kind") == "instrumented-research-copy", "Invalid source overlay provenance")
         require(len(cases) == len(expected_cases), "Missing paired attribution cases")
@@ -104,14 +105,14 @@ def verify_measurement(directory, token, functional_gates):
         restored = json.loads((path / "fixture-restored.json").read_text())
         require(original and original == restored, "Fixture permissions/identities differ after timing")
         if instrumented:
-            from trace_analysis import analyze as analyze_trace
-            metadata = json.loads((path / "app/report-trace.json").read_text())
-            with (path / "app/report-trace.csv").open(newline="") as trace_stream, (path / "samples.csv").open(newline="") as samples:
-                attribution = analyze_trace(trace_stream, metadata, samples, probe)
+            from trace_variant import analyze_directory
+            with (path / "samples.csv").open(newline="") as samples:
+                attribution = analyze_directory(path / "app", overlay, samples, probe)
             require(attribution == case.get("attribution"), "Attribution differs from collected raw trace/CSV")
         else:
-            require("attribution" not in case and not (path / "app/report-trace.csv").exists()
-                    and not (path / "app/report-trace.json").exists(), "Instrumented evidence labelled as control")
+            from trace_variant import require_control
+            require("attribution" not in case, "Instrumented evidence labelled as control")
+            require_control(path / "app")
     aggregate = next((value for value in ("no-samples", "transport-limit", "generator-limit")
                       if any(case["result"] == value for case in cases)), "measured")
     require(result["result"] == aggregate, "Aggregate result hides a measured limit")
@@ -137,6 +138,8 @@ def main():
         if args.trace_probe_directory is not None:
             source = args.trace_probe_directory.resolve()
             overlay = json.loads((source / "research-trace-overlay.json").read_text())
+            from trace_variant import kind
+            kind(overlay)  # Reject an unknown variant before boot or mutation.
             require(overlay.get("sourceCommit") == provenance["sourceCommit"]
                     and overlay.get("productionBinary") is False
                     and overlay.get("kind") == "instrumented-research-copy", "Overlay source differs from normal actors")

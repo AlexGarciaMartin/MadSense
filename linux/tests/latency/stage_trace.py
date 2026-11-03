@@ -15,6 +15,7 @@ import tarfile
 ROOT = Path(__file__).resolve().parents[3]
 PREFIX = "vendor/DualSenseClient/"
 TRACE = "DualSenseClient.Emulation.Research.ReportTrace"
+INPUT_TRACE = "MadSense.Linux.Research.InputTrace"
 
 
 def digest(data):
@@ -27,7 +28,40 @@ def replace_once(text, old, new):
     return text.replace(old, new, 1)
 
 
-def overlays():
+def input_overlays():
+    trace = INPUT_TRACE
+    return {
+        "linux/platform/LinuxPhysicalSession.cs": [
+            ("sealed record InputReport(byte[] Bytes, long ReceivedTimestamp);",
+             "sealed record InputReport(byte[] Bytes, long ReceivedTimestamp, long ResearchBrokerReadNs);"),
+            ("            var inputReport = new InputReport(report, timestamp);",
+             f"            {trace}.Record(1, report, timestamp, brokerReadNs, input.Reader.Count);\n"
+             "            var inputReport = new InputReport(report, timestamp, brokerReadNs);"),
+            ("                lock (inputAvailable) Monitor.PulseAll(inputAvailable);\n                return true;",
+             "                lock (inputAvailable) Monitor.PulseAll(inputAvailable);\n"
+             f"                {trace}.Record(2, report.Bytes, report.ReceivedTimestamp, report.ResearchBrokerReadNs, input.Reader.Count);\n"
+             "                return true;"),
+            ("            Interlocked.Decrement(ref queued);\n            return false;",
+             f"            {trace}.Record(3, report.Bytes, report.ReceivedTimestamp, report.ResearchBrokerReadNs, input.Reader.Count);\n"
+             "            Interlocked.Decrement(ref queued);\n            return false;"),
+            ("            BeginReading();\n            long deadline",
+             f"            BeginReading();\n            {trace}.ReadStarting();\n            long deadline"),
+            ("            Interlocked.Decrement(ref queued);\n            EnsureConnected();",
+             "            Interlocked.Decrement(ref queued);\n"
+             f"            {trace}.Record(4, report.Bytes, report.ReceivedTimestamp, report.ResearchBrokerReadNs, input.Reader.Count);\n"
+             "            EnsureConnected();")],
+        "linux/tests/app-integration/Program.cs": [
+            ("        long queued = 0;", f"        {trace}.Start(output);\n        long queued = 0;"),
+            ("                await bridge.DisposeAsync();",
+             f"                await bridge.DisposeAsync();\n                {trace}.StopAndSave();")],
+    }
+
+
+def overlays(trace_kind="stages"):
+    if trace_kind == "input":
+        return input_overlays()
+    if trace_kind != "stages":
+        raise ValueError("Unknown research trace kind")
     return {
         PREFIX + "DualSenseClient.Controllers/Devices/DualSenseDevice.cs": [
             ("InputReport report = new InputReport(data, offset, usbRaw);",
@@ -55,7 +89,15 @@ def overlays():
     }
 
 
-def stage(destination, root=ROOT):
+def recorder_paths(trace_kind="stages"):
+    if trace_kind == "input":
+        return ("linux/tests/latency/trace/InputTrace.cs", "linux/platform/ResearchInputTrace.cs")
+    if trace_kind == "stages":
+        return ("linux/tests/latency/trace/ReportTrace.cs", PREFIX + "DualSenseClient.Emulation/ResearchReportTrace.cs")
+    raise ValueError("Unknown research trace kind")
+
+
+def stage(destination, root=ROOT, trace_kind="stages"):
     destination = Path(destination).resolve()
     root = Path(root).resolve()
     if destination == root or destination.is_relative_to(root) or root.is_relative_to(destination):
@@ -71,7 +113,7 @@ def stage(destination, root=ROOT):
         destination.mkdir(parents=True)
         archive.extractall(destination, filter="data")
     changes = {}
-    for relative, edits in overlays().items():
+    for relative, edits in overlays(trace_kind).items():
         path = destination / relative
         original = path.read_bytes()
         text = original.decode("utf-8").replace("\r\n", "\n")
@@ -80,9 +122,10 @@ def stage(destination, root=ROOT):
         path.write_text(text, encoding="utf-8", newline="\n")
         changes[relative] = dict(originalSha256=digest(original), instrumentedSha256=digest(path.read_bytes()))
     # The recorder is taken from the same committed archive, never an unstaged
-    # developer file. Default SDK globs add it only to the copied Emulation tree.
-    recorder = destination / "linux/tests/latency/trace/ReportTrace.cs"
-    target = destination / PREFIX / "DualSenseClient.Emulation/ResearchReportTrace.cs"
+    # developer file. SDK globs include it only in the selected copied project.
+    recorder_name, target_name = recorder_paths(trace_kind)
+    recorder = destination / recorder_name
+    target = destination / target_name
     if target.exists():
         raise ValueError("Research recorder collides with an existing source file.")
     target.write_bytes(recorder.read_bytes())
@@ -90,6 +133,8 @@ def stage(destination, root=ROOT):
         instrumentedSha256=digest(target.read_bytes()), copiedFrom=recorder.relative_to(destination).as_posix())
     value = dict(schema=1, sourceCommit=revision, kind="instrumented-research-copy",
                  productionBinary=False, sourceArchiveSha256=digest(data), changes=changes)
+    if trace_kind != "stages":
+        value["traceKind"] = trace_kind
     (destination / "research-trace-overlay.json").write_text(json.dumps(value, indent=2) + "\n")
     return value
 
@@ -97,5 +142,6 @@ def stage(destination, root=ROOT):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--kind", choices=("stages", "input"), default="stages")
     options = parser.parse_args()
-    print(json.dumps(stage(options.output), indent=2))
+    print(json.dumps(stage(options.output, trace_kind=options.kind), indent=2))

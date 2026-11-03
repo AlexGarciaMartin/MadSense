@@ -12,6 +12,11 @@ on:
         type: boolean
         required: false
         default: false
+      trace_input:
+        description: '1000 Hz control/client-input-tail/client-input-tail/control (exclusive with trace_stages)'
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [feature/linux]
     paths:
@@ -52,6 +57,9 @@ jobs:
           set -o pipefail
           dotnet run --project linux/tests/latency/trace-tests/Trace.Tests.csproj -c Release -- concurrent | tee dist/latency-observer/trace-concurrent.txt
           dotnet run --project linux/tests/latency/trace-tests/Trace.Tests.csproj -c Release --no-build -- overflow | tee dist/latency-observer/trace-overflow.txt
+          dotnet run --project linux/tests/latency/input-trace-tests/InputTrace.Tests.csproj -c Release -- concurrent | tee dist/latency-observer/input-concurrent.txt
+          dotnet run --project linux/tests/latency/input-trace-tests/InputTrace.Tests.csproj -c Release --no-build -- tail | tee dist/latency-observer/input-tail.txt
+          dotnet run --project linux/tests/latency/input-trace-tests/InputTrace.Tests.csproj -c Release --no-build -- collision | tee dist/latency-observer/input-collision.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -66,6 +74,11 @@ jobs:
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
+      - name: Require one explicit instrumentation variant
+        if: inputs.trace_stages && inputs.trace_input
+        run: |
+          echo 'trace_stages and trace_input are mutually exclusive' >&2
+          exit 2
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -75,11 +88,12 @@ jobs:
           dotnet publish linux/platform/integration/MadSense.Linux.CoreProbe.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o dist/core-probe
           dotnet publish linux/tests/app-integration/MadSense.Linux.AppProbe.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o dist/app-probe
       - name: Publish a separate source overlay for internal attribution
-        if: inputs.trace_stages
+        if: inputs.trace_stages || inputs.trace_input
         env:
           TRACE_SOURCE: ${{ runner.temp }}/madsense-trace-source-${{ github.run_id }}-${{ github.run_attempt }}
+          TRACE_KIND: ${{ inputs.trace_input && 'input' || 'stages' }}
         run: |
-          python3 linux/tests/latency/stage_trace.py --output "$TRACE_SOURCE"
+          python3 linux/tests/latency/stage_trace.py --output "$TRACE_SOURCE" --kind "$TRACE_KIND"
           dotnet publish "$TRACE_SOURCE/linux/tests/app-integration/MadSense.Linux.AppProbe.csproj" -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -p:SourceRevisionId="$GITHUB_SHA" -o dist/app-probe-trace
           cp "$TRACE_SOURCE/research-trace-overlay.json" dist/app-probe-trace/
       - name: Install tools for the pinned signed guest
@@ -93,7 +107,7 @@ jobs:
           sudo -n python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-root.json
       - name: Functional gates and independent timing in the same owned VM
         env:
-          TRACE_STAGES: ${{ inputs.trace_stages && 'true' || 'false' }}
+          TRACE_STAGES: ${{ (inputs.trace_stages || inputs.trace_input) && 'true' || 'false' }}
         run: |
           trace_arguments=()
           if [[ "$TRACE_STAGES" == true ]]; then

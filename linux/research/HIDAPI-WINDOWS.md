@@ -89,6 +89,26 @@ remain mandatory. New execution is still required; no missing path is relabelled
 as a successful HIDAPI write. The original Wine 9 ContainerId and strict 47/48
 failures remain intact.
 
+The follow-up [run 41645306210](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41645306210)
+at `4109a34` executed all four HIDAPI cases (default/UDEV, south/neutral) after
+successful RGB preparation and clear. Each returned `listReturned=false` and
+`Failed to get size of HID device interface list`, before feature/read/write.
+Runtime ZIP SHA-256 is
+`c6ea328a2c4d430fe07e2d850a67afef3da687ac256d6e9ab1853cad27f79337`.
+SDL remained 4/4; both accounts/ACLs and the final raw observer were cleaned up.
+The clock/reset harness defects no longer mask the actual enumeration failure.
+
+This is specific to the real HIDAPI 0.15 API path. Its pinned
+[enumerator](https://github.com/libusb/hidapi/blob/d6b2a974608dec3b76fb1e36c189f22b9cf3650c/windows/hid.c#L836)
+first calls `CM_Get_Device_Interface_List_SizeW`. Upstream
+[Wine 9](https://github.com/wine-mirror/wine/blob/wine-9.0/dlls/setupapi/stubs.c#L367)
+and [Wine 10](https://github.com/wine-mirror/wine/blob/wine-10.0/dlls/setupapi/stubs.c#L367)
+return `CR_FAILURE` there. The observed Wine 9 error identifies that same branch.
+GE's pinned [Wine implementation](https://github.com/ValveSoftware/wine/blob/c53678ab22a85f0fad3588dd34f0452a463bd015/dlls/cfgmgr32/cfgmgr32.c)
+implements interface sizing/list enumeration; its runtime still needs to be tested.
+This does not establish failure of older HIDAPI builds, SDL's vendored backend,
+other Windows APIs or any game, and it does not change the full-MAC selection gate.
+
 Both PE observers record the actual loaded Wine's `wine_get_build_id` separately
 from its version, executable digest and source pin. A missing export produces
 JSON null; GE requires a nonempty observed build ID when the PE actually runs.
