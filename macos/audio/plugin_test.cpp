@@ -7,6 +7,7 @@
 #include <chrono>
 #include <thread>
 #include <limits>
+#include <cmath>
 #include <sys/wait.h>
 
 extern "C" void* MadSenseAudio_Create(CFAllocatorRef, CFUUIDRef);
@@ -69,10 +70,24 @@ int main() {
     AudioServerPlugInClientInfo client{42, getpid(), true, CFSTR("org.madsense.audio.test")};
     require((*driver)->AddDeviceClient(driver, kDevice, &client) == noErr, "register client");
     require((*driver)->StartIO(driver, kDevice, client.mClientID) == noErr, "start IO");
+    auto clockAddress = address(kAudioDevicePropertyZeroTimeStampPeriod);
+    UInt32 timestampPeriod = 0;
+    require((*driver)->GetPropertyData(driver, kDevice, getpid(), &clockAddress, 0, nullptr,
+        sizeof(timestampPeriod), &written, &timestampPeriod) == noErr && written == sizeof(timestampPeriod),
+        "timestamp period property");
+    require(timestampPeriod == kTimestampPeriodFrames && timestampPeriod >= 10923,
+        "timestamp period must meet the AudioServerPlugIn SDK minimum");
+    Float64 lastClockSample = 0;
+    UInt64 lastClockHost = 0, lastClockSeed = 0;
     auto clockSeed = [&]() {
         Float64 sample = 0; UInt64 ticks = 0, seed = 0;
         require((*driver)->GetZeroTimeStamp(driver, kDevice, client.mClientID, &sample, &ticks, &seed) == noErr &&
             ticks > 0 && seed > 0, "device clock");
+        require(sample >= 0 && std::fmod(sample, timestampPeriod) == 0,
+            "zero timestamp must be aligned to the advertised period");
+        if (seed == lastClockSeed)
+            require(sample >= lastClockSample && ticks >= lastClockHost, "same clock timeline must not move backwards");
+        lastClockSample = sample; lastClockHost = ticks; lastClockSeed = seed;
         return seed;
     };
     const uint64_t firstClockSeed = clockSeed();
@@ -144,6 +159,7 @@ int main() {
     require(packet.frames == 0 && packet.activeClients == 1 && packet.generation != restartedGeneration,
         "lease expiry must discard queued PCM and change generation");
     require(clockSeed() == restartedClockSeed, "lease recovery must not reset the HAL clock");
+    require(lastClockSample >= timestampPeriod, "zero timestamp must advance after the elapsed lifecycle interval");
     require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
         kAudioServerPlugInIOOperationWriteMix, 64, &cycle, frames, nullptr) == noErr, "write after lease renewal");
     uint64_t resumedGeneration = packet.generation;

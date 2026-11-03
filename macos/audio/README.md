@@ -101,6 +101,13 @@ requires flushing partially assembled PCM before accepting subsequent frames.
 The CFData packet protocol is version 2; package the matching plugin, consumer
 library, and backend together. An older protocol is rejected by the consumer.
 
+The device advertises a 16,384-frame zero-timestamp period, matching Apple's
+NullAudio example and exceeding the SDK's documented 10,923-frame minimum.
+The same constant controls the clock calculation. This is clock granularity,
+not PCM queue capacity or a requested client buffer size. It does not eliminate
+CoreAudio resynchronization under load; the isolated research probe retains
+those repeated-frame failures for further recovery work.
+
 The plugin's realtime callback only copies into a lock-free bounded SPSC queue.
 The ordinary CoreAudio property thread serializes reads and marshals supported
 `CFData` property lists. Each read returns at most 480 frames (10 ms), in FIFO order.

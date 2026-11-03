@@ -19,6 +19,8 @@ frames** on both architectures. The actual runner's Apple SDK documents a
 minimum of 10923 frames for `kAudioDevicePropertyZeroTimeStampPeriod`; 256 is
 retained only as the known noncompliant control. The generated variants differ
 in one constant shared by the property and `GetZeroTimeStamp` calculation.
+Production uses the compliant 16384 constant; the generator overrides its three
+uses only in the isolated source copy to preserve the explicit 256 control.
 Queue capacity, drop thresholds, nominal sample rate and reader behavior do
 not change, and no client buffer size is requested. HAL may choose a different
 buffer size, which the probe records. No discontinuity-discard policy is added.

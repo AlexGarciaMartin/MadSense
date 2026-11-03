@@ -38,6 +38,8 @@ class InstrumentationTests(unittest.TestCase):
         self.assertIn('copyValue<UInt32>(kResearchTimestampPeriod, capacity, written, out)', compliant)
         self.assertIn('ticksPerFrame * kResearchTimestampPeriod', compliant)
         self.assertIn('*sample = periods * kResearchTimestampPeriod;', compliant)
+        self.assertNotIn('kTimestampPeriodFrames', baseline)
+        self.assertNotIn('kTimestampPeriodFrames', compliant)
 
     def test_arbitrary_period_not_accepted(self):
         with self.assertRaises(ValueError):

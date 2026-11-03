@@ -18,10 +18,10 @@ def instrument(source: str, timestamp_period: int = 256) -> str:
     replace('#include "AudioProtocol.hpp"', '#include "AudioProtocol.hpp"\n#include "AudioIngressTrace.hpp"')
     replace('AudioRing ring;', 'AudioRing ring;\naudio_probe::IngressTrace ingressTrace;\n'
             f'constexpr UInt32 kResearchTimestampPeriod = {timestamp_period};')
-    replace('copyValue<UInt32>(256, capacity, written, out)',
+    replace('copyValue<UInt32>(kTimestampPeriodFrames, capacity, written, out)',
             'copyValue<UInt32>(kResearchTimestampPeriod, capacity, written, out)')
-    replace('ticksPerFrame * 256', 'ticksPerFrame * kResearchTimestampPeriod')
-    replace('*sample = periods * 256;', '*sample = periods * kResearchTimestampPeriod;')
+    replace('ticksPerFrame * kTimestampPeriodFrames', 'ticksPerFrame * kResearchTimestampPeriod')
+    replace('*sample = periods * kTimestampPeriodFrames;', '*sample = periods * kResearchTimestampPeriod;')
     replace('const AudioServerPlugInCustomPropertyInfo customProperties[] = {',
             'const AudioServerPlugInCustomPropertyInfo customProperties[] = {\n'
             '    {audio_probe::kIngressProperty, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, '

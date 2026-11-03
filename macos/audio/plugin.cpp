@@ -249,7 +249,7 @@ OSStatus getProperty(AudioServerPlugInDriverRef, AudioObjectID id, pid_t pid,
         case kAudioStreamPropertyStartingChannel: return copyValue<UInt32>(1, capacity, written, out);
         case kAudioDevicePropertyDeviceIsRunning: return copyValue<UInt32>(running.load() ? 1 : 0, capacity, written, out);
         case kAudioDevicePropertyRelatedDevices: return copyValue<UInt32>(kDevice, capacity, written, out);
-        case kAudioDevicePropertyZeroTimeStampPeriod: return copyValue<UInt32>(256, capacity, written, out);
+        case kAudioDevicePropertyZeroTimeStampPeriod: return copyValue<UInt32>(kTimestampPeriodFrames, capacity, written, out);
         case kAudioStreamPropertyTerminalType: return copyValue<UInt32>(kAudioStreamTerminalTypeSpeaker, capacity, written, out);
         // Never become the system's automatic output or alerts device.
         case kAudioDevicePropertyDeviceCanBeDefaultDevice:
@@ -416,8 +416,8 @@ OSStatus stopIO(AudioServerPlugInDriverRef, AudioObjectID id, UInt32 clientID) {
 OSStatus zeroTime(AudioServerPlugInDriverRef, AudioObjectID id, UInt32, Float64* sample, UInt64* ticks, UInt64* seed) {
     if (id != kDevice || !sample || !ticks || !seed) return kAudioHardwareBadObjectError;
     uint64_t base = anchor.load();
-    double periods = std::floor((mach_absolute_time() - base) / (ticksPerFrame * 256));
-    *sample = periods * 256;
+    double periods = std::floor((mach_absolute_time() - base) / (ticksPerFrame * kTimestampPeriodFrames));
+    *sample = periods * kTimestampPeriodFrames;
     *ticks = base + static_cast<uint64_t>(*sample * ticksPerFrame);
     *seed = timestampSeed.load(); return noErr;
 }
