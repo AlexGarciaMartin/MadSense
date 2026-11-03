@@ -37,5 +37,12 @@ int main() {
     sequence.observe(103);
     sequence.observe(106);
     require(sequence.gaps == 3 && sequence.nonIncreasing == 2 && sequence.last == 106);
+    // Reproduces the size of the first CI failure: one repeated 96-frame
+    // callback must remain a failure, then allow the forward sequence to resume.
+    audio_probe::Sequence repeated;
+    for (uint64_t i = 0; i < 192; ++i) require(repeated.observe(i));
+    for (uint64_t i = 96; i < 192; ++i) require(!repeated.observe(i));
+    require(repeated.nonIncreasing == 96 && repeated.last == 191 && repeated.gaps == 0);
+    require(repeated.observe(192));
     std::cout << "Audio probe marker and continuity tests passed\n";
 }

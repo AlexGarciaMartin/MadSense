@@ -12,6 +12,7 @@
 #include <sys/proc.h>
 #include <unistd.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -128,6 +129,8 @@ struct Signal {
     // An unexpectedly smaller callback fails explicitly instead of wrapping.
     std::vector<CallbackRecord> records;
     std::atomic<uint32_t> published{0};
+    std::atomic_flag callbackActive = ATOMIC_FLAG_INIT;
+    std::atomic<uint32_t> callbackOverlaps{0};
     std::atomic<bool> failed{false};
     uint64_t produced = 0; // callback-only until AudioDeviceStop completes
     explicit Signal(unsigned seconds) : records((seconds + 10) * 3000 + 1) {}
@@ -136,6 +139,17 @@ OSStatus output(AudioDeviceID, const AudioTimeStamp*, const AudioBufferList*, co
                 AudioBufferList* buffers, const AudioTimeStamp* presentation, void* context) {
     const uint64_t entered = mach_absolute_time();
     auto& signal = *static_cast<Signal*>(context);
+    if (signal.callbackActive.test_and_set(std::memory_order_acquire)) {
+        // Unexpected parallel callbacks would invalidate the source sequence
+        // and plain immutable-record publication. Preserve that diagnosis and
+        // leave this callback's HAL-zeroed output alone, rather than race.
+        signal.callbackOverlaps.fetch_add(1, std::memory_order_relaxed);
+        return noErr;
+    }
+    struct Exit {
+        Signal& signal;
+        ~Exit() { signal.callbackActive.clear(std::memory_order_release); }
+    } exit{signal};
     if (!buffers || buffers->mNumberBuffers != 1 || buffers->mBuffers[0].mNumberChannels != 4 ||
         !buffers->mBuffers[0].mData || buffers->mBuffers[0].mDataByteSize % (4 * sizeof(float))) {
         signal.failed.store(true, std::memory_order_relaxed);
@@ -224,7 +238,7 @@ void controls(AudioDeviceID device, Consumer& consumer, unsigned iterations) {
     });
 }
 
-void trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned warmup,
+bool trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned warmup,
            unsigned trialIndex, bool elevated, unsigned idleMs) {
     Scheduling scheduling(elevated);
     Signal signal(seconds + warmup);
@@ -243,6 +257,14 @@ void trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
     uint64_t lastReadEnd = 0, received = 0, silent = 0, changes = 0, empty = 0, full = 0;
     uint64_t missingPresentation = 0, activeZero = 0;
     audio_probe::Sequence sequence;
+    audio_probe::Marker highestMarker{};
+    struct Violation {
+        uint64_t readCall, readStarted, readEnded, previous, current, dropped, generation;
+        uint32_t frameIndex, framesInRead, published;
+        audio_probe::Marker previousMarker, currentMarker;
+    };
+    std::array<Violation, 32> violations{};
+    size_t violationCount = 0;
     Cpu before{};
     ReadBlock block{};
     while (true) {
@@ -274,7 +296,12 @@ void trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
                 require(marker.callback <= published && marker.callback < signal.records.size(), "Unknown callback marker");
                 const auto& record = signal.records[marker.callback];
                 require(marker.offset < record.frames && record.finished <= readEnded, "Invalid frame offset or callback time");
-                sequence.observe(record.firstFrame + marker.offset);
+                const uint64_t current = record.firstFrame + marker.offset, previous = sequence.last;
+                if (sequence.observe(current)) highestMarker = marker;
+                else if (violationCount < violations.size()) {
+                    violations[violationCount++] = {rpc.size(), readStarted, readEnded, previous, current,
+                        block.dropped, block.generation, frame, block.frames, published, highestMarker, marker};
+                }
                 age.push_back(elapsedMs(readEnded, record.entered));
                 if (record.presentation) {
                     // Signed offset from the scheduled presentation of THIS frame.
@@ -306,7 +333,8 @@ void trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
         if (previousCallback) callbackGap.push_back(elapsedMs(record.entered, previousCallback));
         previousCallback = record.entered;
     }
-    const bool integrity = sequence.nonIncreasing == 0 && !age.empty();
+    const uint32_t callbackOverlaps = signal.callbackOverlaps.load();
+    const bool integrity = sequence.nonIncreasing == 0 && !age.empty() && callbackOverlaps == 0;
     const bool discontinuity = changes != 0 || activeZero != 0;
     std::cout << "{\"kind\":\"audio_path_trial\",\"trial\":" << trialIndex
               << ",\"data_integrity\":" << (integrity ? "true" : "false")
@@ -320,6 +348,7 @@ void trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
               << ",\"dropped_delta\":" << lastDropped - baselineDropped
               << ",\"sequence_gap_frames\":" << sequence.gaps << ",\"nonincreasing_frames\":" << sequence.nonIncreasing
               << ",\"generation_changes\":" << changes << ",\"empty_reads\":" << empty << ",\"full_reads\":" << full
+              << ",\"callback_overlaps\":" << callbackOverlaps
               << ",\"reads_without_active_client\":" << activeZero
               << ",\"frames_without_presentation_timestamp\":" << missingPresentation;
     printCpu(before, after);
@@ -334,9 +363,32 @@ void trial(AudioDeviceID device, Consumer& consumer, unsigned seconds, unsigned 
         if (!first) std::cout << ',';
         first = false; std::cout << '\"' << pair.first << "\":" << pair.second;
     }
-    std::cout << "}}\n" << std::flush;
-    require(!age.empty(), "No valid measured four-channel signal");
-    require(sequence.nonIncreasing == 0, "Duplicate or reordered PCM detected");
+    std::cout << "},\"first_nonincreasing_frames\":[";
+    for (size_t i = 0; i < violationCount; ++i) {
+        const auto& v = violations[i];
+        const auto& previousRecord = signal.records[v.previousMarker.callback];
+        const auto& currentRecord = signal.records[v.currentMarker.callback];
+        if (i) std::cout << ',';
+        std::cout << "{\"read_call\":" << v.readCall << ",\"read_frame_index\":" << v.frameIndex
+                  << ",\"frames_in_read\":" << v.framesInRead << ",\"published_callback\":" << v.published
+                  << ",\"previous_highest_sequence\":" << v.previous << ",\"current_sequence\":" << v.current
+                  << ",\"previous_callback\":" << v.previousMarker.callback
+                  << ",\"previous_offset\":" << v.previousMarker.offset
+                  << ",\"current_callback\":" << v.currentMarker.callback
+                  << ",\"current_offset\":" << v.currentMarker.offset
+                  << ",\"previous_callback_frames\":" << previousRecord.frames
+                  << ",\"current_callback_frames\":" << currentRecord.frames
+                  << ",\"previous_callback_entered_ticks\":" << previousRecord.entered
+                  << ",\"current_callback_entered_ticks\":" << currentRecord.entered
+                  << ",\"current_callback_presentation_ticks\":" << currentRecord.presentation
+                  << ",\"read_started_ticks\":" << v.readStarted << ",\"read_ended_ticks\":" << v.readEnded
+                  << ",\"read_ended_trial_ms\":" << elapsedMs(v.readEnded, started)
+                  << ",\"dropped_frames\":" << v.dropped << ",\"generation\":" << v.generation << '}';
+    }
+    std::cout << "]}\n" << std::flush;
+    // Keep later policy comparisons available, while latching an unsuccessful
+    // process exit. No duplicate is reclassified as valid or hidden from data.
+    return integrity && !discontinuity;
 }
 
 unsigned positive(const char* value, unsigned max) {
@@ -373,17 +425,19 @@ int main(int argc, char** argv) {
                   << blockSize << ",\"consumer_abi\":" << ms_audio_abi_version()
                   << ",\"timebase_numer\":" << timebase.numer << ",\"timebase_denom\":" << timebase.denom << "}\n";
         controls(device, consumer, iterations);
+        bool allValid = true;
         for (unsigned i = 1; i <= trials; ++i) {
             // Alternate order to reduce the bias of warming the same VM.
             if (i % 2) {
-                trial(device, consumer, seconds, warmup, i, false, 5);
-                trial(device, consumer, seconds, warmup, i, true, 1);
+                allValid = trial(device, consumer, seconds, warmup, i, false, 5) && allValid;
+                allValid = trial(device, consumer, seconds, warmup, i, true, 1) && allValid;
             } else {
-                trial(device, consumer, seconds, warmup, i, true, 1);
-                trial(device, consumer, seconds, warmup, i, false, 5);
+                allValid = trial(device, consumer, seconds, warmup, i, true, 1) && allValid;
+                allValid = trial(device, consumer, seconds, warmup, i, false, 5) && allValid;
             }
         }
-        return 0;
+        if (!allValid) std::cerr << "Audio research completed with one or more invalid trials; see retained diagnostics.\n";
+        return allValid ? 0 : 1;
     } catch (const std::exception& error) {
         std::cerr << "Audio research failed: " << error.what() << '\n';
         return 1;

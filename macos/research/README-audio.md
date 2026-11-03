@@ -66,10 +66,19 @@ JSON statistics report count, minimum, p50, p95, p99 and maximum in milliseconds
   the reader cost; both policies use the same instrumentation.
 
 `data_integrity` requires nonempty verified PCM with no duplicate/reordered
-frames. `stream_discontinuity` records a generation change or a read with no
+frames or overlapping source callbacks. A lock-free guard detects unexpected
+concurrent IOProc invocation, leaves that callback's HAL-zeroed output alone,
+and invalidates the trial instead of allowing metadata races.
+`stream_discontinuity` records a generation change or a read with no
 active output client. `measurement_valid` additionally requires no such
 discontinuity. These flags do not hide the counters or claim zero frame loss:
 drops and gaps remain separate, and age statistics describe received frames.
+`first_nonincreasing_frames` retains up to 32 violations with the prior highest
+and current callback/offset/sequence, reader call/frame index, native drop and
+generation counters, and raw mach timestamps. These timestamps can be compared
+with CoreAudio overload logs on the same host. Later trial pairs still run
+after a continuity failure; the final process exit remains unsuccessful if
+any trial was invalid. RPC/layout/corrupt-marker errors still abort immediately.
 
 This is a software path experiment on shared CI VMs. It does not measure
 Bluetooth transmission, Opus/forwarder buffering, USB transfers, controller

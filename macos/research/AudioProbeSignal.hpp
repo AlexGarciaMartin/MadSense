@@ -38,13 +38,14 @@ inline bool silent(const float* in) noexcept {
 struct Sequence {
     bool seen = false;
     uint64_t last = 0, gaps = 0, nonIncreasing = 0;
-    void observe(uint64_t value) noexcept {
+    bool observe(uint64_t value) noexcept {
         if (seen) {
-            if (value <= last) { ++nonIncreasing; return; }
+            if (value <= last) { ++nonIncreasing; return false; }
             gaps += value - last - 1;
         }
         last = value;
         seen = true;
+        return true;
     }
 };
 }
