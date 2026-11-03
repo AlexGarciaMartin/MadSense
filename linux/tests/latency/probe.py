@@ -98,9 +98,11 @@ def build(directory):
     return executable
 
 
-def run(fixture, usb, hidraw, directory, executable, actor_pid, broker_pid, token, rate):
+def run(fixture, usb, hidraw, directory, executable, actor_pid, broker_pid, token, rate, *, nonce=None):
     require(os.geteuid() == 0 and validate_environment(token)["kind"] == "owned-qemu-guest", "Owned root guest required")
     require(rate in (100, 1000), "Only initial 100/1000 Hz smoke rates are supported")
+    nonce = 0x8000 + secrets.randbelow(0x8000) if nonce is None else nonce
+    require(type(nonce) is int and 0x8000 <= nonce <= 0xffff, "Explicit valid per-case nonce required")
     result = dict(result="invalid", cleanupConfirmed=False)
     enabled, child, target = fixture.input_enabled, None, -1
     stdout, stderr = b"", b""
@@ -117,7 +119,7 @@ def run(fixture, usb, hidraw, directory, executable, actor_pid, broker_pid, toke
             inherited = (fixture.fd, target, samples_file.fileno(), template_file.fileno())
             argv = [str(executable), "--uhid-fd", str(inherited[0]), "--virtual-fd", str(inherited[1]),
                     "--samples-fd", str(inherited[2]), "--template-fd", str(inherited[3]),
-                    "--rate", str(rate), "--seconds", "10", "--nonce", str(0x8000 + secrets.randbelow(0x8000))]
+                    "--rate", str(rate), "--seconds", "10", "--nonce", str(nonce)]
             before = {name: process_sample(pid) for name, pid in (("application", actor_pid), ("broker", broker_pid), ("coordinator", os.getpid()))}
             child = subprocess.Popen(argv, pass_fds=inherited, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = child.communicate(timeout=18)
@@ -128,6 +130,7 @@ def run(fixture, usb, hidraw, directory, executable, actor_pid, broker_pid, toke
              scope="whole-process CPU ticks including all live threads; coordinator includes UHID fixture thread"))
         require(child.returncode == 0, f"Timing probe exit {child.returncode}")
         raw = json.loads(stdout)
+        require(raw.get("nonce") == nonce, "C producer recorded a different nonce")
         save(directory / "probe.json", raw)
         with samples.open(newline="") as stream:
             result = summarize(stream, raw)

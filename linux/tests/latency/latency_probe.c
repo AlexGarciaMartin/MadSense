@@ -207,11 +207,11 @@ int main(int argc, char **argv) {
     }
     int saved = !ferror(samples) && fflush(samples) == 0;
     if (fclose(samples)) saved = 0;
-    printf("{\"schema\":1,\"rate\":%u,\"nominalSamples\":%u,\"attempted\":%u,\"written\":%u,"
+    printf("{\"schema\":1,\"nonce\":%u,\"rate\":%u,\"nominalSamples\":%u,\"attempted\":%u,\"written\":%u,"
            "\"deadlineSkipped\":%u,\"matched\":%u,\"inputReads\":%" PRIu64 ",\"unmatched\":%" PRIu64
            ",\"malformedMatches\":%" PRIu64 ",\"reordered\":%" PRIu64 ",\"fatalErrno\":%d,\"samplesSaved\":%s,"
            "\"timingClockPairMinNs\":%" PRIu64 ",\"timingClockPairMaxNs\":%" PRIu64 ",\"probeUserCpuUs\":%ld,\"probeSystemCpuUs\":%ld}\n",
-           ctx.rate, ctx.count, attempted, writes, skipped, matched, ctx.input_reads, ctx.unmatched,
+           ctx.nonce, ctx.rate, ctx.count, attempted, writes, skipped, matched, ctx.input_reads, ctx.unmatched,
            ctx.malformed, ctx.reordered, atomic_load(&ctx.fatal), saved ? "true" : "false", clock_pair_min, clock_pair_max,
            (usage_after.ru_utime.tv_sec - usage_before.ru_utime.tv_sec) * 1000000L + usage_after.ru_utime.tv_usec - usage_before.ru_utime.tv_usec,
            (usage_after.ru_stime.tv_sec - usage_before.ru_stime.tv_sec) * 1000000L + usage_after.ru_stime.tv_usec - usage_before.ru_stime.tv_usec);

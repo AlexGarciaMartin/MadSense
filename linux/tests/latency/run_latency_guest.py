@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import secrets
 import shutil
 import stat
 import subprocess
@@ -31,7 +32,7 @@ def load(path):
     return json.loads(path.read_text()) if path.exists() else None
 
 
-def case(args, output, executable, rate):
+def case(args, output, executable, rate, *, trace_directory=None):
     output.mkdir()
     result = dict(rateHz=rate, result="invalid", cleanupConfirmed=False)
     user = "madsense-lat-" + uuid.uuid4().hex[:12]
@@ -40,6 +41,7 @@ def case(args, output, executable, rate):
     fixture = process = log = baseline = None
     created_user, root_created, commands = False, False, 0
     files = []
+    nonce = 0x8000 + secrets.randbelow(0x8000)
 
     def command(label, argv):
         completed = subprocess.run([str(item) for item in argv], capture_output=True, timeout=30)
@@ -102,7 +104,7 @@ def case(args, output, executable, rate):
         private.mkdir(mode=0o755)
         root_created = True
         private.chmod(0o755)
-        actor_executable = stage_probe(args.probe_directory, private / "probe", "MadSense.Linux.AppProbe")
+        actor_executable = stage_probe(trace_directory or args.probe_directory, private / "probe", "MadSense.Linux.AppProbe")
         verify_actor_execution(private, actor_executable, account, output / "actor-staging.json")
         actor.mkdir(mode=0o700)
         os.chown(actor, account.pw_uid, account.pw_gid)
@@ -127,7 +129,9 @@ def case(args, output, executable, rate):
         process = subprocess.Popen([actor_executable, "--owned-guest-token", args.owned_guest_token,
             "--device", str(fixture.hidraw), "--fixture-label", fixture.label, "--output", str(actor)],
             stdout=log, stderr=log, cwd=private, user=account.pw_uid, group=account.pw_gid, extra_groups=[],
-            env={**os.environ, "HOME": str(actor), "DOTNET_CLI_HOME": str(actor)})
+            env={**{key: value for key, value in os.environ.items() if key != "MADSENSE_TRACE_NONCE"},
+                 "HOME": str(actor), "DOTNET_CLI_HOME": str(actor),
+                 **({"MADSENSE_TRACE_NONCE": str(nonce)} if trace_directory is not None else {})})
         state(lambda current: current["paused"])
         action("resume")
         fixture.input_enabled = True
@@ -143,7 +147,7 @@ def case(args, output, executable, rate):
         broker_pid = int(command("broker-pid", ["systemctl", "show", "--value", "--property=MainPID", "madsense-broker.service"]).stdout)
         require(broker_pid > 1, "No active broker")
         result = run(fixture, usb, Path("/dev", raw[0].name), output, executable,
-                     process.pid, broker_pid, args.owned_guest_token, rate)
+                     process.pid, broker_pid, args.owned_guest_token, rate, nonce=nonce)
         # Freeze the session after the finite C run, including an overflow that
         # may have initiated recovery/reconnect. It is not a functional failure.
         action("pause")
@@ -158,6 +162,14 @@ def case(args, output, executable, rate):
         require(process.wait(timeout=30) == 0, "Application disposal failed")
         stopped = load(actor / "stopped.json")
         require(stopped and stopped.get("cleanupConfirmed") is True and idle(), "Missing fresh helper/kernel/ACL cleanup confirmation")
+        if trace_directory is not None:
+            from trace_analysis import analyze as analyze_trace
+            with (actor / "report-trace.csv").open(newline="") as trace_stream, (output / "samples.csv").open(newline="") as sample_stream:
+                result["attribution"] = analyze_trace(trace_stream, load(actor / "report-trace.json"),
+                                                     sample_stream, load(output / "probe.json"))
+        else:
+            require(not (actor / "report-trace.csv").exists() and not (actor / "report-trace.json").exists(),
+                    "Control unexpectedly contains instrumented evidence")
         result["cleanupConfirmed"] = True
     except BaseException as error:
         result["result"] = "invalid"
@@ -216,6 +228,7 @@ def main():
     parser.add_argument("--app-result", type=Path, required=True)
     parser.add_argument("--upgrade-result", type=Path, required=True)
     parser.add_argument("--probe-directory", type=Path, required=True)
+    parser.add_argument("--trace-probe-directory", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     require(os.geteuid() == 0, "Root guest observer required")
@@ -234,8 +247,21 @@ def main():
                   functionalGates=gate_records, cases=[])
     try:
         executable = build(output)
-        for rate in (100, 1000):
-            measured = case(args, output / f"{rate}hz", executable, rate)
+        if args.trace_probe_directory is None:
+            schedule = [(f"{rate}hz", rate, False) for rate in (100, 1000)]
+        else:
+            from trace_schedule import schedule as paired_schedule
+            schedule = paired_schedule()
+            result["attributionExperiment"] = dict(kind="paired-control-and-instrumented-copy",
+                cases=[name for name, _, _ in schedule], productionTuning=False,
+                sourceOverlay=load(args.trace_probe_directory / "research-trace-overlay.json"))
+            require(result["attributionExperiment"]["sourceOverlay"], "Missing source overlay provenance")
+        for name, rate, instrumented in schedule:
+            measured = case(args, output / name, executable, rate,
+                            trace_directory=args.trace_probe_directory if instrumented else None)
+            if args.trace_probe_directory is not None:
+                measured.update(caseName=name, instrumented=instrumented)
+                save(output / name / "result.json", measured)
             result["cases"].append(measured)
             require(measured["result"] != "invalid" and measured["cleanupConfirmed"], "Invalid timing evidence or unconfirmed cleanup")
         result["result"] = next((value for value in ("no-samples", "transport-limit", "generator-limit")

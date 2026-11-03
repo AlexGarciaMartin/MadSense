@@ -158,3 +158,46 @@ booting another guest. The current functional launcher is unchanged. A completed
 workflow's already stopped VM cannot be reused; the opt-in standalone launcher
 necessarily runs its own gates once. It collects evidence only once, then stops
 its own QEMU before restoring the temporary KVM ACL.
+
+## Separate internal attribution experiment
+
+The optional dispatch input `trace_stages=true` (with `run_native=true`) builds
+two actors from the same commit. The control is the unmodified production actor.
+`stage_trace.py` exports committed source into a fresh directory outside the
+checkout and inserts exact, uniquely matched hooks only into that copy. It
+records original and patched hashes. The normal library, app package, core gates
+and Windows sources are unchanged by this experiment.
+
+The experimental actor records tagged reports after USB conversion, while
+publishing the raw slot, after pulling an interrupt payload, and after the
+USB/IP send method returns. Delivery hooks also retain generation and periodic
+versus fresh-worker origin. A preallocated array holds at most 131,072 records;
+there are no per-report allocations, JSON, file writes or socket writes added
+by the recorder. It dumps after bridge disposal. Overflow, a malformed sequence
+or incomplete slot publication invalidates attribution instead of implying loss.
+
+The caller selects the nonce before starting the actor; the C producer echoes
+the same nonce. Only matching USB64 reports are recorded. The C hidraw reader
+continues validating the entire payload. `Stopwatch` must report a frequency
+of one billion ticks/second. Its Linux source uses `CLOCK_MONOTONIC`, matching
+the C producer/reader: see [Stopwatch.Unix.cs](https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.Private.CoreLib/src/System/Diagnostics/Stopwatch.Unix.cs),
+[SystemNative_GetTimestamp](https://github.com/dotnet/runtime/blob/v10.0.0/src/native/libs/System.Native/pal_time.c)
+and [minipal_hires_ticks](https://github.com/dotnet/runtime/blob/v10.0.0/src/native/minipal/time.c).
+Before connecting, the recorder also brackets 32 native `clock_gettime` calls
+between Stopwatch reads and requires every timestamp to lie inside its bracket.
+These internal timestamps describe an instrumented copy, never physical latency.
+
+Each rate gets four fresh sessions: control/trace/trace/control at 100 Hz and
+trace/control/control/trace at 1,000 Hz. Reports retain the individual reader
+latencies, losses, generator skips, CPU and cleanup for all eight runs. This
+allows observer effects and order variation to be inspected; it does not
+automatically quantify or subtract instrumentation overhead.
+
+Missing written reports are partitioned by the first unobserved boundary:
+before parser, parser-to-slot, slot-to-interrupt, send not confirmed, or after
+send returned. A slot-to-interrupt gap is consistent with latest-state
+replacement, but the label does not prove why the worker/pacer missed it. A
+returned send does not mean the kernel or game consumed the report. The analyzer
+rejects impossible stage chains and accepts a hidraw read before the writer's
+send returns, since those can race legitimately. The host recomputes attribution
+from the collected trace and original C CSV. Native measurements are pending.
