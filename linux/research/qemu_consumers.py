@@ -55,7 +55,8 @@ def stage_consumer_research(payload):
                  "audio_defaults.py", "test_audio_defaults.py", "pipewire_defaults.py", "test_pipewire_defaults.py",
                  "pipewire_gain.py", "test_pipewire_gain.py",
                  "consumer_phases.py", "test_consumer_phases.py", "consumer_files.py", "test_consumer_files.py",
-                 "consumer_stop.py", "test_consumer_stop.py", "run_wine_variant.py", "test_wine_variant.py"):
+                 "consumer_stop.py", "test_consumer_stop.py", "run_wine_variant.py", "test_wine_variant.py",
+                 "consumer_waits.py", "test_consumer_waits.py"):
         shutil.copy2(research / name, target / name)
     for name in ("run_hidapi_windows.py", "hidapi_windows_evidence.py", "test_hidapi_windows_runtime.py"):
         shutil.copy2(research / name, target / name)
@@ -77,6 +78,7 @@ def main():
     parser.add_argument("--observe-pipewire-defaults", action="store_true")
     parser.add_argument("--adjust-owned-rear-unity", action="store_true")
     parser.add_argument("--wine-udev-variant", action="store_true")
+    parser.add_argument("--observe-kernel-waits", action="store_true")
     parser.add_argument("--ge-umu-cache", type=Path, help="Explicit private verified cache; requires Wine/UDEV; no download during actor")
     parser.add_argument("--guest-image", choices=("ubuntu", "debian13"), default="ubuntu",
                         help="Separate opt-in Debian experiment; default Ubuntu remains GPG verified")
@@ -103,6 +105,7 @@ def main():
                           pipewireDefaultsObservationRequested=args.observe_pipewire_defaults,
                           pipewireGainExperimentRequested=args.adjust_owned_rear_unity,
                           configuredWineUdevVariantRequested=args.wine_udev_variant,
+                          kernelWaitObservationRequested=args.observe_kernel_waits,
                           geUmuExperimentRequested=args.ge_umu_cache is not None)
         provenance["guestImageSelection"] = args.guest_image
         native = verify_build(args.native_artifact, ("consumer_sdl2", "consumer_sdl3", "ff_probe"), commit)
@@ -166,6 +169,7 @@ def main():
                                      + (" --observe-pipewire-defaults" if args.observe_pipewire_defaults else "")
                                      + (" --adjust-owned-rear-unity" if args.adjust_owned_rear_unity else "")
                                      + (" --wine-udev-variant" if args.wine_udev_variant else "")
+                                     + (" --observe-kernel-waits" if args.observe_kernel_waits else "")
                                      + (" --ge-umu" if args.ge_umu_cache is not None else "")
                                      + (" --hidapi-windows" if args.hidapi_artifact is not None else ""),
                                      timeout=900, required=False)

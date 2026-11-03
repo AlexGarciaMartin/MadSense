@@ -13,6 +13,11 @@ on:
         options: [ubuntu, debian13]
         required: false
         default: ubuntu
+      observe_kernel_waits:
+        description: 'Read-only bounded kernel wait snapshots in the owned guest'
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [feature/linux]
     paths:
@@ -33,6 +38,8 @@ on:
       - 'linux/research/test_consumer_files.py'
       - 'linux/research/test_consumer_phases.py'
       - 'linux/research/test_consumer_stop.py'
+      - 'linux/research/test_consumer_waits.py'
+      - 'linux/research/KERNEL-WAIT-OBSERVER.md'
       - 'linux/research/qemu_consumers.py'
       - 'linux/research/run_consumer_guest.sh'
       - 'linux/research/CONSUMER-SESSION.md'
@@ -88,6 +95,7 @@ jobs:
           python3 -m unittest discover -s linux/research -p test_consumer_files.py -v
           python3 -m unittest discover -s linux/research -p test_consumer_phases.py -v
           python3 -m unittest discover -s linux/research -p test_consumer_stop.py -v
+          python3 -m unittest discover -s linux/research -p test_consumer_waits.py -v
           python3 -m unittest discover -s linux/research -p test_wine_variant.py -v
           python3 -m unittest discover -s linux/research -p test_audio_defaults.py -v
           python3 -m unittest discover -s linux/research -p test_pipewire_defaults.py -v
@@ -224,8 +232,13 @@ jobs:
         env:
           MADSENSE_GE_UMU: ${{ github.event_name == 'workflow_dispatch' && inputs.ge_umu && 'true' || 'false' }}
           MADSENSE_GUEST_IMAGE: ${{ inputs.guest_image || 'ubuntu' }}
+          MADSENSE_OBSERVE_WAITS: ${{ github.event_name == 'workflow_dispatch' && inputs.observe_kernel_waits && 'true' || 'false' }}
         run: |
           ge_arguments=()
+          wait_arguments=()
+          if [[ "$MADSENSE_OBSERVE_WAITS" == true ]]; then
+            wait_arguments=(--observe-kernel-waits)
+          fi
           if [[ "$MADSENSE_GE_UMU" == true ]]; then
             ge_arguments=(--ge-umu-cache dist/ge-umu-private-cache)
           fi
@@ -241,7 +254,7 @@ jobs:
             --windows-artifact dist/windows-build/wine-consumer \
             --hidapi-artifact dist/hidapi-build/hidapi-windows --guest-image "$MADSENSE_GUEST_IMAGE" \
             "${audio_observers[@]}" \
-            --wine-udev-variant "${ge_arguments[@]}" \
+            --wine-udev-variant "${ge_arguments[@]}" "${wait_arguments[@]}" \
             --output dist/consumer-runtime --work dist/consumer-qemu-private
       - uses: actions/upload-artifact@v4
         if: always()

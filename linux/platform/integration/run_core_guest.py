@@ -66,6 +66,7 @@ def main():
     parser.add_argument("--hidapi-windows-consumer", type=Path)
     parser.add_argument("--wine-udev-variant", action="store_true")
     parser.add_argument("--ge-umu-cache", type=Path)
+    parser.add_argument("--observe-kernel-waits", action="store_true")
     parser.add_argument("--observe-audio-defaults", action="store_true")
     parser.add_argument("--observe-pipewire-defaults", action="store_true")
     parser.add_argument("--adjust-owned-rear-unity", action="store_true")
@@ -86,6 +87,8 @@ def main():
             "PipeWire defaults observation requires the optional consumer suite")
     require(not args.adjust_owned_rear_unity or args.consumer_binaries is not None,
             "Private PipeWire gain experiment requires the optional consumer suite")
+    require(not args.observe_kernel_waits or args.consumer_binaries is not None,
+            "Kernel wait diagnostics require the optional consumer suite")
     require(os.geteuid() == 0, "Run only as root inside the owned test guest")
     scope = validate_environment(args.owned_guest_token)
     require(scope["kind"] == "owned-qemu-guest", "Owned QEMU guest required")
@@ -103,6 +106,7 @@ def main():
     created_files, created_user = [], False
     actor_root_created = False
     observers = []
+    wait_observer = None
 
     def save(name, value):
         (output / name).write_text(json.dumps(value, indent=2) + "\n")
@@ -224,6 +228,9 @@ def main():
             "--observe-usb-output", "true" if args.consumer_binaries else "false"], stdout=log, stderr=log,
             user=account.pw_uid, group=account.pw_gid, extra_groups=[], cwd=actor_root,
             env={**os.environ, "HOME": str(actor_output), "DOTNET_CLI_HOME": str(actor_output)})
+        if args.observe_kernel_waits:
+            from consumer_waits import WaitObserver
+            wait_observer = WaitObserver(output, process.pid, account.pw_uid).start()
         fixture.input_enabled = True
 
         def alive():
@@ -393,6 +400,10 @@ def main():
     except BaseException as error:
         result["reason"] = f"{type(error).__name__}: {error}"
     finally:
+        # Stop observational reads before any actor/account/device cleanup. An
+        # unavailable diagnostic never replaces the experiment's first error.
+        if wait_observer is not None:
+            result["kernelWaitObservation"] = wait_observer.close()
         try:
             if process is not None and process.poll() is None:
                 (actor_output / "stop").touch()

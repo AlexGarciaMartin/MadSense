@@ -260,6 +260,11 @@ class ConsumerSession:
                                    user=self.uid, group=self.gid, extra_groups=[], cwd=self.root / "home",
                                    env=self.env | (env or {}), start_new_session=True, pass_fds=pass_fds)
         self.processes.append(process)
+        # Optional owned-VM diagnostics register only processes we just created.
+        # Other harnesses need not stage or import the observer module.
+        observer = sys.modules.get("consumer_waits")
+        if observer is not None:
+            observer.register_owned_process(process.pid, self.uid, label)
         return process
 
     def command(self, label, argv, env=None, timeout=45, required=True, pass_fds=()):

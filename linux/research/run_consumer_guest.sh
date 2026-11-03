@@ -15,6 +15,7 @@ for option in "$@"; do
     --observe-pipewire-defaults) observer_args+=("$option"); pipewire_observer=true ;;
     --adjust-owned-rear-unity) observer_args+=("$option"); pipewire_observer=true ;;
     --wine-udev-variant) observer_args+=("$option"); wine_udev=true ;;
+    --observe-kernel-waits) observer_args+=("$option") ;;
     --ge-umu) ge_umu=true ;;
     --hidapi-windows) hidapi_windows=true ;;
     *) echo "Unknown consumer experiment option: $option" >&2; exit 2 ;;
@@ -46,6 +47,7 @@ python3 -m unittest discover -s linux/research -p test_consumer_session.py -v
 python3 -m unittest discover -s linux/research -p test_consumer_files.py -v
 python3 -m unittest discover -s linux/research -p test_consumer_phases.py -v
 python3 -m unittest discover -s linux/research -p test_consumer_stop.py -v
+python3 -m unittest discover -s linux/research -p test_consumer_waits.py -v
 python3 -m unittest discover -s linux/research -p test_wine_variant.py -v
 python3 -m unittest discover -s linux/research -p test_hidapi_windows_runtime.py -v
 python3 -m unittest discover -s linux/research -p test_audio_defaults.py -v
