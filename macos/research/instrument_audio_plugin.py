@@ -69,7 +69,7 @@ def instrument(source: str, timestamp_period: int = 256, reject_resync: bool = F
         replace('#include "AudioIngressTrace.hpp"', '#include "AudioIngressTrace.hpp"\n#include "AudioResyncPolicy.hpp"\n#include "AudioRecoveryRead.hpp"')
         replace('audio_probe::IngressTrace ingressTrace;',
                 'audio_probe::IngressTrace ingressTrace;\naudio_probe::ResyncPolicy resyncPolicy;')
-        replace('        ring.push(static_cast<const float*>(main), frames, generation);', '''        if (observed && frames && resyncPolicy.reject(generation, cycle ? cycle->mIOCycleCounter : 0)) {
+        replace('        ring.push(static_cast<const float*>(main), frames, generation);', '''        if (observed && resyncPolicy.reject(generation, cycle ? cycle->mIOCycleCounter : 0) && frames) {
             uint64_t expected = generation;
             const bool advanced = pcmGeneration.compare_exchange_strong(expected, generation + 1,
                 std::memory_order_acq_rel, std::memory_order_acquire);

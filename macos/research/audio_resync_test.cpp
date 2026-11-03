@@ -18,9 +18,13 @@ void fill(float* samples, unsigned frames, uint64_t generation, uint32_t sequenc
 }
 int main() {
     audio_probe::ResyncPolicy policy;
-    require(!policy.reject(1, 1)); require(!policy.reject(1, 2));
+    require(!policy.reject(1, 1)); require(!policy.reject(1, 1));
+    require(!policy.reject(1, 0)); require(!policy.reject(1, 2));
     require(policy.reject(1, 1)); policy.adoptGeneration(2);
-    require(!policy.reject(2, 2)); require(policy.reject(2, 1));
+    require(policy.reject(2, 1)); policy.adoptGeneration(3);
+    require(!policy.reject(3, 0)); require(policy.reject(3, 1));
+    policy.adoptGeneration(4);
+    require(!policy.reject(4, 2)); require(policy.reject(4, 1));
     require(!policy.reject(8, 1)); // A real stream/owner change starts afresh.
     require(!policy.reject(8, 1)); require(!policy.reject(8, 0));
     std::atomic<uint64_t> epoch{5}; uint64_t expected = 4;
@@ -28,6 +32,26 @@ int main() {
 
     madsense::AudioRing late;
     float block[96 * 4], output[480 * 4];
+    // Regression for consecutive host resets. No queue trim can mask an
+    // accepted second cycle-one operation in this sub-threshold sequence.
+    audio_probe::ResyncPolicy consecutivePolicy;
+    madsense::AudioRing consecutive;
+    uint64_t recoveryGeneration = 1;
+    uint32_t sequence = 0;
+    for (uint64_t cycle : {2u, 1u, 1u, 2u}) {
+        if (consecutivePolicy.reject(recoveryGeneration, cycle)) {
+            consecutive.rejectFrames(96);
+            consecutivePolicy.adoptGeneration(++recoveryGeneration);
+        } else {
+            fill(block, 96, recoveryGeneration, sequence);
+            consecutive.push(block, 96, recoveryGeneration);
+        }
+        sequence += 96;
+    }
+    require(recoveryGeneration == 3 && consecutive.popLatest(output, 480, recoveryGeneration) == 96);
+    require(consecutive.dropped() == 288);
+    for (unsigned i = 0; i < 96; ++i) require(output[i * 4] == 3 && output[i * 4 + 1] == 288 + i);
+
     fill(block, 64, 1, 0); late.push(block, 64, 1);
     // A producer with an old captured tag publishes after recovery. It cannot
     // populate the new epoch, and every rejected/filtered frame is counted.

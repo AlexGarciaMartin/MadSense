@@ -3,17 +3,19 @@
 
 namespace audio_probe {
 // Research only. The SDK documents cycle 1 both at initial start and when the
-// host resynchronizes. Initial start is accepted; an observed rollback is not.
+// host resynchronizes. Initial start is accepted. Once the stream is established,
+// every cycle-one operation is rejected, including consecutive resynchronizations.
 class ResyncPolicy {
-    uint64_t generation_ = 0, previousCycle_ = 0;
+    uint64_t generation_ = 0;
+    bool established_ = false;
 public:
     bool reject(uint64_t generation, uint64_t cycle) noexcept {
-        if (generation != generation_) { generation_ = generation; previousCycle_ = 0; }
+        if (generation != generation_) { generation_ = generation; established_ = false; }
         if (!cycle) return false; // No documented ordinal: do not invent a reset.
-        const bool reset = cycle == 1 && previousCycle_ > 1;
-        previousCycle_ = cycle;
-        return reset;
+        if (cycle > 1) established_ = true;
+        return cycle == 1 && established_;
     }
+    // Our own recovery changes the PCM epoch without starting a new host stream.
     void adoptGeneration(uint64_t generation) noexcept { generation_ = generation; }
 };
 }

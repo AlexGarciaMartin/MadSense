@@ -49,7 +49,7 @@ class IngressTrace {
     IngressSnapshot data_{};
     TraceCycle previous_{};
     Marker highest_{};
-    bool seen_ = false;
+    bool seen_ = false, established_ = false;
 public:
     bool begin(const float* samples, uint32_t frames, uint64_t generation,
                  const TraceCycle& cycle) noexcept {
@@ -66,10 +66,12 @@ public:
             data_.invalidMarkers = data_.nonIncreasing = 0;
             data_.resyncEvents = data_.rejectedFrames = data_.advancedEpochs = 0;
             data_.hostCycleResets = 0;
-            previous_ = {}; highest_ = {}; seen_ = false;
+            previous_ = {}; highest_ = {}; seen_ = established_ = false;
         }
         ++data_.calls; data_.frames += frames;
-        if (cycle.cycle == 1 && previous_.cycle > 1) ++data_.hostCycleResets;
+        if (cycle.cycle > 1) established_ = true;
+        // Count each reset operation, including consecutive cycle-one calls.
+        if (cycle.cycle == 1 && established_) ++data_.hostCycleResets;
         IngressEvent* event = nullptr;
         for (uint32_t i = 0; i < frames; ++i) {
             const auto* frame = samples + i * 4;

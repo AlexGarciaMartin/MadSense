@@ -51,6 +51,7 @@ class InstrumentationTests(unittest.TestCase):
         self.assertNotIn('compare_exchange_strong(expected, generation + 1', baseline)
         self.assertIn('compare_exchange_strong(expected, generation + 1', recovery)
         self.assertLess(recovery.index('ingressTrace.begin('), recovery.index('resyncPolicy.reject('))
+        self.assertIn('resyncPolicy.reject(generation, cycle ? cycle->mIOCycleCounter : 0) && frames', recovery)
         self.assertLess(recovery.index('ring.rejectFrames(frames)'), recovery.index('ring.push('))
         self.assertLess(recovery.index('packet.generation = pcmGeneration.load'), recovery.index('ring.popLatest('))
         self.assertLess(recovery.index('ring.popLatest('), recovery.index('audio_probe::finishCapturedRead('))

@@ -30,20 +30,26 @@ VMs run each variant, so between-host variation still limits timing comparisons.
 
 The current matrix keeps the corrected **16384** period and compares the
 unchanged `observe` behavior with an isolated `reject` recovery policy. On a
-documented cycle-counter rollback to one after a prior value greater than one,
+documented cycle counter of one after any prior value greater than one in the stream,
 the latter observes and retains the incoming source failure, rejects the entire
 WriteMix operation, counts its frames and conditionally advances its captured
 PCM generation. A compare/exchange prevents replacing a concurrent owner,
 lease or stream transition. Existing per-frame generation tags then filter and
 count queued old PCM; the producer never writes the consumer's cursor. The
-HAL clock seed is unchanged. Initial cycle one is accepted. No PCM value is
-used to decide what to reject.
+HAL clock seed is unchanged. Initial cycle one is accepted until a value greater
+than one establishes the stream. That state survives the policy's own recovery
+epochs, so consecutive cycle-one operations are all rejected; an external owner,
+lease or start generation change clears it. No PCM value is used to decide what
+to reject.
 
 This policy exists only in generated source/header copies under `.build`.
 The generated ring adds rejected-frame accounting and an acquiring loss-counter
 accessor; its existing queue algorithm and limits are unchanged. Native fake-host tests verify the old
 pending frame count, rejected count, surviving fresh payload and unchanged
-clock seed. Portable tests check a late old-epoch publication and concurrent
+clock seed. The deterministic cycle sequence `{2, 1, 1, 2}` includes distinct
+timestamps and an old prefix in each reset operation. Its 384 total frames stay
+below the backlog trim threshold, exposing an incorrectly accepted second reset.
+Portable tests check a late old-epoch publication and concurrent
 reading across recovery, including exact delivered-plus-dropped accounting.
 After copying candidate frames and acquiring their loss snapshot, the recovery
 variant checks the epoch once more. If it changed, the candidate is counted and
@@ -67,10 +73,14 @@ reported separately from the measured reader window.
 `stop_completed_ticks` use the same `mach_absolute_time` clock as ingress
 records. Together with the environment's timebase numerator/denominator, they
 separate warmup, measured-window and stop-tail events reproducibly.
+`host_cycle_resets` counts every cycle-one operation after stream establishment,
+including consecutive ones, and keeps that state across the policy's own epochs.
 
 The managed backend currently calls full forwarder `Flush` on every generation
 or dropped-frame change. That resets Bluetooth priming and can require eight
-warmup packets (about 85 ms at the configured cadence). This native experiment
+speaker Opus preroll packets (about 85 ms at the configured cadence). Strict
+native rear-channel PCM can queue during warmup, so this does not imply an
+85 ms mute of all haptics. This native experiment
 does not include that managed/transport cost. It must be measured separately;
 no shared-forwarder optimization or claim of uninterrupted audio is included.
 

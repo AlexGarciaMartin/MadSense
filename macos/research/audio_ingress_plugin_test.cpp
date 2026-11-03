@@ -78,31 +78,53 @@ int main(int argc, char** argv) {
     const auto before = readPacket();
     UInt64 recoveryClockSeed = 0;
     require((*driver)->GetZeroTimeStamp(driver, kDevice, client.mClientID, &sample, &ticks, &recoveryClockSeed) == noErr);
-    for (unsigned i = 0; i < 96; ++i) audio_probe::encode(2, i, frames + i * 4);
-    for (unsigned ordinal : {2u, 1u}) {
+    // Keep all 384 frames below the backlog threshold: trimming must not hide
+    // a mistakenly accepted second reset. Both reset calls have an old prefix,
+    // followed by fresh markers, and carry distinct host/sample timestamps.
+    unsigned operation = 0;
+    for (unsigned ordinal : {2u, 1u, 1u, 2u}) {
+        for (unsigned i = 0; i < 96; ++i) {
+            const bool oldPrefix = (operation == 1 || operation == 2) && i < 48;
+            audio_probe::encode(2 + operation - (oldPrefix ? 1 : 0),
+                oldPrefix ? 48 + i : i, frames + i * 4);
+        }
         cycle.mIOCycleCounter = ordinal;
+        cycle.mCurrentTime.mSampleTime = 1000 + operation * 96;
+        cycle.mCurrentTime.mHostTime = 10000 + operation * 100;
+        cycle.mCurrentTime.mFlags = kAudioTimeStampSampleTimeValid | kAudioTimeStampHostTimeValid;
+        cycle.mOutputTime.mSampleTime = 2000 + operation * 96;
+        cycle.mOutputTime.mHostTime = 20000 + operation * 100;
+        cycle.mOutputTime.mFlags = kAudioTimeStampSampleTimeValid | kAudioTimeStampHostTimeValid;
         require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
             kAudioServerPlugInIOOperationWriteMix, 96, &cycle, frames, nullptr) == noErr);
+        ++operation;
     }
-    for (unsigned i = 0; i < 96; ++i) audio_probe::encode(3, i, frames + i * 4);
-    cycle.mIOCycleCounter = 2;
-    require((*driver)->DoIOOperation(driver, kDevice, kStream, client.mClientID,
-        kAudioServerPlugInIOOperationWriteMix, 96, &cycle, frames, nullptr) == noErr);
     require((*driver)->StopIO(driver, kDevice, client.mClientID) == noErr);
     const auto after = readPacket();
     require((*driver)->GetZeroTimeStamp(driver, kDevice, client.mClientID, &sample, &ticks, &seed) == noErr && seed == recoveryClockSeed);
-    require(readTrace(getpid(), snapshot) == noErr && snapshot.nonIncreasing == 96 && snapshot.eventCount == 1);
+    require(readTrace(getpid(), snapshot) == noErr && snapshot.nonIncreasing == 96 && snapshot.eventCount == 2);
     require(snapshot.generation == after.generation);
+    require(snapshot.calls == 4 && snapshot.frames == 384 && snapshot.hostCycleResets == 2);
+    for (unsigned i = 0; i < 2; ++i) {
+        const auto& event = snapshot.events[i];
+        require(event.current.cycle == 1 && event.nonIncreasing == 48);
+        require(event.previous.cycle == (i == 0 ? 2 : 1));
+        require(event.current.current.host == 10100 + i * 100);
+        require(event.current.output.sample == 2096 + i * 96 && event.current.output.host == 20100 + i * 100);
+        require(event.markers[0].index == 0 && event.markers[0].highest.callback == 2 + i);
+        require(event.markers[0].current.callback == 2 + i && event.markers[0].current.offset == 48);
+        require(event.lastBad.index == 47);
+    }
     if (rejectResync) {
-        require(after.generation == before.generation + 1 && after.frames == 96);
-        require(after.droppedFrames - before.droppedFrames == 192); // 96 rejected + 96 pending.
-        require(snapshot.resyncEvents == 1 && snapshot.rejectedFrames == 96 && snapshot.advancedEpochs == 1);
+        require(after.generation == before.generation + 2 && after.frames == 96);
+        require(after.droppedFrames - before.droppedFrames == 288); // 192 rejected + 96 pending.
+        require(snapshot.resyncEvents == 2 && snapshot.rejectedFrames == 192 && snapshot.advancedEpochs == 2);
         for (unsigned i = 0; i < 96; ++i) {
             audio_probe::Marker marker{};
-            require(audio_probe::decode(after.samples + i * 4, marker) && marker.callback == 3 && marker.offset == i);
+            require(audio_probe::decode(after.samples + i * 4, marker) && marker.callback == 5 && marker.offset == i);
         }
     } else {
-        require(after.generation == before.generation && after.frames == 288);
+        require(after.generation == before.generation && after.frames == 384);
         require(after.droppedFrames == before.droppedFrames && snapshot.resyncEvents == 0);
     }
     claim = kCFBooleanFalse;

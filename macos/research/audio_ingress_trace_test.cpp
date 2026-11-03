@@ -28,16 +28,24 @@ int main() {
     require(event.previous.cycle == 1 && event.current.cycle == 2 && event.nonIncreasing == 96);
     require(event.current.output.sample == 192 && event.markerCount == audio_probe::kIngressMarkers);
     require(event.markers[0].highest.offset == 95 && event.markers[0].current.offset == 0);
+    cycle.cycle = 1;
     require(trace.begin(block, 96, 7, cycle));
     trace.recordRecovery(192, 8); trace.end();
     require(trace.snapshot(snapshot) && snapshot.generation == 8 && snapshot.nonIncreasing == 192);
     require(snapshot.resyncEvents == 1 && snapshot.rejectedFrames == 192 && snapshot.advancedEpochs == 1);
+    require(snapshot.hostCycleResets == 1);
+    require(trace.begin(block, 96, 8, cycle));
+    trace.recordRecovery(96, 10); trace.end();
+    require(trace.snapshot(snapshot) && snapshot.generation == 10 && snapshot.nonIncreasing == 288);
+    require(snapshot.resyncEvents == 2 && snapshot.rejectedFrames == 288 && snapshot.advancedEpochs == 2);
+    require(snapshot.hostCycleResets == 2); // Consecutive reset survives our adopted epoch.
     // A stream restart legitimately reuses callback1: its generation resets
     // order/count state while making old event records inaccessible.
     observe(block, 96, 9, cycle);
     require(trace.snapshot(snapshot));
     require(snapshot.generation == 9 && snapshot.calls == 1 && snapshot.nonIncreasing == 0 && snapshot.eventCount == 0);
     require(snapshot.resyncEvents == 0 && snapshot.rejectedFrames == 0);
+    require(snapshot.hostCycleResets == 0); // External generation makes cycle one initial again.
     require(snapshot.events[0].current.cycle == 0); // Unused wire storage is scrubbed.
     // Bounded event storage must not stop counting later failures.
     for (unsigned i = 0; i < 40; ++i) observe(block, 96, 9, cycle);
