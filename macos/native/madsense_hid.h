@@ -25,6 +25,16 @@ typedef int32_t (*ms_hid_set_callback)(void *context, uint32_t type,
     uint32_t report_id, const uint8_t *data, uint32_t length);
 
 MS_HID_API uint32_t ms_hid_abi_version(void);
+typedef enum ms_hid_entitlement_state {
+    MS_HID_ENTITLEMENT_UNKNOWN = 0,
+    MS_HID_ENTITLEMENT_MISSING = 1,
+    MS_HID_ENTITLEMENT_PRESENT = 2
+} ms_hid_entitlement_state;
+// Inspect only this process's public virtual-HID entitlement through SecTask.
+// No physical or virtual device is opened/created. PRESENT does not establish
+// signature acceptance, successful virtual creation, publication, or hardware
+// compatibility. UNKNOWN preserves query errors in ms_hid_copy_diagnostic.
+MS_HID_API uint32_t ms_hid_preflight(void);
 // Success means the exact new IOHIDDevice was published in the IORegistry.
 // Publication has a five-second deadline and fully tears down on failure.
 MS_HID_API int32_t ms_hid_create(const uint8_t *descriptor,

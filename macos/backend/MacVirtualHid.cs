@@ -4,6 +4,9 @@ using DualSenseClient.Emulation.Devices.DualSense;
 
 namespace MadSense.Mac;
 
+internal enum VirtualHidEntitlementState : uint { Unknown = 0, Missing = 1, Present = 2 }
+internal readonly record struct VirtualHidPreflight(VirtualHidEntitlementState State, string Detail);
+
 internal sealed unsafe class MacVirtualHid : IDisposable
 {
     private const string Library = "madsense_hid";
@@ -45,9 +48,38 @@ internal sealed unsafe class MacVirtualHid : IDisposable
 
     internal static void ValidateAbi(uint version)
     {
-        if (version != 1)
-            throw new VirtualHidUnavailableException($"Native HID ABI {version} is incompatible; ABI 1 is required. Reinstall a matching MadSense package.");
+        if (version != 2)
+            throw new VirtualHidUnavailableException($"Native HID ABI {version} is incompatible; ABI 2 is required. Reinstall a matching MadSense package.");
     }
+
+    public static VirtualHidPreflight Preflight()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return new(VirtualHidEntitlementState.Unknown, "Virtual HID preflight query failed: Security.framework requires macOS.");
+        try
+        {
+            ValidateAbi(AbiVersion());
+            uint state = NativePreflight();
+            string detail = Diagnostic();
+            return state <= (uint)VirtualHidEntitlementState.Present
+                ? new((VirtualHidEntitlementState)state, detail)
+                : new(VirtualHidEntitlementState.Unknown, $"Virtual HID preflight query failed: unexpected native result {state}. {detail}");
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or VirtualHidUnavailableException)
+        {
+            return new(VirtualHidEntitlementState.Unknown, $"Virtual HID preflight query failed: {e.Message}");
+        }
+    }
+
+    internal static void RequirePreflight(VirtualHidPreflight result)
+    {
+        if (result.State != VirtualHidEntitlementState.Present)
+            throw new VirtualHidUnavailableException($"{result.Detail} Physical capture was not attempted.");
+        // Presence is only a prerequisite. Do not replace the actual creation
+        // and publication checks in the constructor or claim that they passed.
+    }
+
+    internal static void RequirePhysicalBridgePrerequisites() => RequirePreflight(Preflight());
 
     private int GetReport(IntPtr context, uint type, uint id, byte* data, uint* length)
     {
@@ -104,6 +136,8 @@ internal sealed unsafe class MacVirtualHid : IDisposable
 
     [DllImport(Library, EntryPoint = "ms_hid_abi_version", CallingConvention = CallingConvention.Cdecl)]
     private static extern uint AbiVersion();
+    [DllImport(Library, EntryPoint = "ms_hid_preflight", CallingConvention = CallingConvention.Cdecl)]
+    private static extern uint NativePreflight();
     [DllImport(Library, EntryPoint = "ms_hid_create", CallingConvention = CallingConvention.Cdecl)]
     private static extern int Create(byte[] descriptor, uint length, ushort vid, ushort pid,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string serial, GetCallback get, SetCallback set,

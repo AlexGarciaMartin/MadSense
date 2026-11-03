@@ -2,7 +2,9 @@
 // Public IOHIDUserDevice API, available since macOS 10.15. The application
 // targets macOS 15+. This does not implement a USB device or an audio endpoint.
 #include "madsense_hid.h"
+#include "entitlement_preflight.h"
 #include <CoreFoundation/CoreFoundation.h>
+#include <Security/SecTask.h>
 #include <IOKit/IOKitKeys.h>
 #include <IOKit/hid/IOHIDKeys.h>
 #include <IOKit/hidsystem/IOHIDUserDevice.h>
@@ -66,7 +68,44 @@ bool is_published(CFStringRef token) {
 }
 }
 
-uint32_t ms_hid_abi_version(void) { return 1; }
+uint32_t ms_hid_abi_version(void) { return 2; }
+
+uint32_t ms_hid_preflight(void) {
+    SecTaskRef task = SecTaskCreateFromSelf(kCFAllocatorDefault);
+    if (!task) {
+        std::snprintf(diagnostic, sizeof(diagnostic),
+            "Virtual HID preflight query failed: SecTaskCreateFromSelf could not inspect the current process. No device was opened by this check.");
+        return MS_HID_ENTITLEMENT_UNKNOWN;
+    }
+    CFErrorRef error = nullptr;
+    CFTypeRef value = SecTaskCopyValueForEntitlement(task,
+        CFSTR("com.apple.developer.hid.virtual.device"), &error);
+    CFRelease(task);
+    auto state = madsense::classify_entitlement(value, error);
+    if (state == MS_HID_ENTITLEMENT_UNKNOWN) {
+        char domain[128] = "unknown", description[384] = "unavailable";
+        CFStringGetCString(CFErrorGetDomain(error), domain, sizeof(domain), kCFStringEncodingUTF8);
+        CFStringRef text = CFErrorCopyDescription(error);
+        if (text) {
+            CFStringGetCString(text, description, sizeof(description), kCFStringEncodingUTF8);
+            CFRelease(text);
+        }
+        domain[sizeof(domain) - 1] = '\0';
+        description[sizeof(description) - 1] = '\0';
+        std::snprintf(diagnostic, sizeof(diagnostic),
+            "Virtual HID preflight query failed: %s (%ld): %s. No device was opened by this check.",
+            domain, static_cast<long>(CFErrorGetCode(error)), description);
+    } else if (state == MS_HID_ENTITLEMENT_MISSING) {
+        std::snprintf(diagnostic, sizeof(diagnostic),
+            "Virtual HID preflight: the current process does not have Boolean true for com.apple.developer.hid.virtual.device. No device was opened by this check.");
+    } else {
+        std::snprintf(diagnostic, sizeof(diagnostic),
+            "Virtual HID preflight: the public entitlement is present for the current process. Actual virtual device creation and publication are still required; hardware is unverified.");
+    }
+    if (value) CFRelease(value);
+    if (error) CFRelease(error);
+    return state;
+}
 
 int32_t ms_hid_create(const uint8_t *descriptor, uint32_t descriptor_length,
     uint16_t vendor_id, uint16_t product_id, const char *serial_utf8,

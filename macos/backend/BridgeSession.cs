@@ -48,7 +48,16 @@ internal sealed class BridgeSession : IDisposable
         : null;
 
     public BridgeSession(HidDeviceEnumerator enumerator, IHidDeviceInfo info, string speaker = "high")
+        : this(() => enumerator.OpenDeviceExclusive(info.Path), info, speaker,
+            MacVirtualHid.RequirePhysicalBridgePrerequisites)
     {
+    }
+
+    // One implementation for production and ordering tests: the latter replace
+    // only the prerequisite query and physical open with observed sentinels.
+    internal BridgeSession(Func<HidDevice> openPhysical, IHidDeviceInfo info, string speaker, Action preflight)
+    {
+        preflight(); // Must precede exclusive capture and calibration reads.
         bool edge = info.ProductId == 0x0df2;
         persona = new VirtualPad(new DualSenseIdentity { SerialNumber = "MadSense-Mac-Virtual" }, edge);
         HidDevice? opened = null;
@@ -57,7 +66,7 @@ internal sealed class BridgeSession : IDisposable
         MacVirtualHid? published = null;
         try
         {
-            opened = enumerator.OpenDeviceExclusive(info.Path);
+            opened = openPhysical();
             hid = opened;
             meteredHid = new ActivityHidDevice(opened);
             pad = edge ? new DualSenseEdgeDevice(meteredHid, info) : new PhysicalPad(meteredHid, info);

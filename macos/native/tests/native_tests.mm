@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "madsense_hid.h"
+#include "entitlement_preflight.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDManager.h>
 #include <atomic>
@@ -92,7 +93,7 @@ struct Client {
 };
 
 void test_arguments() {
-    require(ms_hid_abi_version() == 1, "unexpected native ABI version");
+    require(ms_hid_abi_version() == 2, "unexpected native ABI version");
     void *sentinel = reinterpret_cast<void *>(1);
     require(ms_hid_create(nullptr, 0, 0, 0, nullptr, nullptr, nullptr, nullptr,
         &sentinel) == static_cast<int32_t>(kIOReturnBadArgument), "invalid create accepted");
@@ -106,6 +107,28 @@ void test_arguments() {
     require(ms_hid_send_input(nullptr, descriptor, sizeof(descriptor)) ==
         static_cast<int32_t>(kIOReturnBadArgument), "null input handle accepted");
     std::puts("PASS native ABI validation and diagnostic truncation");
+}
+
+void test_entitlement_values() {
+    using madsense::classify_entitlement;
+    require(classify_entitlement(nullptr, nullptr) == MS_HID_ENTITLEMENT_MISSING, "absent entitlement misclassified");
+    require(classify_entitlement(kCFBooleanFalse, nullptr) == MS_HID_ENTITLEMENT_MISSING, "false entitlement accepted");
+    require(classify_entitlement(kCFBooleanTrue, nullptr) == MS_HID_ENTITLEMENT_PRESENT, "true Boolean misclassified");
+    require(classify_entitlement(CFSTR("true"), nullptr) == MS_HID_ENTITLEMENT_MISSING, "string entitlement accepted");
+    int one = 1;
+    CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &one);
+    require(number != nullptr, "test number allocation failed");
+    auto number_state = classify_entitlement(number, nullptr);
+    CFRelease(number);
+    require(number_state == MS_HID_ENTITLEMENT_MISSING, "numeric entitlement accepted as Boolean");
+    CFErrorRef error = CFErrorCreate(kCFAllocatorDefault, CFSTR("MadSensePreflightTest"), 123, nullptr);
+    require(error != nullptr, "test error allocation failed");
+    auto absent_error = classify_entitlement(nullptr, error);
+    auto value_error = classify_entitlement(kCFBooleanTrue, error);
+    CFRelease(error);
+    require(absent_error == MS_HID_ENTITLEMENT_UNKNOWN && value_error == MS_HID_ENTITLEMENT_UNKNOWN,
+        "query error must take precedence and remain unknown");
+    std::puts("PASS entitlement value/error classification only; no OS authorization or hardware simulated");
 }
 
 int test_loopback(bool required) {
@@ -205,6 +228,7 @@ int main(int argc, char **argv) {
     bool required = argc > 1 && std::strcmp(argv[1], "--require-device") == 0;
     try {
         test_arguments();
+        test_entitlement_values();
         if (abi_only) return 0;
         return test_loopback(required);
     } catch (const std::exception &error) {

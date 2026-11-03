@@ -67,7 +67,8 @@ public class BridgeRetryPolicyTests
     }
 
     [TestCase(0u)]
-    [TestCase(2u)]
+    [TestCase(1u)]
+    [TestCase(3u)]
     [TestCase(uint.MaxValue)]
     public void IncompatibleNativeAbiBlocksBeforeCreation(uint version)
     {
@@ -75,10 +76,10 @@ public class BridgeRetryPolicyTests
         var retry = new BridgeRetryPolicy();
         retry.RecordFailure(error!, 100);
         Assert.That(error!.NativeErrorCode, Is.Null);
-        Assert.That(error.Message, Does.Contain($"ABI {version}").And.Contain("ABI 1 is required"));
+        Assert.That(error.Message, Does.Contain($"ABI {version}").And.Contain("ABI 2 is required"));
         Assert.That(retry.CanAttempt(long.MaxValue), Is.False);
     }
 
     [Test]
-    public void CurrentNativeAbiAllowsCreation() => Assert.DoesNotThrow(() => MacVirtualHid.ValidateAbi(1));
+    public void CurrentNativeAbiAllowsCreation() => Assert.DoesNotThrow(() => MacVirtualHid.ValidateAbi(2));
 }

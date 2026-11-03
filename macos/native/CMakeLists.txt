@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_OBJCXX_STANDARD 17)
 add_library(madsense_hid SHARED madsense_hid.mm)
 target_compile_options(madsense_hid PRIVATE -fblocks -fno-objc-arc -Wall -Wextra -Werror)
-target_link_libraries(madsense_hid PRIVATE "-framework CoreFoundation" "-framework IOKit")
+target_link_libraries(madsense_hid PRIVATE "-framework CoreFoundation" "-framework IOKit" "-framework Security")
 target_include_directories(madsense_hid PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(madsense_hid PROPERTIES CXX_VISIBILITY_PRESET hidden
   OBJCXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES

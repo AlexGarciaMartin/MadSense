@@ -70,6 +70,8 @@ jobs:
         run: |
           dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --protocol-check
           dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend --diagnose > dist/macos/diagnostic.json
+      - name: Check authorization before any controller access
+        run: python3 macos/tests/preflight_smoke.py "$PWD/dist/macos/MadSense.app/Contents/Resources/backend/MadSense.Backend" dist/macos
       - name: Native GUI startup and shutdown smoke test
         timeout-minutes: 3
         run: python3 macos/tests/gui_smoke.py "$PWD/dist/macos/MadSense.app/Contents/MacOS/MadSense" dist/macos

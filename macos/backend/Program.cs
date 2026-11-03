@@ -28,6 +28,21 @@ internal static class Program
         SpeakerPreferences? preferences = null;
         try
         {
+            if (args.Contains("--preflight-native"))
+            {
+                // This branch intentionally precedes construction of even the
+                // physical HID enumerator. It does not create a virtual device.
+                var preflight = MacVirtualHid.Preflight();
+                Console.WriteLine(JsonSerializer.Serialize(new
+                {
+                    state = "native-preflight", entitlement = preflight.State.ToString().ToLowerInvariant(),
+                    detail = preflight.Detail, processId = Environment.ProcessId,
+                    physicalControllerOpened = false, virtualHidCreated = false,
+                    creationVerified = false, hardwareValidated = false
+                }));
+                // Missing is a successfully completed query, not bridge success.
+                return preflight.State == VirtualHidEntitlementState.Unknown ? 1 : 0;
+            }
             if (args.Contains("--probe-native"))
             {
                 using var probe = new MacVirtualHid(new DualSenseDevice(new DualSenseIdentity()));
@@ -41,7 +56,7 @@ internal static class Program
             if (args.Contains("--diagnose")) { Diagnose(enumerator); return 0; }
             if (!args.Contains("--service") && !args.Contains("--run"))
             {
-                Console.Error.WriteLine("Usage: MadSense.Backend (--service | --run) [--start-paused] | --diagnose | --probe-native | --protocol-check");
+                Console.Error.WriteLine("Usage: MadSense.Backend (--service | --run) [--start-paused] | --diagnose | --preflight-native | --probe-native | --protocol-check");
                 return 2;
             }
             string stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "MadSense");
