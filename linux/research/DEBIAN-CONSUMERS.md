@@ -3,8 +3,9 @@
 The consumer workflow has an opt-in `guest_image: debian13` selection which
 requires `ge_umu: true`. Ubuntu remains the default and still uses its existing
 GPG-verified image. Debian results are a separate distribution observation.
-No Debian guest has booted in CI yet; the pinned image bytes have been downloaded
-and verified locally, and the adapter's four portable regressions pass.
+The pinned Debian image now boots in CI, passes the ordinary-user namespace
+preflight and the ten native broker cases. Core consumers and GE remain pending;
+the observed attempts and their precise stopping points are recorded below.
 
 The exact image is
 [`debian-13-generic-amd64-20261026-2643.qcow2`](https://cloud.debian.org/images/cloud/trixie/20261026-2643/debian-13-generic-amd64-20261026-2643.qcow2),
@@ -93,3 +94,19 @@ but the ordinary account's PATH omitted its `/usr/sbin` directory. The adapter
 now uses the package's explicit `modinfo`/`modprobe` paths. No broker fixture,
 Windows consumer or GE runtime ran in this attempt; boot and namespace success
 do not imply their compatibility. QEMU and temporary host KVM ACL cleanup passed.
+
+[Run 41646559869](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41646559869)
+at `3767557` passed preparation, the namespace preflight and all ten native broker
+cases, including descriptor-store crash recovery and preservation of the unrelated
+virtual device. Its runtime ZIP SHA-256 is
+`e666e1f727ee326700c4df48cec8eb4422ad4b239a1f5609dbd1e33f8fc2ecd9`.
+Core setup then stopped before the actor started: the broad fixture-parent udev
+trigger also reached its `power_supply` child, whose `change` event returned
+`EAGAIN`. The fixture rule only changes `hidraw` and `input` nodes. The trigger
+now selects those two subsystems under the same exact fixture parent and records
+the selected paths; it still requires successful triggering and settlement.
+[systemd 257 documents](https://www.freedesktop.org/software/systemd/man/257/udevadm.html)
+that repeated subsystem matches are ORed. No battery event is required to apply
+this ACL rule, and no error is ignored. No SDL, Windows consumer or GE execution
+occurred in this attempt. Owned QEMU shutdown and exact host KVM ACL restoration
+passed again.

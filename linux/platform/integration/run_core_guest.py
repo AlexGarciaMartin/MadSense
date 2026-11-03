@@ -172,7 +172,11 @@ def main():
                      f'SUBSYSTEM=="hidraw|input", KERNELS=="{fixture.parent.name}", OWNER="root", '
                      f'GROUP="{user}", MODE="0660", TAG-="uaccess", TAG-="seat"\n')
         command("reload-fixture-rules", ["udevadm", "control", "--reload-rules"])
-        command("trigger-fixture", ["udevadm", "trigger", "--action=change", "--parent-match=" + str(fixture.parent)])
+        # Only these children receive the fixture ACL rule. Triggering unrelated
+        # power_supply children returned EAGAIN in the Debian 13 fixture run.
+        command("trigger-fixture", ["udevadm", "trigger", "--action=change", "--verbose",
+                                    "--subsystem-match=hidraw", "--subsystem-match=input",
+                                    "--parent-match=" + str(fixture.parent)])
         command("settle-fixture", ["udevadm", "settle", "--timeout=5"])
         baseline = snapshot()
         save("physical-fixture.json", dict(parent=str(fixture.parent), hidraw=str(fixture.hidraw), baseline=baseline, **manifest()))
