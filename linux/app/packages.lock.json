@@ -25,6 +25,12 @@
           "Avalonia": "12.1.2"
         }
       },
+      "Tmds.DBus": {
+        "type": "Direct",
+        "requested": "[0.95.1, )",
+        "resolved": "0.95.1",
+        "contentHash": "2mLo+choDFkVlpYN1dcAmFESclH/LoMGg4whvvV4RFM9xbBniRwqNb0/Fe3/z4RCzXSQi+Gb6SzM2c19WcoP3Q=="
+      },
       "Avalonia": {
         "type": "Transitive",
         "resolved": "12.1.2",
@@ -200,11 +206,6 @@
         "dependencies": {
           "SoundFlow": "1.4.0"
         }
-      },
-      "Tmds.DBus": {
-        "type": "Transitive",
-        "resolved": "0.95.1",
-        "contentHash": "2mLo+choDFkVlpYN1dcAmFESclH/LoMGg4whvvV4RFM9xbBniRwqNb0/Fe3/z4RCzXSQi+Gb6SzM2c19WcoP3Q=="
       },
       "Tmds.DBus.Protocol": {
         "type": "Transitive",

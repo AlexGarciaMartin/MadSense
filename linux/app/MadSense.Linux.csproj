@@ -11,10 +11,13 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="MadSense.Linux.App.Tests" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
     <PackageReference Include="Avalonia.Themes.Simple" Version="12.1.2" />
+    <PackageReference Include="Tmds.DBus" Version="0.95.1" />
     <ProjectReference Include="../../vendor/DualSenseClient/DualSenseClient.Controllers/DualSenseClient.Controllers.csproj" />
     <Compile Include="../../src/Localization.cs" Link="Localization.cs" />
+    <Compile Include="../../macos/backend/ActivityHidDevice.cs" Link="ActivityHidDevice.cs" />
     <EmbeddedResource Include="../../src/Localization/*.json" LogicalName="MadSense.Localization.%(Filename)%(Extension)" WithCulture="false" />
     <AvaloniaResource Include="Assets/**" />
     <Compile Include="../platform/*.cs" Link="Platform/%(Filename)%(Extension)" />

@@ -15,10 +15,13 @@ static class LinuxText
         ["Linux.Unsupported"] = ["This build requires Linux.", "Esta versión necesita Linux.", "Cette version nécessite Linux.", "Diese Version benötigt Linux.", "Questa versione richiede Linux.", "Esta versão requer Linux."],
         ["Linux.Preview"] = ["Interface preview · no controller access", "Vista previa · sin acceso al mando", "Aperçu · aucun accès à la manette", "Vorschau · kein Controller-Zugriff", "Anteprima · nessun accesso al controller", "Prévia · sem acesso ao controle"],
         ["Linux.Diagnostics"] = ["Diagnostics", "Diagnóstico", "Diagnostic", "Diagnose", "Diagnostica", "Diagnóstico"],
+        ["Linux.NoRelease"] = ["No published Linux release is available yet.", "Todavía no hay una versión publicada de Linux.", "Aucune version Linux n'est encore publiée.", "Noch keine veröffentlichte Linux-Version verfügbar.", "Non è ancora disponibile una versione Linux pubblicata.", "Ainda não há uma versão publicada para Linux."],
+        ["Linux.DownloadUpdate"] = ["Download Linux {0}", "Descargar Linux {0}", "Télécharger Linux {0}", "Linux {0} herunterladen", "Scarica Linux {0}", "Baixar Linux {0}"],
         ["Linux.Close"] = ["Close", "Cerrar", "Fermer", "Schließen", "Chiudi", "Fechar"]
     };
     public static string Text(string key, params object?[] args)
     {
+        if (key == "Bridge.PairingNeeded") return L.Text(key, args).Replace("Windows", "Linux", StringComparison.Ordinal);
         if (!Overrides.TryGetValue(key, out var translations)) return L.Text(key, args);
         var value = translations[Math.Max(0, Array.IndexOf(Codes, L.CurrentLanguage))];
         return args.Length == 0 ? value : string.Format(L.Culture, value, args);

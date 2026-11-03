@@ -21,6 +21,21 @@ mandos. La conexión permanece bloqueada hasta verificar el componente de acceso
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
 
+El motor de la app ya conecta la sesión del broker con el servicio de emulación,
+los ajustes originales y el forwarder Bluetooth. Pausar cancela una adquisición
+pendiente. Una denegación de autorización espera otra acción de reanudar, sin
+prompts automáticos en bucle. El diagnóstico y el cierre conservan métricas de
+las colas e IPC, separadas de cualquier medida física. La implementación y los
+límites de aislamiento están en [platform/README.md](platform/README.md).
+
+El escritorio incluye instancia única, abrir/parar por IPC local, bandeja,
+inicio de sesión opcional y cierre ante SIGTERM. Si el escritorio carece de
+bandeja, la ventana sigue visible y las opciones siguen accesibles en Registros.
+Las preferencias usan XDG. El comprobador de actualizaciones solo admite tags
+estables `linux-vX.Y.Z` y el archivo exacto para su arquitectura del repositorio
+oficial; no ofrece el instalador Windows ni ejecuta descargas. Hasta publicar
+una versión Linux válida informa de esa ausencia.
+
 ## Secuencia de validación
 
 1. Protocolo USB/IP: conservar la variante Windows y probar los paquetes ISO

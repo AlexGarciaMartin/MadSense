@@ -147,8 +147,8 @@ public sealed class EmulationService : IEmulationService
     private static readonly DualSenseClientLogger _log = DualSenseClientLogger.For("EmulationService");
 
     /// <summary>
-    /// Whether virtual controller emulation is available on this platform. Disabled on
-    /// Linux for now.
+    /// Whether the built-in platform integration is available. Linux callers must
+    /// supply an explicit capability check and a server with their Linux attach strategy.
     /// </summary>
     public static bool IsSupported
     {
@@ -172,6 +172,7 @@ public sealed class EmulationService : IEmulationService
     /// torn down when the last entry left is never reused.
     /// </summary>
     private readonly Func<EmulationServer> _emulationServerFactory;
+    private readonly Func<bool> _platformSupportCheck;
 
     private readonly SpecialActionEngineRegistry _specialActions;
     private readonly AudioEngine _audioEngine;
@@ -242,7 +243,8 @@ public sealed class EmulationService : IEmulationService
     public EmulationService(IControllerTracker tracker, IHidDeviceEnumerator enumerator,
         ControllerInfoService controllerInfo,
         AudioEngine audioEngine, SpecialActionEngineRegistry specialActions, AudioApplicationService audioApplications,
-        Func<EmulationServer> emulationServerFactory, IVirtualControllerFactory virtualFactory)
+        Func<EmulationServer> emulationServerFactory, IVirtualControllerFactory virtualFactory,
+        Func<bool>? platformSupportCheck = null)
     {
         _tracker = tracker;
         _enumerator = enumerator;
@@ -251,6 +253,7 @@ public sealed class EmulationService : IEmulationService
         _specialActions = specialActions;
         _audioApplications = audioApplications;
         _emulationServerFactory = emulationServerFactory;
+        _platformSupportCheck = platformSupportCheck ?? (() => IsSupported);
         _virtualFactory = virtualFactory;
     }
 
@@ -698,7 +701,7 @@ public sealed class EmulationService : IEmulationService
     /// </summary>
     private bool StartCreationLocked(VirtualControllerEntry entry)
     {
-        if (!IsSupported)
+        if (!_platformSupportCheck())
         {
             SetStatus(entry, new EmulationStatus(EmulationMode.Off, false, "Emulation is not available on this platform", null));
             return false;
@@ -727,7 +730,7 @@ public sealed class EmulationService : IEmulationService
     private async Task CreateVirtualControllerAsync(VirtualControllerEntry entry, bool settleAfterRemoval)
     {
         int generation = entry.Generation;
-        if (!IsSupported)
+        if (!_platformSupportCheck())
         {
             SetStatus(entry, new EmulationStatus(EmulationMode.Off, false, "Emulation is not available on this platform", null));
             return;

@@ -30,7 +30,7 @@ jobs:
       - name: Install desktop runtime dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libhidapi-hidraw0 libx11-6 libice6 libsm6 libfontconfig1 libfreetype6 fonts-dejavu-core xvfb dbus-x11
+          sudo apt-get install -y libhidapi-hidraw0 libx11-6 libice6 libsm6 libfontconfig1 libfreetype6 fonts-dejavu-core xvfb dbus-x11 xdotool
       - name: Build native architecture app
         run: |
           dotnet restore linux/app/MadSense.Linux.csproj --locked-mode
@@ -40,6 +40,10 @@ jobs:
           dotnet test tests/DualSenseClient.Tests/DualSenseClient.Tests.csproj -c Release
           --filter 'FullyQualifiedName~HidStringMarshalTests|FullyQualifiedName~DualSenseRawReportTests|FullyQualifiedName~DualSenseFeature|FullyQualifiedName~VirtualDualSenseController|FullyQualifiedName~BluetoothAudioReportBuilderTests|FullyQualifiedName~NativeHapticsQueueTests|FullyQualifiedName~DualSenseBtAudioPipelineTests|FullyQualifiedName~DualSenseAudioForwarderTests|FullyQualifiedName~Emulation.UsbIp'
           --logger 'trx;LogFileName=linux-shared.trx' --results-directory test-results
+      - name: Platform client and application lifetime regressions
+        run: |
+          dotnet test linux/platform/tests/MadSense.Linux.Platform.Tests.csproj -c Release --logger 'trx;LogFileName=linux-platform.trx' --results-directory test-results
+          dotnet test linux/tests/app/MadSense.Linux.App.Tests.csproj -c Release --logger 'trx;LogFileName=linux-app.trx' --results-directory test-results
       - name: Real Linux X11 GUI without controller access
         run: |
           mkdir -p dist/linux/evidence
@@ -47,6 +51,7 @@ jobs:
             timeout 25s dbus-run-session -- xvfb-run -a dist/linux/app/MadSense.Linux --ui-smoke "$PWD/dist/linux/evidence" --language "$language"
           done
           python3 linux/tests/verify_gui.py dist/linux/evidence
+          timeout 90s dbus-run-session -- xvfb-run -a python3 linux/tests/gui_lifecycle.py dist/linux/app/MadSense.Linux dist/linux/evidence
       - name: Record environment
         if: always()
         run: |

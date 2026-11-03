@@ -4,6 +4,7 @@
 app/
 !macos/app/
 !linux/app/
+!linux/tests/app/
 dist/
 .build/
 .tools/

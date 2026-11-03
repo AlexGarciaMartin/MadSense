@@ -1,0 +1,82 @@
+name: Linux platform isolation and recovery
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/linux]
+    paths:
+      - '.github/workflows/linux-platform.yml'
+      - 'linux/platform/**'
+      - 'linux/probe/**'
+      - 'linux/research/**'
+      - 'vendor/DualSenseClient/DualSenseClient.Hid/**'
+      - 'vendor/DualSenseClient/DualSenseClient.Controllers/**'
+      - 'vendor/DualSenseClient/DualSenseClient.Emulation/**'
+  pull_request:
+    paths: ['linux/platform/**', '.github/workflows/linux-platform.yml']
+permissions:
+  contents: read
+concurrency:
+  group: linux-platform-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Record source and environment
+        run: |
+          mkdir -p dist/linux-platform-portable
+          git rev-parse HEAD > dist/linux-platform-portable/source.txt
+          uname -a > dist/linux-platform-portable/kernel.txt
+          dotnet --info > dist/linux-platform-portable/dotnet.txt
+      - name: Client, neutral framing, recovery and orchestration regressions
+        run: |
+          mkdir -p dist/linux-platform-portable
+          set -o pipefail
+          dotnet test linux/platform/tests/MadSense.Linux.Platform.Tests.csproj -c Release --logger 'trx;LogFileName=platform.trx' --results-directory dist/linux-platform-portable
+          python3 -m unittest discover -s linux/platform/tests -p 'test_*.py' -v 2>&1 | tee dist/linux-platform-portable/python-tests.txt
+          python3 -m py_compile linux/platform/broker.py linux/platform/broker_core.py linux/platform/tests/*.py
+          for script in linux/platform/install.sh linux/platform/tests/run_native_broker_guest.sh linux/platform/tests/run_broker_experiment.sh; do bash -n "$script"; done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-platform-portable-${{ matrix.runner }}
+          path: dist/linux-platform-portable/**
+          retention-days: 14
+          if-no-files-found: warn
+  native:
+    needs: portable
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish neutral USB-IP exporter
+        run: dotnet publish linux/probe/MadSense.Linux.Probe.csproj -c Release -r linux-x64 --self-contained true -o dist/linux-platform-probe
+      - name: Install official-image guest tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client
+          test -r /usr/share/keyrings/ubuntu-cloudimage-keyring.gpg
+      - name: Native UHID, polkit, FDSTORE and owned USB-IP recovery
+        run: >-
+          python3 linux/platform/tests/qemu_broker.py
+          --probe-directory dist/linux-platform-probe
+          --output dist/linux-platform-guest --work dist/platform-qemu-private
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-platform-native-x64
+          path: dist/linux-platform-guest/**
+          retention-days: 14
+          if-no-files-found: warn

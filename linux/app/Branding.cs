@@ -99,7 +99,7 @@ sealed class BrandHeader : Control
         Brand.Rect(c, Brand.Ink, new(x, 12, 146, 76));
         Brand.Text(c, "BLUETOOTH / LINUX", new(x + 11, 20, 125, 18), Brand.Paper, 10.5);
         Brand.Rect(c, Brand.Acid, new(x + 10, 42, 126, 25));
-        Brand.Text(c, L.Text("Ui.Version", "0.5.0"), new(x + 16, 45, 114, 22), Brand.Ink, 13);
+        Brand.Text(c, L.Text("Ui.Version", "0.5.0 DEV"), new(x + 16, 45, 114, 22), Brand.Ink, 13);
         Brand.Rect(c, Brand.Paper, new(x + 10, 72, 126, 11));
         for (var i = 0; i < 12; i++) Brand.Rect(c, Brand.Ink, new(x + 15 + i * 10, 74, i % 3 == 0 ? 6 : 2, 6));
     }
@@ -162,7 +162,7 @@ sealed class BrandButton : Button
         if (IsPressed) face = face.Translate(new Vector(2, 2));
         Brand.Rect(c, Selected ? Brand.Acid : Accent ? Brand.Hot : IsPointerOver ? Brushes.White : Brand.Paper, face, 2);
         var label = Content?.ToString() ?? "";
-        Brand.Text(c, label, face.Deflate(new Thickness(12, 8)), IsEnabled ? Brand.Ink : Brand.Muted, 12, centered: true);
+        Brand.Text(c, label, face.Deflate(new Thickness(12, 8)), IsEnabled ? Brand.Ink : Brand.Muted, 14, 10, centered: true);
         if (IsKeyboardFocusWithin) c.DrawRectangle(null, new Pen(Brand.Ink, 1, DashStyle.Dash), face.Deflate(5));
     }
 }
