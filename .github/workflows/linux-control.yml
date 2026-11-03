@@ -1,0 +1,91 @@
+name: Linux class report framing experiment
+on:
+  workflow_dispatch:
+    inputs:
+      run_native:
+        description: 'Run fixed control reports against the attributed synthetic USB device in a fresh VM'
+        type: boolean
+        default: false
+      guest_image:
+        description: 'Unmodified official guest image'
+        type: choice
+        options: [debian13, ubuntu]
+        default: debian13
+  push:
+    branches: [feature/linux]
+    paths:
+      - '.github/workflows/linux-control.yml'
+      - 'linux/tests/control-report/**'
+permissions:
+  contents: read
+concurrency:
+  group: linux-control-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Evidence and source-transform regressions
+        run: |
+          PYTHONPATH=linux/tests/control-report:linux/research python3 -m unittest discover -s linux/tests/control-report -p 'test_*.py' -v
+          bash -n linux/tests/control-report/build_control.sh linux/tests/control-report/run_control_guest.sh
+      - name: Build independently instrumented source copy and fixed C observer
+        run: |
+          mkdir -p dist
+          bash linux/tests/control-report/build_control.sh "$RUNNER_TEMP/madsense-control-source" dist/control-build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-control-build
+          path: dist/control-build/**
+          retention-days: 14
+          if-no-files-found: warn
+  runtime:
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_native }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-control-build
+          path: dist/control-build
+      - name: Publish uninstrumented neutral and core baselines
+        run: |
+          dotnet publish linux/probe/MadSense.Linux.Probe.csproj -c Release -r linux-x64 --self-contained true -o dist/neutral-probe
+          dotnet publish linux/platform/integration/MadSense.Linux.CoreProbe.csproj -c Release -r linux-x64 --self-contained true -p:RestoreLockedMode=true -o dist/core-probe
+      - name: Install image verification and owned guest tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils ubuntu-keyring ubuntu-cloudimage-keyring openssh-client acl
+          test -r /usr/share/keyrings/ubuntu-cloudimage-keyring.gpg
+      - name: Record existing KVM capabilities
+        run: |
+          python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-runner.json
+          sudo -n python3 linux/research/kvm_inventory.py --probe-api > dist/kvm-root.json
+      - name: Class report observation after original broker and core gates
+        env:
+          MADSENSE_CONTROL_IMAGE: ${{ inputs.guest_image }}
+        run: |
+          python3 linux/tests/control-report/qemu_control.py --run-control-experiment \
+            --neutral-probe-directory dist/neutral-probe --core-probe-directory dist/core-probe \
+            --control-artifact dist/control-build --guest-image "$MADSENSE_CONTROL_IMAGE" \
+            --output dist/control-runtime --work dist/control-private
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-control-runtime
+          path: |
+            dist/control-runtime/**
+            dist/kvm-*.json
+          retention-days: 14
+          if-no-files-found: warn
