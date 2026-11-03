@@ -4,7 +4,7 @@ param([string]$IsccPath, [string]$DotnetPath, [switch]$InstallerTestBuild,
       [string]$PublishDirectory, [string]$DependencyDirectory, [string]$PreviewVersion)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-if ($PreviewVersion -and $PreviewVersion -notmatch '^0\.4\.8\.[12]$') { throw 'PreviewVersion must be 0.4.8.1 or 0.4.8.2.' }
+if ($PreviewVersion -and $PreviewVersion -notmatch '^0\.4\.8\.[1-4]$') { throw 'PreviewVersion must be 0.4.8.1 through 0.4.8.4.' }
 if ($PreviewVersion -and $PublishDirectory) { throw 'PreviewVersion cannot reuse a publish directory.' }
 & (Join-Path $root 'tests\installer\test-languages.ps1')
 $buildRoot = Join-Path $root '.build'

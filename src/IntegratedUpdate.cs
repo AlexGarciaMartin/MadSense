@@ -50,7 +50,7 @@ internal static class IntegratedUpdate
         catch (UnauthorizedAccessException) { }
     }
 
-    internal static UpdatePackage VerifyDescriptor(byte[] envelope, Version current, bool preview, string publicKey = PublicKey)
+    internal static UpdatePackage VerifyDescriptor(byte[] envelope, Version current, bool preview, string publicKey = PublicKey, bool requireNewer = true)
     {
         if (envelope.Length > 32768) throw new InvalidDataException("Update descriptor is too large.");
         using var doc = JsonDocument.Parse(envelope);
@@ -66,7 +66,7 @@ internal static class IntegratedUpdate
         RequireFields(signed.RootElement, "Version", "Channel", "Filename", "Bytes", "Sha256", "DownloadUrl");
         var p = JsonSerializer.Deserialize<UpdatePackage>(payload, json) ?? throw new InvalidDataException("Empty update.");
         if (!Version.TryParse(p.Version, out var version) || version.Build < 0 ||
-            p.Version != version.ToString() || version <= current ||
+            p.Version != version.ToString() ||
             (preview ? p.Channel != "preview" || version.Revision < 1 : p.Channel != "stable" || version.Revision >= 0) ||
             p.Filename != $"MadSense-{p.Version}-Setup.exe" ||
             p.Bytes <= 0 || p.Bytes > MaximumPackageBytes ||
@@ -75,6 +75,7 @@ internal static class IntegratedUpdate
         var tag = preview ? $"update-preview-{p.Version}" : $"v{p.Version}";
         if (p.DownloadUrl != $"https://github.com/AlexGarciaMartin/MadSense/releases/download/{tag}/{p.Filename}")
             throw new InvalidDataException("Invalid update location.");
+        if (requireNewer && version <= current) throw new InvalidDataException("Update must be newer than the installed version.");
         return p;
     }
 
@@ -90,12 +91,15 @@ internal static class IntegratedUpdate
         uri.UserInfo == "" && uri.Fragment == "" &&
         (uri.Host == "github.com" || uri.Host == "release-assets.githubusercontent.com");
 
-    static async Task Fetch(Uri uri, Stream output, long maximum, IProgress<int>? progress, CancellationToken token)
+    internal static async Task Fetch(Uri uri, Stream output, long maximum, IProgress<int>? progress, CancellationToken token, HttpClient? client = null)
     {
         for (int redirects = 0; redirects <= 5; redirects++)
         {
             if (!AllowedDownload(uri)) throw new InvalidDataException("Untrusted update redirect.");
-            using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.UserAgent.ParseAdd("MadSense-IntegratedUpdate");
+            request.Headers.CacheControl = new() { NoCache = true };
+            using var response = await (client ?? http).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
             if ((int)response.StatusCode is 301 or 302 or 303 or 307 or 308)
             {
                 uri = new Uri(uri, response.Headers.Location ?? throw new InvalidDataException("Missing redirect."));
@@ -144,8 +148,8 @@ internal static class IntegratedUpdate
         timeout.CancelAfter(TimeSpan.FromMinutes(10));
         var ct = timeout.Token;
         byte[] descriptor;
-        bool preview = previewDescriptor != null;
-        if (preview)
+        bool preview = typeof(Program).Assembly.GetName().Version!.Revision > 0;
+        if (previewDescriptor != null)
         {
             if (new FileInfo(previewDescriptor!).Length > 32768) throw new InvalidDataException("Descriptor too large.");
             descriptor = await File.ReadAllBytesAsync(previewDescriptor!, ct);
@@ -157,7 +161,7 @@ internal static class IntegratedUpdate
             descriptor = memory.ToArray();
         }
         var package = VerifyDescriptor(descriptor, typeof(Program).Assembly.GetName().Version!, preview);
-        if (!preview && package.Version != offer!.Version) throw new InvalidDataException("Offered version changed.");
+        if (previewDescriptor == null && package.Version != offer!.Version) throw new InvalidDataException("Offered version changed.");
         var directory = Path.Combine(CacheRoot, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
@@ -165,7 +169,7 @@ internal static class IntegratedUpdate
             await File.WriteAllBytesAsync(Path.Combine(directory, "update.json"), descriptor, ct);
             await using (var destination = new FileStream(Path.Combine(directory, "package.exe"), FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                if (preview)
+                if (previewDescriptor != null)
                 {
                     await using var input = File.OpenRead(Path.Combine(Path.GetDirectoryName(previewDescriptor!)!, package.Filename));
                     await CopyBounded(input, destination, package.Bytes, progress, ct);

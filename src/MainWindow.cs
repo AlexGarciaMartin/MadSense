@@ -50,7 +50,6 @@ sealed class MainWindow : Form
     Icon? updateTrayIcon;
     int updateCheckRunning;
     bool installingUpdate;
-    string? rehearsalDescriptor;
     string updateCheckLabel = "Ui.CheckUpdates";
     bool paused, quitting, hasHiddenTip, allowVisible, lowBatteryNotified;
     float phase;
@@ -186,28 +185,6 @@ sealed class MainWindow : Form
         menu.Items.Add(downloadUpdateItem);
         checkUpdatesItem.Click += async (_, _) => await CheckForUpdatesAsync(manual: true);
         menu.Items.Add(checkUpdatesItem);
-        if (typeof(MainWindow).Assembly.GetName().Version!.Revision > 0)
-        {
-            var rehearse = new ToolStripMenuItem(L.Text("Ui.UpdateRehearsal"));
-            rehearse.Click += (_, _) =>
-            {
-                using var picker = new OpenFileDialog { Filter = "MadSense update (*.update.json)|*.update.json", CheckFileExists = true };
-                if (picker.ShowDialog(this) != DialogResult.OK) return;
-                try
-                {
-                    if (new FileInfo(picker.FileName).Length > 32768) throw new InvalidDataException("Descriptor too large.");
-                    var package = IntegratedUpdate.VerifyDescriptor(File.ReadAllBytes(picker.FileName),
-                        typeof(MainWindow).Assembly.GetName().Version!, preview: true);
-                    rehearsalDescriptor = picker.FileName;
-                    availableUpdate = new AppUpdate(package.Version, new Uri(package.DownloadUrl),
-                        new Uri($"https://github.com/AlexGarciaMartin/MadSense/releases/tag/update-preview-{package.Version}"));
-                    RefreshUpdateUi();
-                    ShowActivity(L.Message("Ui.UpdateAvailable", package.Version));
-                }
-                catch (Exception error) { MessageBox.Show(this, L.Text("Ui.UpdateFailed") + "\n" + error.Message, "MadSense"); }
-            };
-            menu.Items.Add(rehearse);
-        }
         menu.Closed += (_, _) => { updateCheckLabel = "Ui.CheckUpdates"; RefreshUpdateUi(); };
         menu.Items.Add(new ToolStripSeparator());
         quitItem.Click += async (_, _) => await QuitAsync(); menu.Items.Add(quitItem);
@@ -334,12 +311,15 @@ sealed class MainWindow : Form
         Post(RefreshUpdateUi);
         try
         {
-            var result = await updateChecker.CheckAsync(typeof(MainWindow).Assembly.GetName().Version!, updateToken).ConfigureAwait(false);
+            var current = typeof(MainWindow).Assembly.GetName().Version!;
+            var result = current.Revision > 0
+                ? await PreviewUpdateChannel.CheckAsync(current, updateToken).ConfigureAwait(false)
+                : await updateChecker.CheckAsync(current, updateToken).ConfigureAwait(false);
             LogFiles.Append("updates.log", $"{DateTimeOffset.Now:O} {(manual ? "Manual" : "Automatic")}: {result.Status} {result.Update?.Version}\n");
             Post(() =>
             {
                 // A temporary network failure must not hide a previously verified release.
-                if (rehearsalDescriptor is null && result.Status != UpdateCheckStatus.Unavailable) availableUpdate = result.Update;
+                if (result.Status != UpdateCheckStatus.Unavailable) availableUpdate = result.Update;
                 if (manual)
                 {
                     updateCheckLabel = result.Status switch
@@ -378,10 +358,10 @@ sealed class MainWindow : Form
     async void OpenUpdateDownload()
     {
         if (availableUpdate is null || quitting || previewOnly) return;
-        await InstallUpdateAsync(rehearsalDescriptor);
+        await InstallUpdateAsync();
     }
 
-    async Task InstallUpdateAsync(string? rehearsal)
+    async Task InstallUpdateAsync()
     {
         if (installingUpdate || quitting || previewOnly) return;
         if (MessageBox.Show(this, L.Text("Ui.UpdateConfirm"), "MadSense",
@@ -393,7 +373,7 @@ sealed class MainWindow : Form
             ShowActivity(L.Message("Ui.UpdateDownloading", 0));
             var progress = new Progress<int>(percent => { if (!quitting) ShowActivity(L.Message("Ui.UpdateDownloading", percent)); });
             var offer = availableUpdate;
-            var directory = await Task.Run(() => IntegratedUpdate.StageAsync(offer, rehearsal, progress, updateToken));
+            var directory = await Task.Run(() => IntegratedUpdate.StageAsync(offer, null, progress, updateToken));
             await IntegratedUpdate.LaunchAsync(directory, updateToken);
             await QuitAsync();
         }
