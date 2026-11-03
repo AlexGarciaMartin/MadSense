@@ -24,6 +24,7 @@ import uuid
 
 from production_fixture import SyntheticDualSense, features, input_report, manifest
 from actor_staging import stage_probe, verify_actor_execution
+from guest_diagnostics import save_broker_diagnostics
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "research"))
@@ -62,10 +63,13 @@ def main():
     parser.add_argument("--host-probe", type=Path, required=True)
     parser.add_argument("--consumer-binaries", type=Path)
     parser.add_argument("--wine-consumer", type=Path)
+    parser.add_argument("--observe-audio-defaults", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     require(args.wine_consumer is None or args.consumer_binaries is not None,
             "Wine consumer requires the optional consumer binary directory")
+    require(not args.observe_audio_defaults or args.consumer_binaries is not None,
+            "Audio defaults observation requires the optional consumer suite")
     require(os.geteuid() == 0, "Run only as root inside the owned test guest")
     scope = validate_environment(args.owned_guest_token)
     require(scope["kind"] == "owned-qemu-guest", "Owned QEMU guest required")
@@ -316,7 +320,8 @@ def main():
                 fixture.marker = False
                 fixture.south_only = state == "south"
             result["consumers"] = run_suite(output / "consumer-ready.json", args.consumer_binaries,
-                args.wine_consumer, consumer_state, output / "consumer-suite", fixture.parent)
+                args.wine_consumer, consumer_state, output / "consumer-suite", fixture.parent,
+                observe_audio_defaults=args.observe_audio_defaults)
             require(result["consumers"].get("result") == "passed"
                     and result["consumers"].get("accountProcessesAndFilesRemoved") is True
                     and not result["consumers"].get("cleanupErrors"), "Consumer suite or scoped cleanup failed")
@@ -380,6 +385,7 @@ def main():
             # Remove only the fresh UUID staging directory made by this invocation.
             if actor_root_created and actor_root.parent == Path("/opt") and actor_root.name.startswith("madsense-core-ci-"):
                 shutil.rmtree(actor_root, ignore_errors=True)
+            save_broker_diagnostics(output)
             save("result.json", result)
     return 0 if result["result"] == "passed" else 1
 

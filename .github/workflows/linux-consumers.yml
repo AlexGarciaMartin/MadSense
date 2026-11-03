@@ -17,6 +17,9 @@ on:
       - 'linux/research/qemu_consumers.py'
       - 'linux/research/run_consumer_guest.sh'
       - 'linux/research/CONSUMER-SESSION.md'
+      - 'linux/research/audio_defaults.py'
+      - 'linux/research/test_audio_defaults.py'
+      - 'linux/research/AUDIO-DEFAULTS-OBSERVER.md'
       - 'linux/research/ci_environment.py'
       - 'linux/research/wine_consumer.cpp'
       - 'linux/research/build_wine_consumer.sh'
@@ -33,6 +36,7 @@ jobs:
       - name: Consumer scope and capture regressions
         run: |
           python3 -m unittest discover -s linux/research -p test_consumer_session.py -v
+          python3 -m unittest discover -s linux/research -p test_audio_defaults.py -v
           python3 -m py_compile linux/research/consumer_session.py linux/research/run_wine_consumer.py linux/research/qemu_consumers.py
           bash -n linux/research/run_consumer_guest.sh
   windows-api-build:
@@ -126,6 +130,7 @@ jobs:
           --neutral-probe-directory dist/neutral-probe --core-probe-directory dist/core-probe
           --native-artifact dist/consumer-build/linux-consumers
           --windows-artifact dist/windows-build/wine-consumer
+          --observe-audio-defaults
           --output dist/consumer-runtime --work dist/consumer-qemu-private
       - uses: actions/upload-artifact@v4
         if: always()

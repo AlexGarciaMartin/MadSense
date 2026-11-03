@@ -30,6 +30,7 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
     readonly object inputGate = new();
     readonly Queue<(byte[] Bytes, long Timestamp, long BrokerReadNs)> startupInput = new();
     LinuxPhysicalSession? session;
+    string? isolationFailureReason, terminationReason;
     long nextId;
     int disposed, acquired, isolationLost;
 
@@ -99,10 +100,10 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
             {
                 Volatile.Write(ref session, created);
                 if (!IsConnected || Volatile.Read(ref isolationLost) != 0)
-                    created.MarkLost("The broker lost isolation while acquiring the controller.");
+                    created.MarkLost(FailureReason ?? "The broker lost isolation while acquiring the controller.");
                 while (startupInput.TryDequeue(out var input)) created.AcceptInput(input.Bytes, input.Timestamp, input.BrokerReadNs);
             }
-            if (!created.IsolationVerified) throw new IOException("Physical isolation ended during acquisition.");
+            if (!created.IsolationVerified) throw new IOException(created.IsolationLostReason ?? "Physical isolation ended during acquisition.");
             return created;
         }
         catch
@@ -114,11 +115,13 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
     }
 
     internal bool IsConnected => stream is not null && Volatile.Read(ref disposed) == 0;
+    string? FailureReason => Volatile.Read(ref session)?.IsolationLostReason ??
+        Volatile.Read(ref isolationFailureReason) ?? Volatile.Read(ref terminationReason);
 
     internal async Task<JsonElement> RequestAsync(string operation, Dictionary<string, object?>? arguments = null,
         CancellationToken ct = default, TimeSpan? deadline = null)
     {
-        if (!IsConnected) throw new IOException(unavailableReason ?? "The device broker connection is closed.");
+        if (!IsConnected) throw new IOException(FailureReason ?? unavailableReason ?? "The device broker connection is closed.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, lifetime.Token);
         timeout.CancelAfter(deadline ?? TimeSpan.FromSeconds(5));
         bool slot = false;
@@ -148,9 +151,10 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
         {
             // A timed-out attach/acquire might still complete in the helper.
             // Closing the lease makes its cleanup authoritative instead of guessing.
-            Terminate("A device broker request was cancelled or timed out.");
+            if (!lifetime.IsCancellationRequested)
+                Terminate(ct.IsCancellationRequested ? "The device broker request was cancelled." : "The device broker request timed out.");
             if (ct.IsCancellationRequested) throw;
-            throw new IOException("The device broker request timed out or its session ended.");
+            throw new IOException(FailureReason ?? "The device broker session ended.");
         }
         catch (Exception error) when (error is SocketException or ObjectDisposedException)
         {
@@ -227,8 +231,10 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
                     }
                     return;
                 case "isolation_lost":
+                    string reason = "Broker isolation lost: " + (message.GetProperty("reason").GetString() ?? "Physical isolation ended.");
+                    Interlocked.CompareExchange(ref isolationFailureReason, reason, null);
                     Interlocked.Exchange(ref isolationLost, 1);
-                    Volatile.Read(ref session)?.MarkLost(message.GetProperty("reason").GetString() ?? "Physical isolation ended.");
+                    Volatile.Read(ref session)?.MarkLost(Volatile.Read(ref isolationFailureReason)!);
                     return;
                 default: throw new IOException("Unsupported device broker event.");
             }
@@ -266,6 +272,8 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         Volatile.Read(ref session)?.MarkLost(reason);
+        reason = FailureReason ?? reason;
+        Interlocked.CompareExchange(ref terminationReason, reason, null);
         lifetime.Cancel();
         stream?.Dispose();
         foreach (var item in pending) item.Value.TrySetException(new IOException(reason));
@@ -276,10 +284,12 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref disposed, 1) == 0)
         {
+            string reason = FailureReason ?? "The broker session was disposed.";
+            Interlocked.CompareExchange(ref terminationReason, reason, null);
             Volatile.Read(ref session)?.MarkClosed();
             lifetime.Cancel();
             stream?.Dispose();
-            foreach (var item in pending) item.Value.TrySetException(new IOException("The broker session was disposed."));
+            foreach (var item in pending) item.Value.TrySetException(new IOException(reason));
             pending.Clear();
         }
         await reader.ConfigureAwait(false);

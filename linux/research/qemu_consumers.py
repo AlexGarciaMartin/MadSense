@@ -57,6 +57,7 @@ def main():
     parser.add_argument("--core-probe-directory", type=Path, required=True)
     parser.add_argument("--native-artifact", type=Path, required=True)
     parser.add_argument("--windows-artifact", type=Path, required=True)
+    parser.add_argument("--observe-audio-defaults", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     args = parser.parse_args()
@@ -65,7 +66,8 @@ def main():
     try:
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         provenance.update(experiment="linux-production-core-consumers", sourceCommit=commit,
-                          persona="dualsense", protonValidated=False)
+                          persona="dualsense", protonValidated=False,
+                          audioDefaultsObservationRequested=args.observe_audio_defaults)
         native = verify_build(args.native_artifact, ("consumer_sdl2", "consumer_sdl3", "ff_probe"), commit)
         windows = verify_build(args.windows_artifact, ("wine_consumer.exe",), commit)
         provenance["consumerBuildDigests"] = native | windows
@@ -85,6 +87,8 @@ def main():
         for name in ("host_probe.c", "run_consumers.py", "consumer_session.py", "run_wine_consumer.py",
                      "test_consumer_session.py", "qemu_consumers.py", "run_consumer_guest.sh"):
             shutil.copy2(research / name, payload / "linux/research" / name)
+        for name in ("audio_defaults.py", "test_audio_defaults.py"):
+            shutil.copy2(research / name, payload / "linux/research" / name)
         hashes = {path.relative_to(payload).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in sorted(payload.rglob("*")) if path.is_file() and path.name != "PAYLOAD-SHA256SUMS"}
         (payload / "PAYLOAD-SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for name, digest in hashes.items()))
@@ -98,7 +102,9 @@ def main():
             provenance["baselineExit"] = baseline.returncode
             if baseline.returncode == 0:
                 consumer = guest.run("consumer-run", "bash /home/ubuntu/madsense/linux/research/run_consumer_guest.sh "
-                                     + shlex.quote(guest.token), timeout=900, required=False)
+                                     + shlex.quote(guest.token)
+                                     + (" --observe-audio-defaults" if args.observe_audio_defaults else ""),
+                                     timeout=900, required=False)
                 provenance["consumerExit"] = consumer.returncode
         finally:
             for name in ("prepare.log", "usbip-binary.txt", "result"):
@@ -109,10 +115,22 @@ def main():
         verify_result(json.loads(baseline_path.read_text()), guest.token)
         core_path = guest.output / "result/core-experiment/result.json"
         consumer_path = guest.output / "result/core-experiment/consumer-suite/result.json"
+        observation_path = guest.output / "result/core-experiment/audio-defaults/result.json"
+        if observation_path.exists():
+            observation = json.loads(observation_path.read_text())
+            provenance["audioDefaultsObservationResult"] = observation.get("result")
+            provenance["audioDefaultsCleanupVerified"] = (observation.get("accountProcessesAndFilesRemoved") is True
+                                                          and not observation.get("cleanupErrors"))
         if provenance.get("consumerExit") != 0 or not core_path.exists() or not consumer_path.exists():
             raise RuntimeError("Core/consumer execution failed; inspect retained partial logs and results")
         verify_core_result(json.loads(core_path.read_text()), guest.token)
-        verify_consumer_result(json.loads(consumer_path.read_text()))
+        result = json.loads(consumer_path.read_text())
+        verify_consumer_result(result)
+        if args.observe_audio_defaults:
+            observation = result.get("audioDefaultsObservation")
+            if not observation or observation.get("cleanupVerified") is not True:
+                raise RuntimeError("Requested audio-default observation lacks verified cleanup")
+            provenance["audioDefaultsObservationResult"] = observation.get("result")
         provenance.update(result="passed", coreResultSha256=hashlib.sha256(core_path.read_bytes()).hexdigest(),
                           consumerResultSha256=hashlib.sha256(consumer_path.read_bytes()).hexdigest())
     except BaseException as error:

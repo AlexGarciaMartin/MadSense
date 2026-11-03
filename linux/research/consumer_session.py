@@ -428,9 +428,33 @@ def clear_sony_state(session, label):
     raise RuntimeError("Synthetic physical state did not clear before the next consumer")
 
 
-def run_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent):
+def run_audio_defaults_observer(ready_path, evidence, physical_parent):
+    """Independent observation; collection failure is not consumer incompatibility."""
+    from audio_defaults import run
+    path = Path(evidence).parent / "audio-defaults"
+    error = None
+    try:
+        result = run(ready_path, path, physical_parent)
+    except Exception as failure:
+        error = f"{type(failure).__name__}: {failure}"
+        # If the observer cannot provide a cleanup result, do not start another
+        # account over possibly retained device grants or running audio daemons.
+        require((path / "result.json").is_file(), "Audio observer failed without a cleanup record: " + error)
+        result = json.loads(bounded_bytes(path / "result.json"))
+    require(result.get("accountProcessesAndFilesRemoved") is True and not result.get("cleanupErrors"),
+            "Audio defaults observer cleanup was not verified; consumers were not started")
+    return dict(result=result.get("result"), evidenceDirectory=str(path), cleanupVerified=True,
+                error=error, gatesConsumerCompatibility=False, defaultDesktopStackValidated=False)
+
+
+def run_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
+              observe_audio_defaults=False):
     """Fixture callback accepts 'south' or 'neutral'; it must not replace the device."""
+    observation = None
+    if observe_audio_defaults:
+        observation = run_audio_defaults_observer(ready_path, evidence, physical_parent)
     with ConsumerSession(ready_path, evidence, physical_parent) as session:
+        session.result["audioDefaultsObservation"] = observation
         session.result["wineRequested"] = wine_exe is not None
         programs = ["consumer_sdl2", "consumer_sdl3"]
         if session.ready["vendorId"] == 0x045e:

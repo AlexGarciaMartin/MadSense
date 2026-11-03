@@ -176,7 +176,8 @@ public sealed class LinuxBrokerClientTests
         JsonElement request = await peer.RequestAsync();
         await peer.SendAsync(new { @event = "isolation_lost", reason = "node changed during acquire" });
         await peer.ReplyAsync(request, Peer.Identity);
-        await Assert.ThrowsAsync<IOException>(async () => await task);
+        var error = await Assert.ThrowsAsync<IOException>(async () => await task);
+        Assert.That(error!.Message, Is.EqualTo("Broker isolation lost: node changed during acquire"));
     }
 
     [Test]
@@ -188,6 +189,38 @@ public sealed class LinuxBrokerClientTests
         peer.Disconnect();
         await Assert.ThrowsAsync<HidException>(async () => await read.WaitAsync(TimeSpan.FromSeconds(3)));
         Assert.That(session.IsolationVerified, Is.False);
+    }
+
+    [Test]
+    public async Task FirstBrokerIsolationCauseSurvivesLaterEventsAndPendingFeatureCancellation()
+    {
+        await using var peer = await Peer.OpenAsync();
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        Task<byte[]> feature = Task.Run(() => session.Device.GetFeatureReport(0x05, 41));
+        Assert.That((await peer.RequestAsync()).GetProperty("op").GetString(), Is.EqualTo("get_feature"));
+        await peer.SendRawAsync("{\"event\":\"isolation_lost\",\"reason\":\"Eight physical input reports are already pending\"}\n" +
+                               "{\"event\":\"isolation_lost\",\"reason\":\"later device removal\"}");
+        peer.Disconnect();
+        var error = await Assert.ThrowsAsync<HidException>(async () => await feature.WaitAsync(TimeSpan.FromSeconds(3)));
+        const string expected = "Broker isolation lost: Eight physical input reports are already pending";
+        Assert.That(error!.Message, Is.EqualTo(expected), "Lifetime cancellation must retain the broker's actual cause.");
+        Assert.That(session.IsolationLostReason, Is.EqualTo(expected));
+        await session.DisposeAsync();
+        Assert.That(session.IsolationLostReason, Is.EqualTo(expected));
+        Assert.That(session.CleanupConfirmed, Is.False);
+    }
+
+    [Test]
+    public async Task PlainDisconnectFailsPendingFeatureWithTransportReasonInsteadOfTimeout()
+    {
+        await using var peer = await Peer.OpenAsync();
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        Task<byte[]> feature = Task.Run(() => session.Device.GetFeatureReport(0x05, 41));
+        await peer.RequestAsync();
+        peer.Disconnect();
+        var error = await Assert.ThrowsAsync<HidException>(async () => await feature.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.That(error!.Message, Is.EqualTo("The device broker closed its session."));
+        Assert.That(session.IsolationLostReason, Is.EqualTo(error.Message));
     }
 
     [Test]
@@ -296,6 +329,7 @@ public sealed class LinuxBrokerClientTests
         await peer.ReplyAsync(request, new { });
         await disposing;
         Assert.That(session.CleanupConfirmed, Is.True);
+        Assert.That(session.IsolationLostReason, Is.Null, "Ordered release is not an isolation failure.");
         await Assert.ThrowsAsync<HidException>(async () => await read);
         Assert.That(peer.Client.IsConnected, Is.False);
     }
@@ -342,6 +376,7 @@ public sealed class LinuxBrokerClientTests
         Assert.That(session.Metrics.InputOverflows, Is.EqualTo(1));
         Assert.That(session.Metrics.QueuedReports, Is.EqualTo(8));
         Assert.That(session.Metrics.ReadReports, Is.EqualTo(0));
+        Assert.That(session.IsolationLostReason, Is.EqualTo("The physical input proxy exceeded its eight-report queue; no input loss is hidden."));
         Assert.Throws<HidException>(() => session.Device.Read(new byte[64], 0, 64, 0));
     }
 

@@ -11,11 +11,15 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
     readonly LinuxBrokerClient broker;
     readonly BrokerHidDevice device;
     readonly LinuxAttachStrategy attachStrategy;
+    readonly object isolationGate = new();
+    string? isolationLostReason;
     int verified = 1, disposed, cleanupConfirmed;
     public IHidDevice Device => device;
     public IUsbIpAttachStrategy AttachStrategy => attachStrategy;
     public bool IsolationVerified => Volatile.Read(ref verified) != 0 && broker.IsConnected;
     public bool CleanupConfirmed => Volatile.Read(ref cleanupConfirmed) != 0;
+    /// <summary>The first isolation failure; normal ordered closure leaves this null.</summary>
+    public string? IsolationLostReason => Volatile.Read(ref isolationLostReason);
     public LinuxProxyMetrics Metrics => device.Metrics;
     public event Action? IsolationLost;
 
@@ -34,7 +38,14 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
     { if (IsolationVerified) device.AcceptInput(report, timestamp, brokerReadNs); }
     internal void MarkLost(string reason)
     {
-        if (Interlocked.Exchange(ref verified, 0) == 0) return;
+        lock (isolationGate)
+        {
+            if (verified == 0) return;
+            // Publish the cause before readiness changes or pending operations
+            // wake. Later EOF/cancellation must not replace this first failure.
+            Volatile.Write(ref isolationLostReason, reason);
+            Volatile.Write(ref verified, 0);
+        }
         device.EndInput(new IOException(reason));
         // A bridge shutdown may synchronously call back into the broker.
         // Never invoke its callback on the sole response-reading task.
@@ -43,7 +54,7 @@ public sealed class LinuxPhysicalSession : IAsyncDisposable
     }
     internal void MarkClosed()
     {
-        Interlocked.Exchange(ref verified, 0);
+        lock (isolationGate) Volatile.Write(ref verified, 0);
         device.EndInput(null);
     }
 

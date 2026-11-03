@@ -56,7 +56,7 @@ await using var broker = await LinuxBrokerClient.ConnectAsync(deadline.Token);
 var preflight = await broker.PreflightAsync(deadline.Token);
 if (!preflight.Available) throw new InvalidOperationException(preflight.Detail);
 await using var session = await broker.AcquirePhysicalAsync(path, deadline.Token);
-session.IsolationLost += () => evidence.Event("isolation-lost", new { });
+session.IsolationLost += () => evidence.Event("isolation-lost", new { reason = session.IsolationLostReason });
 using var tracker = new ControllerTracker();
 using var actions = new SpecialActionEngineRegistry();
 DualSenseDevice? pad = null;
@@ -140,8 +140,10 @@ finally
         {
             var metrics = session.Metrics;
             await session.DisposeAsync();
+            evidence.CompleteInputObservation();
             evidence.Atomic("stopped.json", new { completed = stopped && !evidence.Overflow && session.CleanupConfirmed,
                 cleanupConfirmed = session.CleanupConfirmed, evidenceOverflow = evidence.Overflow,
+                isolationLostReason = session.IsolationLostReason, inputObservation = evidence.InputObservation,
                 metrics, inputs = evidence.InputCount,
                 physicalDevices = false, radioInitialized = false, applicationUiExercised = false });
         }
@@ -159,23 +161,36 @@ sealed class Evidence : IDisposable
     readonly StreamWriter stream;
     readonly Lock gate = new();
     readonly Dictionary<string, FileStream> binary = [];
+    readonly object inputGate = new();
+    readonly DeferredEvidence<(InputReport Report, long Timestamp)> inputObservation;
     long inputCount;
     int overflow;
-    readonly HashSet<string> inputStates = [];
+    readonly HashSet<(int, int, int, bool)> inputStates = [];
     static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     public long InputCount => Interlocked.Read(ref inputCount);
-    public bool Overflow => Volatile.Read(ref overflow) != 0;
-    public Evidence(string directory) { this.directory = directory; stream = new(Path.Combine(directory, "events.jsonl")); }
+    public bool Overflow => Volatile.Read(ref overflow) != 0 || inputObservation.Rejected != 0 || inputObservation.Error is not null;
+    public object InputObservation => new { rejectedSnapshots = inputObservation.Rejected,
+        unwrittenSnapshots = inputObservation.Unwritten, error = inputObservation.Error?.Message };
+    public Evidence(string directory)
+    {
+        this.directory = directory; stream = new(Path.Combine(directory, "events.jsonl"));
+        inputObservation = new(32, item =>
+        {
+            var report = item.Report;
+            Event("parsed-input", new { report.Input, report.Motion, report.Touchpad, report.Battery,
+                usbRaw64 = Convert.ToHexString(report.UsbRaw64 ?? []) }, item.Timestamp);
+        });
+    }
     public void Atomic(string name, object value)
     {
         string path = Path.Combine(directory, name);
         File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(value, Json) + "\n");
         File.Move(path + ".tmp", path, true);
     }
-    public void Event(string kind, object value)
+    public void Event(string kind, object value, long? timestamp = null)
     {
         lock (gate)
-        { stream.WriteLine(JsonSerializer.Serialize(new { kind, timestamp = Stopwatch.GetTimestamp(), value }, Json)); stream.Flush(); }
+        { stream.WriteLine(JsonSerializer.Serialize(new { kind, timestamp = timestamp ?? Stopwatch.GetTimestamp(), value }, Json)); stream.Flush(); }
     }
     public void Bytes(string name, ReadOnlySpan<byte> data)
     {
@@ -189,15 +204,22 @@ sealed class Evidence : IDisposable
     public void Input(InputReport report)
     {
         Interlocked.Increment(ref inputCount);
-        string state = $"{report.Input.LeftStickX}:{report.Input.L2}:{report.Motion.GyroX}:{report.Input.Cross}";
-        lock (gate)
+        long timestamp = Stopwatch.GetTimestamp();
+        var state = ((int)report.Input.LeftStickX, (int)report.Input.L2, (int)report.Motion.GyroX, report.Input.Cross);
+        lock (inputGate)
         {
             if (!inputStates.Add(state)) return;
-            Event("parsed-input", new { report.Input, report.Motion, report.Touchpad, report.Battery,
-                usbRaw64 = Convert.ToHexString(report.UsbRaw64 ?? []) });
+            // Parsed members are values; copy the attached raw image as an
+            // independent bounded snapshot before returning to the input reader.
+            inputObservation.TryWrite((report with { UsbRaw64 = report.UsbRaw64?.ToArray() }, timestamp));
         }
     }
-    public void Dispose() { lock (gate) { stream.Dispose(); foreach (var file in binary.Values) file.Dispose(); } }
+    public void CompleteInputObservation() => inputObservation.Complete();
+    public void Dispose()
+    {
+        inputObservation.Dispose();
+        lock (gate) { stream.Dispose(); foreach (var file in binary.Values) file.Dispose(); }
+    }
 }
 
 sealed class ObservedFactory(Evidence evidence) : IVirtualControllerFactory
@@ -231,6 +253,35 @@ sealed class ObservedFactory(Evidence evidence) : IVirtualControllerFactory
 
 static class FixtureChecks
 {
+    static void VerifyDeferredObservation()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        List<int> delivered = [];
+        using var observer = new DeferredEvidence<int>(2, item =>
+        {
+            entered.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Observer verification stalled.");
+            delivered.Add(item);
+        });
+        try
+        {
+            if (!observer.TryWrite(1) || !entered.Wait(TimeSpan.FromSeconds(3)))
+                throw new InvalidDataException("Evidence writer failed to start.");
+            var enqueue = Task.Run(() => new[] { observer.TryWrite(2), observer.TryWrite(3), observer.TryWrite(4) });
+            if (!enqueue.Wait(TimeSpan.FromSeconds(3)) || !enqueue.Result.SequenceEqual([true, true, false]))
+                throw new InvalidDataException("A slow evidence writer blocked or silently discarded input observations.");
+        }
+        finally { release.Set(); }
+        observer.Complete();
+        if (observer.Rejected != 1 || observer.Unwritten != 0 || observer.Error is not null || !delivered.SequenceEqual([1, 2, 3]))
+            throw new InvalidDataException("Evidence queue accounting or drain failed.");
+        using var failed = new DeferredEvidence<int>(1, _ => throw new IOException("deliberate observer failure"));
+        failed.TryWrite(1); failed.Complete();
+        if (failed.Error is not IOException || failed.Unwritten != 1)
+            throw new InvalidDataException("Evidence writer failure was hidden.");
+    }
+
     public static void VerifyMacSeparation(string? physical, string? virtualMac)
     {
         if (physical != "02:FA:11:22:33:44" || VirtualDeviceFilter.IsKnownVirtualMac(physical) ||
@@ -240,6 +291,7 @@ static class FixtureChecks
 
     public static void Verify(string path)
     {
+        VerifyDeferredObservation();
         using var json = JsonDocument.Parse(File.ReadAllText(path));
         var root = json.RootElement;
         foreach (var item in root.GetProperty("input").EnumerateObject())

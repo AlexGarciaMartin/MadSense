@@ -906,6 +906,11 @@ def serve():
     def end_lease(reason=None):
         nonlocal lease, owner, attachment
         if lease is not None:
+            if reason:
+                # Keep the first service-side cause even when a stalled client
+                # cannot receive its isolation_lost event before disconnection.
+                print(json.dumps({"event": "lease-ended", "reason": str(reason)[:512],
+                                  "ownerPid": getattr(lease, "pid", None)}), flush=True)
             if reason and owner in clients:
                 try:
                     queue(clients[owner], {"event": "isolation_lost", "reason": reason})

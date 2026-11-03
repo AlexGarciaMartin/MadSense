@@ -22,19 +22,34 @@ mandos. La conexión permanece bloqueada hasta verificar el componente de acceso
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
 
-En la revisión `1dd841f`, el
-[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41604139572)
+En la revisión `884f0fd`, el
+[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41613298810)
 pasó en ambas arquitecturas: 380 pruebas compartidas, 82 de plataforma y 15 de
 aplicación, las seis interfaces y el ciclo de escritorio de los paquetes extraídos.
-Las [tres pruebas del kernel](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41604139381)
-pasaron con DualSense, Edge y Xbox; las dos Sony conservaron las 48.000 muestras
-por canal en la reproducción ALSA y el audio ISO IN sintético. El workflow global
-falló en una compilación independiente de SDL3, que se conserva como fallo.
-El [servicio nativo](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41604139844)
-pasó diez casos de aislamiento/recuperación y dos reinstalaciones en reposo; la
-etapa posterior del motor falló al preparar el dispositivo sintético, antes de
-ejecutar C#. La corrección y las pruebas de la aplicación completa son la
-siguiente etapa. Ninguno de estos resultados sustituye un mando o un juego real.
+Las [tres pruebas del kernel en `5733910`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41611760328)
+pasaron con DualSense, Edge y Xbox, incluida la retirada de la VM y restauración
+de permisos KVM. Las dos Sony conservaron las 48.000 muestras por canal en la
+reproducción ALSA y el audio ISO IN sintético.
+El [servicio nativo en `884f0fd`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41613298915)
+pasó diez casos de aislamiento/recuperación, dos actualizaciones en reposo y
+cuatro casos de desinstalación/reinstalación. Después, el fixture real de
+hid-playstation pasó los dos rechazos de acceso evdev en conflicto. La ejecución
+falló antes de arrancar el actor C# por sus permisos de staging; sus artefactos
+conservan ese fallo. En
+[`477687d`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41615446457),
+el staging normalizado y la ejecución como usuario ordinario pasaron; el montaje
+de `/run` quedó identificado como `noexec`. El actor C# arrancó, pero su sesión
+terminó durante la inicialización, antes del USB virtual. La
+[ejecución de consumidores](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41615446558)
+alcanzó calibración, firmware, emparejamiento y el parser real antes de perder la
+sesión. Se conserva ese fallo y se investiga su primera causa; motor, app y
+consumidores completos todavía no han superado sus gates.
+
+El [análisis independiente del audio en `884f0fd`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41613299026)
+pasó en ambas arquitecturas: Opus decodificado con libopus y hápticos contrastados
+byte a byte, incluyendo controles que rechazan paquetes corruptos o reordenados.
+Es una prueba del pipeline de audio sin transporte físico; no mide la latencia
+del mando. Ninguno de estos resultados sustituye un mando o un juego real.
 
 El motor de la app ya conecta la sesión del broker con el servicio de emulación,
 los ajustes originales y el forwarder Bluetooth. Pausar cancela una adquisición

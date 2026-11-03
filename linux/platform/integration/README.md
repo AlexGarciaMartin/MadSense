@@ -104,7 +104,23 @@ for the selected directory and `/run`, then executes a copied system `true`
 binary under the actor UID with no supplementary groups. This catches an
 execution-permission failure before controller work without changing any mount
 options. The directory is removed only if this invocation created it. The new
-staging path and the actual C# runtime remain pending native verification.
+staging path passed in run 41615446457 at `477687d`: the ordinary C# actor ran,
+and mount evidence confirms `/run` is `noexec` in the pinned guest. Core still
+failed before Ready. That run ended its session during the first calibration RPC
+with no client input overflow; the separate consumer run 41615446558 parsed
+firmware, pairing and neutral input, then counted one active input overflow.
+Neither result establishes a successful attached core or application actor.
+
+The next diagnostic preserves the first session-loss reason in C# and the
+service journal, including a bounded helper-side reason when its client cannot
+consume an event. Both core and app harnesses collect the final broker journal
+and unit properties on success or failure. Parsed-input evidence now copies a
+bounded typed snapshot on the reader callback and performs JSON/file writes on
+a dedicated observer thread. Queue exhaustion or writer failure invalidates the
+capture; all accepted snapshots are drained before its final result. The
+portable fixture command verifies that a blocked observer cannot block the
+producer, and that exhaustion and writer failure remain visible. Production
+input queue bounds and failure behavior are unchanged.
 
 Portable preparation:
 

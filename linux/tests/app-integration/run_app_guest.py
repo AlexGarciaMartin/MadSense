@@ -25,6 +25,7 @@ from kernel_probe import owned_nodes, ports, wait_for
 from qemu_broker import verify_result
 from production_fixture import SyntheticDualSense
 from actor_staging import stage_probe, verify_actor_execution
+from guest_diagnostics import save_broker_diagnostics
 from run_core_guest import state_payload, valid_output
 
 
@@ -304,6 +305,7 @@ def main():
                 command("delete-actor", ["userdel", user], check=False)
             if root_created and root.parent == Path("/opt") and root.name.startswith("madsense-app-ci-"):
                 shutil.rmtree(root, ignore_errors=True)
+            save_broker_diagnostics(output)
             save("result.json", result)
     return 0 if result["result"] == "passed" else 1
 

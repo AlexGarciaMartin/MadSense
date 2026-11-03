@@ -1,12 +1,14 @@
 """Portable consumer-scope and evidence regressions; never opens devices."""
 import binascii
 import hashlib
+import json
 from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from consumer_session import base_acl, bounded_bytes, bt_state, expected_motors, output_window
+from consumer_session import base_acl, bounded_bytes, bt_state, expected_motors, output_window, run_audio_defaults_observer
 from qemu_consumers import verify_build, verify_consumer_result
 from run_wine_consumer import matching_container, parse_pe_output, select_audio_endpoint, xauthority
 
@@ -94,6 +96,29 @@ class ConsumerEvidenceTests(unittest.TestCase):
 
 
 class RuntimeArtifactTests(unittest.TestCase):
+    def test_observation_failure_with_confirmed_cleanup_does_not_gate_consumers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory, "consumer-suite")
+            observer = Path(directory, "audio-defaults"); observer.mkdir()
+            (observer / "result.json").write_text(json.dumps(dict(result="failed", accountProcessesAndFilesRemoved=True)))
+            with patch("audio_defaults.run", side_effect=RuntimeError("Direct profile unavailable")):
+                result = run_audio_defaults_observer("ready", evidence, "physical")
+            self.assertEqual(result["result"], "failed")
+            self.assertTrue(result["cleanupVerified"])
+            self.assertFalse(result["gatesConsumerCompatibility"])
+
+    def test_missing_or_failed_observer_cleanup_aborts_before_consumers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory, "consumer-suite")
+            with patch("audio_defaults.run", side_effect=RuntimeError("early failure")), self.assertRaises(RuntimeError):
+                run_audio_defaults_observer("ready", evidence, "physical")
+            observer = Path(directory, "audio-defaults"); observer.mkdir()
+            for result in (dict(result="failed", accountProcessesAndFilesRemoved=False),
+                           dict(result="observed", accountProcessesAndFilesRemoved=True, cleanupErrors=["ACL changed"])):
+                (observer / "result.json").write_text(json.dumps(result))
+                with self.subTest(result=result), patch("audio_defaults.run", return_value=result), self.assertRaises(RuntimeError):
+                    run_audio_defaults_observer("ready", evidence, "physical")
+
     def test_execution_requires_successful_same_commit_untampered_binaries(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); (root / "bin").mkdir()
