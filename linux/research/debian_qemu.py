@@ -59,7 +59,7 @@ class OwnedDebianQemu(OwnedQemu):
         self.provenance.update(guestDistribution="debian-13-generic", imageUrl=f"{IMAGE_BASE}/{IMAGE_NAME}",
             imageSha512=IMAGE_SHA512, imageBytes=IMAGE_BYTES, imageSignatureVerified=False,
             imageVerification="official HTTPS + pinned SHA-512; upstream cloud checksum has no GPG signature",
-            namespaceSecurityPolicyModified=False)
+            namespaceSecurityPolicyModified=False, emulatedVga=True, displayBackend="none")
 
     def boot(self):
         self.command("host-uname", ["uname", "-a"])
@@ -100,6 +100,9 @@ class OwnedDebianQemu(OwnedQemu):
             return ["qemu-system-x86_64", "-machine", f"q35,accel={accelerator}",
                 "-cpu", "host" if accelerator == "kvm" else "max", "-smp", "2", "-m", "2048", "-uuid", self.token,
                 "-nodefaults", "-display", "none", "-monitor", "none", "-serial", f"file:{self.output / 'guest-console.log'}",
+                # Debian #1111240: gfxterm+serial can fail without default VGA.
+                # Supply emulated video only; retain the exact upstream image.
+                "-device", "VGA",
                 "-no-reboot", "-drive", f"file={self.work / 'guest.qcow2'},format=qcow2,if=virtio",
                 "-drive", f"file={self.work / 'seed.img'},format=raw,if=virtio,readonly=on",
                 "-netdev", f"user,id=net0,hostfwd=tcp:127.0.0.1:{port}-:22",
@@ -110,5 +113,9 @@ class OwnedDebianQemu(OwnedQemu):
             "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={known}"]
         self.ssh = ["ssh", *common, "-p", str(port), "ubuntu@127.0.0.1"]
         self.scp = ["scp", *common, "-P", str(port)]
-        self.wait_ready(accelerator)
+        try:
+            self.wait_ready(accelerator)
+        except BaseException:
+            self.provenance["qemuExitCodeBeforeReadiness"] = self.process.poll()
+            raise
         self.run("cloud-init", "sudo -n cloud-init status --wait", timeout=180)

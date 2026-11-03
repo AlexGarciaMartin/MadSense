@@ -39,13 +39,13 @@ def verify_gates(directory, token):
     return records
 
 
-def case(args, output, explicit):
+def case(args, output, explicit, desktop_factory=PrivateDesktop):
     result = dict(selection="explicit" if explicit else "automatic", result="invalid", cleanupConfirmed=False)
     output.mkdir()
     actor = audio = None
     try:
         with AppActor(args.owned_guest_token, args.probe_directory, output / "actor") as actor:
-            with PrivateDesktop(args.owned_guest_token, actor.fixture.parent, output / "audio") as audio:
+            with desktop_factory(args.owned_guest_token, actor.fixture.parent, output / "audio") as audio:
                 audio.start_graph(explicit)
                 for epoch in (1, 2):
                     attach_started = time.monotonic_ns()
@@ -88,69 +88,73 @@ def verify_result(directory, token, gates):
     cases = result.get("cases", [])
     require([row.get("selection") for row in cases] == ["automatic", "explicit"], "Missing separate automatic/explicit cases")
     for row in cases:
-        path = directory / row["selection"]
-        require(row == json.loads((path / "result.json").read_text()) and row.get("result") == "observed"
-            and row.get("cleanupConfirmed") is True and row.get("actorCleanup", {}).get("confirmed") is True,
-            "Audio arrival case cleanup or matching evidence missing")
-        raw = (path / "audio/result.json").read_bytes(); audio = json.loads(raw)
-        require(hashlib.sha256(raw).hexdigest() == row["audioResultSha256"] and audio.get("accountProcessesAndFilesRemoved") is True
-            and not audio.get("cleanupErrors") and not audio.get("retirementError"), "Private audio state not restored")
-        require(audio.get("ownedGuestToken") == token and audio.get("scope") == "private-audio-hotplug"
-            and audio.get("selection") == row["selection"] and audio.get("noPhysicalAccessGranted") is True
-            and audio.get("account", {}).get("uid", 0) > 0, "Audio result belongs to another session or privilege scope")
-        require(len(audio.get("arrivals", [])) == len(audio.get("retiredSoundEpochs", [])) == 2,
-                "Both attach/detach generations are required")
-        require(all(value["nodesDestroyed"] is True for value in audio["retiredSoundEpochs"]), "Sound ACL epoch not retired")
-        for epoch, (arrival, retired) in enumerate(zip(audio["arrivals"], audio["retiredSoundEpochs"]), 1):
-            require(arrival["epoch"] == retired["epoch"] == epoch and arrival["usbParent"] == retired["usbParent"]
-                and audio["graphStartedMonotonicNs"] < arrival["attachStartedNs"] <= arrival["applicationReadyObservedNs"]
-                <= arrival["aclStartedNs"] <= arrival["aclFinishedNs"] < retired["retiredMonotonicNs"],
-                "Graph/attach/ACL/removal chronology or epoch attribution is invalid")
-        from evidence import metadata_changes, compare, preservation
-        from pipewire_defaults import select_device, describe_nodes
-        labels = set()
-        for observed in audio["observations"]:
-            label = observed["label"]
-            require(label not in labels and all(ch.isalnum() or ch == "-" for ch in label), "Invalid or repeated graph snapshot label")
-            labels.add(label)
-            snapshot = json.loads((path / "audio" / (label+".json")).read_text())
-            actual = compare(snapshot, audio["controlNodes"])
-            require(all(observed.get(key) == value for key, value in actual.items()), "Graph summary differs from retained snapshot")
-            require(("virtual" in observed) == label.startswith("attached-"), "Virtual identity missing or retained in detached phase")
-            if "virtual" in observed:
-                virtual = observed["virtual"]
-                epoch = int(label.split("-")[1])
-                require(epoch in (1, 2), "Unexpected attachment epoch")
-                arrival = audio["arrivals"][epoch-1]
-                require(virtual["usbParent"] == arrival["usbParent"]
-                    and virtual["card"] == arrival["card"] and virtual["cardSysfs"] == arrival["cardSysfs"]
-                    and Path(virtual["cardSysfs"]).is_relative_to(Path(virtual["usbParent"])),
-                    "Graph belongs to another attachment or sound parent")
-                card = select_device(snapshot, virtual["card"], virtual["cardSysfs"])
-                require(virtual["deviceId"] == card["id"] and virtual["deviceSerial"] == int(card["info"]["props"]["object.serial"])
-                    and virtual["deviceProperties"] == card["info"]["props"] and virtual["deviceParameters"] == card["info"].get("params", {})
-                    and virtual["nodes"] == describe_nodes(snapshot, card), "Virtual node attribution differs from raw graph")
-            else:
-                require(not [value for value in snapshot if value.get("type", "").endswith(":Device")
-                    and value.get("info", {}).get("props", {}).get("device.api") == "alsa"],
-                    "Raw graph retains an ALSA device outside an attachment")
-        require("before-attach" in labels and all(any(label.startswith(prefix) for label in labels)
-            for prefix in ("attached-1-", "detached-1-", "attached-2-", "detached-2-")), "Missing a graph lifecycle phase")
-        changes = metadata_changes((path / "audio/metadata-monitor.stdout").read_text(), audio["controlNodes"])
-        require(changes == audio["metadataEvents"], "Metadata event summary differs from retained stream")
-        preserved = preservation(audio["observations"], changes)
-        expected = all(preserved.values())
-        require(row["defaultPreservationObserved"] == audio["defaultPreservationObserved"] == expected,
-                "Result hides a default replacement")
-        require(audio["preservationByKind"] == preserved and row["sourcePreservationObserved"] == preserved["source"]
-                and row["sinkPreservationObserved"] == preserved["sink"], "Per-direction result hides a transient replacement")
-        require(json.loads((path / "actor/app/stopped.json").read_text()).get("cleanupConfirmed") is True,
-                "Fresh broker cleanup ACK missing")
-        require(json.loads((path / "actor/actor-cleanup.json").read_text()) == row["actorCleanup"],
-                "Actor cleanup summary differs from its retained record")
-        require(json.loads((path / "actor/fixture-before.json").read_text()) ==
-                json.loads((path / "actor/fixture-restored.json").read_text()), "Physical fixture permissions changed")
+        verify_case(directory / row["selection"], row, token)
     return result
+
+
+def verify_case(path, row, token):
+    path = Path(path)
+    require(row == json.loads((path / "result.json").read_text()) and row.get("result") == "observed"
+        and row.get("cleanupConfirmed") is True and row.get("actorCleanup", {}).get("confirmed") is True,
+        "Audio arrival case cleanup or matching evidence missing")
+    raw = (path / "audio/result.json").read_bytes(); audio = json.loads(raw)
+    require(hashlib.sha256(raw).hexdigest() == row["audioResultSha256"] and audio.get("accountProcessesAndFilesRemoved") is True
+        and not audio.get("cleanupErrors") and not audio.get("retirementError"), "Private audio state not restored")
+    require(audio.get("ownedGuestToken") == token and audio.get("scope") == "private-audio-hotplug"
+        and audio.get("selection") == row["selection"] and audio.get("noPhysicalAccessGranted") is True
+        and audio.get("account", {}).get("uid", 0) > 0, "Audio result belongs to another session or privilege scope")
+    require(len(audio.get("arrivals", [])) == len(audio.get("retiredSoundEpochs", [])) == 2,
+            "Both attach/detach generations are required")
+    require(all(value["nodesDestroyed"] is True for value in audio["retiredSoundEpochs"]), "Sound ACL epoch not retired")
+    for epoch, (arrival, retired) in enumerate(zip(audio["arrivals"], audio["retiredSoundEpochs"]), 1):
+        require(arrival["epoch"] == retired["epoch"] == epoch and arrival["usbParent"] == retired["usbParent"]
+            and audio["graphStartedMonotonicNs"] < arrival["attachStartedNs"] <= arrival["applicationReadyObservedNs"]
+            <= arrival["aclStartedNs"] <= arrival["aclFinishedNs"] < retired["retiredMonotonicNs"],
+            "Graph/attach/ACL/removal chronology or epoch attribution is invalid")
+    from evidence import metadata_changes, compare, preservation
+    from pipewire_defaults import select_device, describe_nodes
+    labels = set()
+    for observed in audio["observations"]:
+        label = observed["label"]
+        require(label not in labels and all(ch.isalnum() or ch == "-" for ch in label), "Invalid or repeated graph snapshot label")
+        labels.add(label)
+        snapshot = json.loads((path / "audio" / (label+".json")).read_text())
+        actual = compare(snapshot, audio["controlNodes"])
+        require(all(observed.get(key) == value for key, value in actual.items()), "Graph summary differs from retained snapshot")
+        require(("virtual" in observed) == label.startswith("attached-"), "Virtual identity missing or retained in detached phase")
+        if "virtual" in observed:
+            virtual = observed["virtual"]
+            epoch = int(label.split("-")[1])
+            require(epoch in (1, 2), "Unexpected attachment epoch")
+            arrival = audio["arrivals"][epoch-1]
+            require(virtual["usbParent"] == arrival["usbParent"]
+                and virtual["card"] == arrival["card"] and virtual["cardSysfs"] == arrival["cardSysfs"]
+                and Path(virtual["cardSysfs"]).is_relative_to(Path(virtual["usbParent"])),
+                "Graph belongs to another attachment or sound parent")
+            card = select_device(snapshot, virtual["card"], virtual["cardSysfs"])
+            require(virtual["deviceId"] == card["id"] and virtual["deviceSerial"] == int(card["info"]["props"]["object.serial"])
+                and virtual["deviceProperties"] == card["info"]["props"] and virtual["deviceParameters"] == card["info"].get("params", {})
+                and virtual["nodes"] == describe_nodes(snapshot, card), "Virtual node attribution differs from raw graph")
+        else:
+            require(not [value for value in snapshot if value.get("type", "").endswith(":Device")
+                and value.get("info", {}).get("props", {}).get("device.api") == "alsa"],
+                "Raw graph retains an ALSA device outside an attachment")
+    require("before-attach" in labels and all(any(label.startswith(prefix) for label in labels)
+        for prefix in ("attached-1-", "detached-1-", "attached-2-", "detached-2-")), "Missing a graph lifecycle phase")
+    changes = metadata_changes((path / "audio/metadata-monitor.stdout").read_text(), audio["controlNodes"])
+    require(changes == audio["metadataEvents"], "Metadata event summary differs from retained stream")
+    preserved = preservation(audio["observations"], changes)
+    expected = all(preserved.values())
+    require(row["defaultPreservationObserved"] == audio["defaultPreservationObserved"] == expected,
+            "Result hides a default replacement")
+    require(audio["preservationByKind"] == preserved and row["sourcePreservationObserved"] == preserved["source"]
+            and row["sinkPreservationObserved"] == preserved["sink"], "Per-direction result hides a transient replacement")
+    require(json.loads((path / "actor/app/stopped.json").read_text()).get("cleanupConfirmed") is True,
+            "Fresh broker cleanup ACK missing")
+    require(json.loads((path / "actor/actor-cleanup.json").read_text()) == row["actorCleanup"],
+            "Actor cleanup summary differs from its retained record")
+    require(json.loads((path / "actor/fixture-before.json").read_text()) ==
+            json.loads((path / "actor/fixture-restored.json").read_text()), "Physical fixture permissions changed")
 
 
 def main():

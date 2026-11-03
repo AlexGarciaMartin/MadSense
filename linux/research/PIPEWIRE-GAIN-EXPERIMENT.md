@@ -1,6 +1,6 @@
 # Private PipeWire rear-volume experiment
 
-This is prepared research, not production policy. Its twenty-five portable tests cover identity, channel
+This is measured research, not production policy. Its twenty-five portable tests cover identity, channel
 binding, PCM alignment/gain evidence, conservative control restoration, staged
 imports and the mandatory cleanup boundary before subsequent consumers. The
 target/control parsers also accept the retained real dumps from both observations
@@ -87,14 +87,14 @@ The 64d gain result SHA-256 is
 the final failed-restore dump SHA-256 is
 `f390f01a0be3edd660892d43fac3db78e2a521acb6d344c86f9baadbfef3f7cc`.
 
-## Prepared four-channel phase
+## Four-channel phase
 
-The next revision retains the rear-only control and adds a `front-preserving`
+The experiment retains the rear-only control and adds a `front-preserving`
 phase. It requests the original **software** FL/FR gains as the new raw FL/FR
 values, with raw RL/RR set to one. ACP still chooses its hardware/software split;
 the experiment never writes `softVolumes` directly. This is a candidate for the
 synthetic UAC implementation whose hardware master does not scale PCM, not a
-general USB-amplifier policy. There is no native result for this phase yet.
+general USB-amplifier policy. Its first completed native measurement is recorded below.
 
 The baseline software values are read directly from SPA float32 PODs. A small
 read-only `wpexec` script uses the already installed WirePlumber 0.4 API and emits
@@ -213,6 +213,39 @@ sysfs inode, ALSA control-node identity, device and sink IDs **and serials**, ex
 profile-device/route index, profile and default metadata must remain stable.
 VID/PID, display name and the synthesized `device.serial` string do not identify
 the target. Only one ALSA card and one sink on it are allowed.
+
+## Completed four-channel measurement at 0a9c30d
+
+[Run 41643213193](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41643213193)
+at `0a9c30d5492e9492f3400337749d30c6e5de3592` completed all four phases.
+The overall consumer workflow still failed its separate Wine/HIDAPI checks;
+the gain result and cleanup were retained independently.
+
+| Phase | Measured front gain | Rear samples equal source | Front samples equal baseline |
+| --- | ---: | ---: | ---: |
+| Baseline | ≈0.904004 | 0 / 48,000 per channel | baseline |
+| Rear-only control | ≈0.063997 | 48,000 / 48,000 per channel | 0 / 48,000 per channel |
+| Front-preserving request | ≈0.904004 | 48,000 / 48,000 per channel | 48,000 / 48,000 per channel |
+| Original route restored | ≈0.904004 | 0 / 48,000 per channel | 48,000 / 48,000 per channel |
+
+An independent read-only audit checked the WAV hash, each phase's exact region
+of the final core capture, one unique 128-frame sign anchor, and all 48,000 marked
+quad frames. It compared the front-preserving front PCM directly to baseline
+and its rear PCM directly to source; both were byte-exact. Restored PCM was
+byte-identical to baseline on all four channels. Exact POD values confirm the
+front software coefficient `0.90400367975234985` was preserved, and all original
+raw/software float32 arrays were restored. The final graph matched its original
+IDs, serials, routes, profile and default. The complete pre-session ALSA text,
+five ACLs, private processes and account were restored.
+
+The gain result SHA-256 is
+`772967f704c47517d75d2fe460eebe28cda5b77c790b3f4330fe7c392ed86ff3`;
+the runtime archive SHA-256 is
+`1b193a80ddb36f89d28d32a7a177d7d43db433beb58aa257f118627905a4505b`.
+This validates the proposed gain request in the pinned private stack. It does
+not validate default-device preservation, behavior after a user's volume change,
+another session manager, or physical audio/haptics. No production policy is
+installed by this experiment.
 
 ## Four measurements and restoration
 

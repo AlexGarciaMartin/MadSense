@@ -94,9 +94,16 @@ static bool same_mac(const std::array<unsigned char, 64> &data, int count, const
 static Device select_device(unsigned short product, const std::array<unsigned char, 6> &mac)
 {
     std::unique_ptr<hid_device_info, decltype(&hid_free_enumeration)> list(hid_enumerate(0x054c, product), hid_free_enumeration);
+    const std::string enumeration_error = utf8(hid_error(nullptr));
+    std::cout << "{\"kind\":\"hidapi-enumeration\",\"vendorId\":1356,\"productId\":" << product
+              << ",\"listReturned\":" << (list ? "true" : "false") << ",\"hidError\":" << json(enumeration_error) << "}\n";
     Device selected(nullptr, hid_close); unsigned candidates = 0, matches = 0;
     for (auto *item = list.get(); item; item = item->next) {
         require(++candidates <= 16, "Too many Sony candidates in isolated fixture");
+        std::cout << "{\"kind\":\"hidapi-enumerated-device\",\"path\":" << (item->path ? json(item->path) : "null")
+                  << ",\"vendorId\":" << item->vendor_id << ",\"productId\":" << item->product_id
+                  << ",\"usagePage\":" << item->usage_page << ",\"usage\":" << item->usage
+                  << ",\"busType\":" << item->bus_type << ",\"interfaceNumber\":" << item->interface_number << "}\n";
         if (item->usage_page != 1 || item->usage != 5 || !item->path) continue;
         Device device(hid_open_path(item->path), hid_close);
         std::array<unsigned char, 64> data{}; data[0] = 9;

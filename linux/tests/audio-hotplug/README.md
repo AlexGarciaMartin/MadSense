@@ -6,8 +6,12 @@ and returned to the controls after removal. Physical fixture permissions, the
 app/helper and the private audio account were cleaned up. The explicit case
 stopped before attach because `wpctl 0.4` rejects `Audio/Source/Virtual` for
 set-default, although automatic policy accepts it. The control now uses exact
-`Audio/Source` with `node.virtual=true` and the same software factory; the repeat
-is pending. The original negative result remains retained. That run verified
+`Audio/Source` with `node.virtual=true` and the same software factory. The repeat
+at `0a9c30d`, workflow `41643216241`, completed both cases: automatic selection
+again replaced both defaults on both arrivals; explicit selection preserved both
+through both attach/detach cycles. Both accounts, app/helper leases, physical
+fixture permissions and QEMU/KVM state were cleaned up. Exact-source independent
+recalculation passed for both cases. The original negative result remains retained. Both runs verified
 93 guest source files, four installed helper files and base gates 10/9/10 plus
 two installations/four removal cases; QEMU stopped and its KVM ACL was restored.
 
@@ -88,8 +92,48 @@ dependencies plus pipewire, pipewire-bin, wireplumber, alsa-utils, pulseaudio,
 pulseaudio-utils, dbus and acl; Pulse tools are used only for shared inventory.
 The adapter deliberately rejects other PipeWire/WirePlumber version families.
 
-The first measurement should decide whether a scoped policy is needed. A future
-policy may only target the live virtual parent/lease and its current object
-serials; matching Sony VID/PID, an ALSA number or a remembered PipeWire id is
-insufficient. A post-attach priority correction could already be too late for a
-transient default switch. No such correction is included here.
+## Private prepublication policy variant (native execution pending)
+
+After the unchanged two-case baseline completes, the opt-in launcher now runs
+three further fresh sessions in `result/audio-hotplug-policy`: scoped automatic,
+scoped explicit, and a foreign-parent negative control. Each has two attach and
+detach epochs. Baseline evidence and its negative automatic result are retained
+separately even if the policy stage fails. The production application, broker,
+USB descriptors, UCM and system audio configuration are unchanged.
+
+In this otherwise idle owned VM, the coordinator reads the current VHCI table
+and uses the production parent-mapping function to predict the first free port.
+Before starting the private graph, an ordinary-UID writer creates one private
+WirePlumber 0.4 Lua fragment. Its Device rule requires that complete USB parent
+plus its sound-card suffix and the expected vendor/product. It adds a fresh
+`api.alsa.card.madsense-session` nonce. Only nodes carrying that nonce receive
+the playback `priority.session=1` or capture `node.disabled=true` properties.
+The [0.4 ALSA monitor](https://github.com/PipeWire/wireplumber/blob/0.4.17/src/scripts/monitors/alsa.lua#L148)
+copies those card properties and applies the node rules before creating the
+adapter. No graph restart or later metadata/default restoration is performed.
+
+Each real app lease must subsequently match the predicted parent, journal
+identity and inode before any sound ACL is granted. The negative session points
+the same rule at the second distinct free parent while the app still imports
+at the first. It must retain both ordinary ALSA nodes, no marker and the
+unmodified 1009/2008 priorities; its automatic default replacement remains the
+expected negative observation. This checks the rule against a real same-VID/PID
+device outside its parent scope, not just a string-matching mock.
+
+Positive cases require the four-channel playback format FL/FR/RL/RR, the
+original USB/card association and all ALSA playback/capture/control devices.
+Only the desktop capture node is suppressed; USB capture is not removed. Full
+`pw-dump --monitor` evidence is parsed after all observer processes have exited:
+both device epochs must be present, playback must have the marker and low
+priority at first publication, and any capture publication, even transient,
+invalidates the positive case. Raw snapshots preserve Route and Node properties
+independently. No gain, profile, channel-map or playback-PCM adjustment is made;
+this stage does not claim acoustic or PCM delivery validation.
+
+This fixed-parent prediction is an experiment boundary, not a production
+ownership policy for reused ports. Production adoption would need a live-lease
+check or an exact pre-import udev identity marker with crash restoration. Low
+priority alone also does not exclude a node when it is the only candidate; this
+experiment checks preservation while the two controls remain available. The
+WirePlumber 0.5 equivalent has only been read, not run; the adapter still rejects
+that version family. Complete cleanup remains required before another session.

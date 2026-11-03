@@ -15,8 +15,13 @@ from hidapi_windows_source import RefuseRedirect, verified_extract
 class HidapiFunctionalEvidenceTests(unittest.TestCase):
     def setUp(self):
         feature = {"09": "09" + "06050403d502" + "00" * 13, "20": "20" + "00" * 63, "05": "05" + "00" * 40}
+        # Real consumer-ready.json has no clock field; core/ready.json owns it.
         self.ready = dict(features=feature, virtualMacHex="02d503040506", rawOutputObservationEnabled=True,
-                          timestampFrequency=1_000_000_000)
+            ownedGuestToken="ed913ce6-e0b4-4a47-873d-1c06b93e465d", actorPid=11089,
+            hidrawPath="/dev/hidraw1", vendorId=0x054c, productId=0x0ce6)
+        self.core_ready = dict(ownedGuestToken=self.ready["ownedGuestToken"], pid=11089,
+            virtualDevicePath="/dev/hidraw1", vendorId=0x054c, productId=0x0ce6,
+            timestampFrequency=1_000_000_000, rawOutputObservationEnabled=True)
         data = bytearray(64); data[:7] = bytes([1, 128, 128, 128, 128, 0, 0]); data[8] = 0x28
         output = bytearray(48); output[0] = 2; output[2] = 4; output[45:48] = bytes.fromhex("123456")
         rows = [dict(kind="runtime", scope="real-hidapi-windows-consumer", hidapiVersion="0.15.0", hidapiCommit=COMMIT,
@@ -34,7 +39,16 @@ class HidapiFunctionalEvidenceTests(unittest.TestCase):
         bt[-4:] = zlib.crc32(bytes([0xa2]) + bt[:-4]).to_bytes(4, "little")
         self.bt = [dict(kind="output", monotonicNs=150, hex=bt.hex())]
 
-    def call(self): return verify(self.ready, self.command, self.usb, self.bt)
+    def call(self): return verify(self.ready, self.command, self.usb, self.bt, self.core_ready)
+
+    def test_core_clock_is_joined_to_actual_actor_and_exact_virtual_node(self):
+        self.assertNotIn("timestampFrequency", self.ready)
+        self.assertTrue(self.call()["outputReportForwarded"])
+        for key, value in (("ownedGuestToken", "other"), ("pid", 11090), ("virtualDevicePath", "/dev/hidraw0"),
+                           ("timestampFrequency", 10_000_000), ("timestampFrequency", True),
+                           ("rawOutputObservationEnabled", False)):
+            with self.subTest(key=key), patch.dict(self.core_ready, {key:value}), self.assertRaises(RuntimeError):
+                self.call()
 
     def test_47_is_library_nonerror_forwarding_but_never_count_parity(self):
         result = self.call()

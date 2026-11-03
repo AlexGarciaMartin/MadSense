@@ -157,14 +157,17 @@ class PrivateDesktop(ConsumerSession):
                 deviceId=card["id"], deviceSerial=int(card["info"]["props"]["object.serial"]),
                 deviceProperties=card["info"]["props"], deviceParameters=card["info"].get("params", {}),
                 nodes=describe_nodes(snapshot, card))
-            require(any(row["mediaClass"] == "Audio/Sink" for row in value["virtual"]["nodes"])
-                    and any(row["mediaClass"] == "Audio/Source" for row in value["virtual"]["nodes"]), "Both virtual audio nodes required")
+            self.validate_virtual_nodes(value["virtual"])
         else:
             require(not [row for row in snapshot if row.get("type", "").endswith(":Device") and row.get("info", {}).get("props", {}).get("device.api") == "alsa"],
                     "ALSA device remains in graph after detach")
         value.update(label=label, monotonicNs=time.monotonic_ns(), metadataBytes=(self.output / "metadata-monitor.stdout").stat().st_size)
         self.result.setdefault("observations", []).append(value); self.save()
         return value
+
+    def validate_virtual_nodes(self, virtual):
+        require(any(row["mediaClass"] == "Audio/Sink" for row in virtual["nodes"])
+                and any(row["mediaClass"] == "Audio/Source" for row in virtual["nodes"]), "Both virtual audio nodes required")
 
     def settle(self, label, attached):
         from kernel_probe import wait_for

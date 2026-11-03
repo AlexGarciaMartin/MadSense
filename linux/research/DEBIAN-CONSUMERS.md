@@ -64,3 +64,20 @@ the controlled four-channel Wine audio setup retain their existing labels.
 HIDAPI, Win32 count parity, ContainerId/WASAPI, GE execution and final capture
 cleanup remain separate evidence. No game, native Windows parity, physical
 actuation or physical latency claim follows from a successful synthetic run.
+
+The first [Debian run 41643211748](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41643211748)
+at `0a9c30d` verified the image and all private runtime inputs, and QMP confirmed
+KVM. QEMU then exited before SSH readiness; serial output ended at GRUB's
+`Booting Debian GNU/Linux`. Runtime ZIP SHA-256 is
+`63776e8c40d0b5e9eb62dfb06a413e5647eb6ac1fdb27f7751c8917752352368`.
+No namespace preflight, broker fixture, consumer or GE execution occurred.
+QEMU was reaped and the host KVM ACL was restored.
+
+[Debian bug #1111240](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1111240)
+documents a matching trixie GRUB `gfxterm serial` symptom with `-nodefaults`;
+the maintainer reproduced successful boot using the default emulated hardware.
+The next attempt adds only an emulated VGA device while keeping `-display none`,
+the image bytes, serial console and all namespace policies unchanged. This is
+a boot hypothesis, not a measured root cause. Failure now also retains QEMU's
+exit code before readiness; the independent namespace preflight still must pass
+before any GE experiment.

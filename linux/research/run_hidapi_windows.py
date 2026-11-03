@@ -1,17 +1,47 @@
 """Independent real-HIDAPI observations in the current fresh Wine/GE session."""
 import hashlib
+import json
 from pathlib import Path
 import time
 
-from consumer_session import read_rows, require
+from consumer_session import bounded_bytes, bt_state, read_rows, require
 from hidapi_windows_evidence import verify
 from run_wine_consumer import clear_sony_state, parse_pe_output
+
+
+def prime_observed(rows, started, marker):
+    for row in rows:
+        if row.get("kind") == "output" and row["monotonicNs"] >= started:
+            state = bt_state(bytes.fromhex(row["hex"]))
+            if state is not None and state[1] & 4 and state[44:47] == marker:
+                return True
+    return False
+
+
+def prime_and_clear(session, label):
+    # A repeated all-clear request is legitimately deduplicated by the bridge.
+    # Make a distinct RGB change first, observe it, then require the existing
+    # selected-zero/black clear. Silence never counts as a successful reset.
+    marker = bytes.fromhex("a1b2c3")
+    report = bytearray(48); report[0] = 2; report[2] = 4; report[45:48] = marker
+    code = ("import os,sys; fd=os.open(sys.argv[1],os.O_RDWR|os.O_NONBLOCK|os.O_NOFOLLOW); "
+            "data=bytes.fromhex(sys.argv[2]); n=os.write(fd,data); os.close(fd); assert n==len(data)")
+    row, _ = session.command(label + "-prime", ["python3", "-c", code, session.ready["hidrawPath"], report.hex()])
+    deadline = time.monotonic() + 2
+    while not prime_observed(read_rows(Path(session.ready["uhidEventsPath"])), row["startedMonotonicNs"], marker):
+        require(time.monotonic() < deadline, "HIDAPI preparation RGB change was not observed")
+        time.sleep(.05)
+    row["preparationRgbObserved"] = True
+    session.save()
+    clear_sony_state(session, label + "-clear")
 
 
 def run_cases(session, executable, fixture_state_callback, *, invoke=None, label_prefix="hidapi-windows"):
     require(session.ready["vendorId"] == 0x054c and session.ready["productId"] in (0x0ce6, 0x0df2),
             "Real HIDAPI observer requires the owned Sony persona")
     require(session.ready.get("rawOutputObservationEnabled") is True, "Raw USB observer must be enabled")
+    core = Path(session.ready["coreOutputDirectory"])
+    core_ready = json.loads(bounded_bytes(core / "ready.json"))
     program = session.stage(executable)
     result = dict(scope="real-hidapi-windows-library", cases=[],
         observerSha256=hashlib.sha256(program.read_bytes()).hexdigest(),
@@ -26,7 +56,7 @@ def run_cases(session, executable, fixture_state_callback, *, invoke=None, label
         label = label_prefix + "-" + state
         try:
             fixture_state_callback(state); time.sleep(.1)
-            clear_sony_state(session, label + "-clear")
+            prime_and_clear(session, label)
             persona = "edge" if session.ready["productId"] == 0x0df2 else "dualsense"
             row, output = execute(label, [session.ready["ownedGuestToken"], persona, session.ready["virtualMacHex"], state])
             row.update(evidence=parse_pe_output(output), fixtureState=state)
@@ -36,8 +66,8 @@ def run_cases(session, executable, fixture_state_callback, *, invoke=None, label
             while True:
                 try:
                     evidence = verify(session.ready, row,
-                        read_rows(Path(session.ready["coreOutputDirectory"]) / "events.jsonl"),
-                        read_rows(Path(session.ready["uhidEventsPath"])))
+                        read_rows(core / "events.jsonl"),
+                        read_rows(Path(session.ready["uhidEventsPath"])), core_ready)
                     break
                 except RuntimeError:
                     if time.monotonic() >= deadline: raise

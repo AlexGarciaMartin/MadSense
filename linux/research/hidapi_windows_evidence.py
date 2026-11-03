@@ -10,9 +10,16 @@ def one(rows, kind):
     return found[0]
 
 
-def verify(ready, command, core_rows, bluetooth_rows):
+def verify(ready, command, core_rows, bluetooth_rows, core_ready):
     require(ready.get("rawOutputObservationEnabled") is True, "Complete raw USB capture required")
-    require(type(ready.get("timestampFrequency")) is int and ready["timestampFrequency"] == 1_000_000_000,
+    require(core_ready.get("ownedGuestToken") == ready["ownedGuestToken"]
+            and core_ready.get("pid") == ready["actorPid"]
+            and core_ready.get("virtualDevicePath") == ready["hidrawPath"]
+            and core_ready.get("vendorId") == ready["vendorId"]
+            and core_ready.get("productId") == ready["productId"]
+            and core_ready.get("rawOutputObservationEnabled") is True,
+            "Core clock/capture identity differs from the consumer contract")
+    require(type(core_ready.get("timestampFrequency")) is int and core_ready["timestampFrequency"] == 1_000_000_000,
             "Core capture must use the same owned Linux monotonic nanosecond clock")
     require(command.get("exitCode") == 0, "HIDAPI consumer process failed")
     start, end = command["startedMonotonicNs"], command["endedMonotonicNs"]

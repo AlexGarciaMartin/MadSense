@@ -22,15 +22,15 @@ mandos. La conexión permanece bloqueada hasta verificar el componente de acceso
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
 
-En la revisión `d8f3ca0`, el
-[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41634461039)
-pasó en ambas arquitecturas: 425 pruebas compartidas, 100 de plataforma y 17 de
+En la revisión `0a9c30d`, el
+[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41643213250)
+pasó en ambas arquitecturas: 425 pruebas compartidas, 100 de plataforma y 18 de
 aplicación, las seis interfaces y el ciclo de escritorio de los paquetes extraídos.
 Las [tres pruebas del kernel en `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966377)
 pasaron con DualSense, Edge y Xbox, incluida la retirada de la VM y restauración
 de permisos KVM. Las dos Sony conservaron las 48.000 muestras por canal en la
 reproducción ALSA y el audio ISO IN sintético.
-El [servicio nativo en `d8f3ca0`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41634461048)
+El [servicio nativo en `adccde1`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41641528110)
 pasó diez casos de aislamiento/recuperación, dos actualizaciones en reposo y
 cuatro casos de desinstalación/reinstalación. El núcleo pasó
 sus nueve casos: identidad y calibración física del fixture, entrada completa,
@@ -74,8 +74,16 @@ una interacción del mezclador: elevar únicamente las traseras a unidad conserv
 sus 48.000 muestras exactas, pero reduce las delanteras de aproximadamente 0,904
 a 0,064. La restauración recuperó exactamente el PCM inicial de los cuatro
 canales, el grafo, ALSA y los permisos. Por ello ese ajuste aislado no se aplica
-como política del producto. Falta validar una solución que preserve el audio
-delantero y el comportamiento de los dispositivos predeterminados al conectar.
+como política del producto. En `0a9c30d`, una solicitud que preserva los coeficientes
+de software delanteros conservó exactamente sus 48.000 muestras por canal y
+entregó las traseras a unidad. La restauración de PCM, grafo, ALSA y permisos
+también pasó; sigue siendo una prueba privada, sin política automática instalada.
+El [ensayo de aparición del dispositivo](tests/audio-hotplug/README.md), ya con
+el control de selección explícita corregido en `0a9c30d`, registró dos conexiones
+en las que WirePlumber sustituyó tanto el altavoz como el micrófono automáticos
+por el virtual. En la sesión con selección explícita conservó ambos dispositivos
+en sus dos conexiones. Se investiga una política limitada al dispositivo
+virtual de la sesión, aplicada antes de publicar sus nodos de audio.
 Estos resultados no equivalen a un escritorio ni a juegos reales.
 
 Una [prueba aislada de bloqueo del grupo de hilos](platform/tests/starvation/README.md)
@@ -92,9 +100,17 @@ byte a byte, incluyendo controles que rechazan paquetes corruptos o reordenados.
 Es una prueba del pipeline de audio sin transporte físico; no mide la latencia
 del mando. La [primera medición sintética del puente](tests/latency/README.md)
 recibió 1.000/1.000 estados a 100 Hz y 9.954/9.998 a 1.000 Hz. Conserva las 44
-pérdidas y dos plazos de generación omitidos como límites del ensayo; no se ha
-atribuido todavía cada pérdida ni medido Bluetooth físico. Ninguno de estos
-resultados sustituye un mando o un juego real.
+pérdidas y dos plazos de generación omitidos como límites de ese ensayo.
+Una [repetición con diagnóstico en `adccde1`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41641527528)
+entregó todos los informes escritos en sus cuatro casos de 100 Hz. Sus dos
+controles de 1.000 Hz terminaron antes de tiempo por desbordamiento de la cola
+de ocho informes del cliente. Las sesiones instrumentadas completaron los diez
+segundos y localizaron sus pérdidas entre el último estado almacenado y la
+respuesta de interrupción USB. La instrumentación puede alterar la ejecución;
+estos resultados no prueban por qué el consumidor dejó de drenar la cola ni
+justifican aumentarla sin más. El cierre y la restauración pasaron en los ocho
+casos. No se ha medido Bluetooth físico: ninguno de estos resultados sustituye
+un mando o un juego real.
 
 El motor de la app ya conecta la sesión del broker con el servicio de emulación,
 los ajustes originales y el forwarder Bluetooth. Pausar cancela una adquisición

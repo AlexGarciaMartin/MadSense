@@ -48,9 +48,11 @@ it never asserts delivery or native Windows parity. On a failed write, the proce
 terminates without unwinding potentially pending upstream I/O storage. The session
 orchestrator still owns process/account/ACL cleanup and an outer command timeout.
 
-`hidapi_windows_evidence.verify(ready, command, core_rows, bluetooth_rows)` is the
-separate functional join. `ready` must include the exact features/MAC, raw capture
-flag and core `timestampFrequency=1000000000`. `command` includes its ordinary
+`hidapi_windows_evidence.verify(ready, command, core_rows, bluetooth_rows, core_ready)` is the
+separate functional join. Consumer `ready` includes the exact features/MAC and raw
+capture flag. The clock comes from the separate core `ready.json`; its owner UUID,
+actor PID, exact virtual path and VID/PID must match before accepting
+`timestampFrequency=1000000000`. `command` includes its ordinary
 process interval, `fixtureState`, exit status and parsed JSONL rows. The join checks
 feature-byte equality, actual input, exact raw USB48 and CRC-valid matching BT47
 state in the same interval. It accepts library counts 47 or 48 **only with that
@@ -69,6 +71,23 @@ promotes forwarding only after final raw capture drain and account/ACL cleanup.
 Default/UDEV/GE identities and failures remain separate. A valid Windows ContainerId can independently authorize the existing
 WASAPI case even if the strict Win32 byte-count case fails; current shared logic
 already attempts that audio case separately.
+
+The first Ubuntu execution, [run 41643213193](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41643213193)
+at `0a9c30d`, retained runtime ZIP SHA-256
+`1b193a80ddb36f89d28d32a7a177d7d43db433beb58aa257f118627905a4505b`.
+All builds and Linux regressions passed; SDL passed four cases, and core raw
+capture/account/ACL cleanup completed. HIDAPI did **not** prove forwarding: one
+UDEV PE ran and reported no accepted MAC-verified path, before any write.
+Other attempts stopped while repeating an unchanged all-clear request, which
+the bridge correctly deduplicated. A verifier also looked for the clock field
+in the wrong ready file. Both harness defects are corrected for the next run:
+an observed distinct `a1b2c3` RGB preparation precedes the existing verified clear,
+and the clock is joined from the core contract. Neither silence nor an old report
+can satisfy preparation. Enumeration now records global `hid_error(NULL)` and
+all returned VID/PID/usage fields before filtering; usage and full-MAC selection
+remain mandatory. New execution is still required; no missing path is relabelled
+as a successful HIDAPI write. The original Wine 9 ContainerId and strict 47/48
+failures remain intact.
 
 Both PE observers record the actual loaded Wine's `wine_get_build_id` separately
 from its version, executable digest and source pin. A missing export produces
