@@ -1,7 +1,22 @@
 """Offline tests for gates that must hold before any downloaded app executes."""
 import copy
+import json
+from pathlib import Path
+import tempfile
 import unittest
-from ojd_broker_probe import BUNDLE, CAPABILITY, TEAM, Blocked, check_empty_inventory, check_identity
+from unittest.mock import patch
+from ojd_broker_probe import BUNDLE, CAPABILITY, TEAM, Blocked, Experiment, check_empty_inventory, check_identity, check_inventory_capture
+
+
+def inventory_fixture():
+    return {"schemaVersion": 2, "mode": "read-only-registry", "enumerationComplete": True, "queryErrors": [],
+            "unsafeHIDCount": 0, "usbDeviceCount": 0, "usbInterfaceCount": 0, "bluetoothControllerCount": 1,
+            "feeds": [], "hidInventory": [], "usbInventory": [],
+            "bluetoothInventory": [{"class": "IOBluetoothHCIController", "BluetoothTransportConnected": False, "metadataErrors": []}],
+            "bluetoothTransportQueries": {name: [] for name in ("IOBluetoothHostControllerTransport", "IOBluetoothHostController",
+                "IOBluetoothHostControllerUSBTransport", "IOBluetoothHostControllerUARTTransport", "IOBluetoothHostControllerPCIeTransport")},
+            "vmProvenance": {"source": "sysctl:kern.hv_vmm_present", "hypervisorPresent": True, "queryStatus": 0,
+                             "queryErrno": 0, "valueSize": 4, "complete": True, "provesHardwareIsolation": False}}
 
 
 class BrokerGateTests(unittest.TestCase):
@@ -42,6 +57,55 @@ class BrokerGateTests(unittest.TestCase):
         for value in (False, True, None, 0.0, "0", -1):
             with self.subTest(value=value), self.assertRaises(Blocked):
                 check_empty_inventory({**empty, "unsafeHIDCount": value})
+
+    def test_disconnected_generic_controller_does_not_relax_existing_gate(self):
+        inventory = inventory_fixture()
+        check_inventory_capture(inventory)
+        with self.assertRaises(Blocked):
+            check_empty_inventory(inventory)
+        controller = inventory["bluetoothInventory"][0]
+        controller["BluetoothTransportConnected"] = None
+        controller["metadataErrors"] = [{"field": "BluetoothTransportConnected", "reason": "missing"}]
+        check_inventory_capture(inventory)  # Unknown remains explicit evidence, never a safe zero.
+        with self.assertRaises(Blocked):
+            check_empty_inventory(inventory)
+
+    def test_capture_rejects_incomplete_or_wrongly_typed_evidence(self):
+        for key, value in (("enumerationComplete", False), ("enumerationComplete", 1), ("queryErrors", ["failed"]),
+                           ("usbInterfaceCount", False), ("usbInterfaceCount", 1), ("bluetoothControllerCount", True),
+                           ("bluetoothTransportQueries", {})):
+            with self.subTest(key=key, value=value), self.assertRaises(Blocked):
+                check_inventory_capture({**inventory_fixture(), key: value})
+        for value in (0, 1, "false", None):
+            data = inventory_fixture()
+            data["bluetoothInventory"][0]["BluetoothTransportConnected"] = value
+            with self.subTest(connected=value), self.assertRaises(Blocked):
+                check_inventory_capture(data)
+        data = inventory_fixture()
+        data["vmProvenance"]["provesHardwareIsolation"] = True
+        with self.assertRaises(Blocked):
+            check_inventory_capture(data)
+
+    def test_inventory_mode_cannot_download_or_execute_original_release(self):
+        data = json.dumps(inventory_fixture()).encode()
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = Experiment(Path(directory))
+            calls = []
+            def capture(label, args, **kwargs):
+                calls.append((label, args))
+                return 0, data if label == "empty-host" else b"", b""
+            with patch("ojd_broker_probe.sys.platform", "darwin"), patch.dict("os.environ", {"GITHUB_ACTIONS": "true"}), \
+                 patch("ojd_broker_probe.urllib.request.urlopen", side_effect=AssertionError("no download")), \
+                 patch.object(experiment, "background", side_effect=AssertionError("no background app")), \
+                 patch.object(experiment, "execute", side_effect=AssertionError("no broker experiment")), \
+                 patch.object(experiment, "run", side_effect=capture), patch.object(experiment, "record") as record:
+                self.assertEqual(experiment.execute_inventory(), 0)
+                self.assertEqual([label for label, _ in calls], ["build-observer", "observer-parser-self-test", "empty-host"])
+                self.assertEqual(calls[-1][1][-1], "inventory")
+                result = record.call_args.kwargs
+                self.assertEqual(result["currentUnchangedGate"], "blocked")
+                for field in ("originalReleaseExecuted", "signingRechecked", "physicalDeviceOpened", "hardwareIsolationValidated"):
+                    self.assertIs(result[field], False)
 
 
 if __name__ == "__main__":

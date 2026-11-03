@@ -6,6 +6,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+#include <sys/sysctl.h>
+#include <errno.h>
 
 static NSDictionary *properties(io_registry_entry_t entry) {
     CFMutableDictionaryRef result = NULL;
@@ -19,10 +22,37 @@ static void emit(id value) {
     NSData *data = [NSJSONSerialization dataWithJSONObject:value options:NSJSONWritingSortedKeys error:nil];
     fwrite(data.bytes, 1, data.length, stdout); fputc('\n', stdout); fflush(stdout);
 }
-static NSArray *entries(const char *className) {
+static uint64_t usbParent(io_registry_entry_t entry) {
+    io_registry_entry_t current = entry;
+    IOObjectRetain(current);
+    for (unsigned depth = 0; depth < 32; ++depth) {
+        io_registry_entry_t parent = IO_OBJECT_NULL;
+        kern_return_t status = IORegistryEntryGetParentEntry(current, kIOServicePlane, &parent);
+        IOObjectRelease(current);
+        if (status != KERN_SUCCESS || !parent) return 0;
+        current = parent;
+        if (IOObjectConformsTo(current, "IOUSBHostDevice")) {
+            uint64_t identifier = 0;
+            status = IORegistryEntryGetRegistryEntryID(current, &identifier);
+            IOObjectRelease(current);
+            return status == KERN_SUCCESS ? identifier : 0;
+        }
+    }
+    IOObjectRelease(current);
+    return 0;
+}
+static NSArray *entries(const char *requestedClass, NSMutableArray *errors) {
     io_iterator_t iterator = IO_OBJECT_NULL;
-    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(className), &iterator) != KERN_SUCCESS)
+    CFMutableDictionaryRef matching = IOServiceMatching(requestedClass);
+    if (!matching) {
+        [errors addObject:@{@"query": @(requestedClass), @"operation": @"matching-dictionary"}];
         return nil;
+    }
+    kern_return_t status = IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator);
+    if (status != KERN_SUCCESS) {
+        [errors addObject:@{@"query": @(requestedClass), @"operation": @"matching", @"status": @(status)}];
+        return nil;
+    }
     NSMutableArray *result = [NSMutableArray array];
     io_registry_entry_t entry;
     while ((entry = IOIteratorNext(iterator))) {
@@ -33,37 +63,120 @@ static NSArray *entries(const char *className) {
             || IOObjectGetClass(entry, className) != KERN_SUCCESS) {
             IOObjectRelease(entry);
             IOObjectRelease(iterator);
+            [errors addObject:@{@"query": @(requestedClass), @"operation": @"entry-metadata"}];
             return nil;
         }
         NSMutableDictionary *item = [snapshot mutableCopy];
         item[@"ProbeRegistryID"] = @(identifier);
         item[@"ProbeRegistryClass"] = [NSString stringWithUTF8String:className];
+        if (strcmp(requestedClass, "IOUSBHostInterface") == 0) {
+            uint64_t parent = usbParent(entry);
+            if (!parent) {
+                [errors addObject:@{@"query": @(requestedClass), @"operation": @"USB-parent"}];
+                IOObjectRelease(entry); IOObjectRelease(iterator); return nil;
+            }
+            item[@"ProbeUSBParentRegistryID"] = @(parent);
+        }
         [result addObject:item];
         IOObjectRelease(entry);
     }
     BOOL valid = IOIteratorIsValid(iterator);
     IOObjectRelease(iterator);
-    if (!valid) return nil;
+    if (!valid) {
+        [errors addObject:@{@"query": @(requestedClass), @"operation": @"invalidated-iterator"}];
+        return nil;
+    }
     return result;
+}
+// NSNumber also includes CFBoolean. Only integral CFNumbers in range are facts.
+static NSNumber *unsignedNumber(id value, int64_t maximum) {
+    if (!value || CFGetTypeID((__bridge CFTypeRef)value) != CFNumberGetTypeID()
+        || CFNumberIsFloatType((__bridge CFNumberRef)value)) return nil;
+    int64_t number = -1;
+    if (!CFNumberGetValue((__bridge CFNumberRef)value, kCFNumberSInt64Type, &number)
+        || number < 0 || number > maximum) return nil;
+    return @(number);
+}
+static void copyNumber(NSMutableDictionary *row, NSDictionary *source, NSString *key,
+                       int64_t maximum, NSMutableArray *errors) {
+    NSNumber *number = unsignedNumber(source[key], maximum);
+    row[key] = number ?: NSNull.null;
+    if (!number) [errors addObject:@{@"field": key, @"reason": source[key] ? @"invalid-type-or-range" : @"missing"}];
 }
 // Deliberately exclude serials, names, addresses and location IDs. Only class,
 // standard transport and public numeric device/usage metadata may be logged.
-static NSArray *inventoryMetadata(NSArray *items) {
+static NSArray *inventoryMetadata(NSArray *items, NSString *kind, NSArray *interfaces) {
     NSMutableArray *result = [NSMutableArray array];
-    NSArray *numeric = @[@"VendorID", @"ProductID", @"PrimaryUsagePage", @"PrimaryUsage",
-        @"idVendor", @"idProduct", @"bDeviceClass", @"bDeviceSubClass"];
     for (NSDictionary *item in items) {
         NSMutableDictionary *row = [NSMutableDictionary dictionary];
+        NSMutableArray *errors = [NSMutableArray array];
         row[@"class"] = item[@"ProbeRegistryClass"];
-        for (NSString *key in numeric)
-            if ([item[key] isKindOfClass:NSNumber.class]) row[key] = item[key];
-        NSString *transport = item[@"Transport"];
-        if ([transport isKindOfClass:NSString.class])
+        if ([kind isEqual:@"hid"]) {
+            for (NSString *key in @[@"VendorID", @"ProductID", @"PrimaryUsagePage", @"PrimaryUsage"])
+                copyNumber(row, item, key, UINT16_MAX, errors);
+            id pairs = item[@"DeviceUsagePairs"];
+            if ([pairs isKindOfClass:NSArray.class] && [pairs count] > 0) {
+                NSMutableArray *parsed = [NSMutableArray array];
+                for (id pair in pairs) {
+                    NSMutableDictionary *usage = [NSMutableDictionary dictionary];
+                    if (![pair isKindOfClass:NSDictionary.class]) {
+                        [errors addObject:@{@"field": @"DeviceUsagePairs", @"reason": @"invalid-entry"}];
+                        continue;
+                    }
+                    copyNumber(usage, pair, @"DeviceUsagePage", UINT16_MAX, errors);
+                    copyNumber(usage, pair, @"DeviceUsage", UINT16_MAX, errors);
+                    [parsed addObject:usage];
+                }
+                row[@"usagePairs"] = parsed;
+            } else {
+                row[@"usagePairs"] = NSNull.null;
+                [errors addObject:@{@"field": @"DeviceUsagePairs", @"reason": pairs ? @"invalid-or-empty" : @"missing"}];
+            }
+        } else if ([kind isEqual:@"usb"]) {
+            for (NSString *key in @[@"idVendor", @"idProduct"])
+                copyNumber(row, item, key, UINT16_MAX, errors);
+            for (NSString *key in @[@"bDeviceClass", @"bDeviceSubClass", @"bDeviceProtocol",
+                                   @"bNumConfigurations", @"kUSBCurrentConfiguration"])
+                copyNumber(row, item, key, UINT8_MAX, errors);
+            NSMutableArray *children = [NSMutableArray array];
+            for (NSDictionary *interface in interfaces)
+                if ([interface[@"ProbeUSBParentRegistryID"] isEqual:item[@"ProbeRegistryID"]]) [children addObject:interface];
+            row[@"interfaces"] = inventoryMetadata(children, @"interface", nil);
+        } else if ([kind isEqual:@"interface"]) {
+            for (NSString *key in @[@"bInterfaceNumber", @"bAlternateSetting", @"bInterfaceClass",
+                                   @"bInterfaceSubClass", @"bInterfaceProtocol"])
+                copyNumber(row, item, key, UINT8_MAX, errors);
+        } else if ([kind isEqual:@"bluetooth"]) {
+            id connected = item[@"BluetoothTransportConnected"];
+            BOOL typed = connected && CFGetTypeID((__bridge CFTypeRef)connected) == CFBooleanGetTypeID();
+            row[@"BluetoothTransportConnected"] = typed ? connected : NSNull.null;
+            if (!typed) [errors addObject:@{@"field": @"BluetoothTransportConnected",
+                @"reason": connected ? @"not-CFBoolean" : @"missing"}];
+        }
+        id transport = item[@"Transport"];
+        if ([transport isKindOfClass:NSString.class]) {
             row[@"transport"] = [@[@"USB", @"Bluetooth", @"Bluetooth Low Energy", @"Virtual", @"SPI", @"I2C"] containsObject:transport]
                 ? transport : @"other";
+        } else if ([kind isEqual:@"hid"]) {
+            row[@"transport"] = NSNull.null;
+            [errors addObject:@{@"field": @"Transport", @"reason": transport ? @"invalid-type" : @"missing"}];
+        }
+        row[@"metadataErrors"] = errors;
         [result addObject:row];
     }
     return result;
+}
+static NSDictionary *vmProvenance(void) {
+    int present = -1;
+    size_t size = sizeof(present);
+    errno = 0;
+    int status = sysctlbyname("kern.hv_vmm_present", &present, &size, NULL, 0);
+    int queryError = errno;
+    BOOL valid = status == 0 && size == sizeof(present) && (present == 0 || present == 1);
+    // This is corroborating kernel evidence, never proof that USB passthrough is absent.
+    return @{@"source": @"sysctl:kern.hv_vmm_present", @"hypervisorPresent": valid ? @(present == 1) : NSNull.null,
+        @"queryStatus": @(status), @"queryErrno": @(queryError), @"valueSize": @(size),
+        @"complete": @(valid), @"provesHardwareIsolation": @NO};
 }
 static BOOL ownGeneric(NSDictionary *p) {
     id serial = p[@"SerialNumber"];
@@ -91,11 +204,45 @@ int main(int argc, const char *argv[]) {
             emit(@{@"foundationHome": NSFileManager.defaultManager.homeDirectoryForCurrentUser.path});
             return 0;
         }
+        if (argc == 2 && strcmp(argv[1], "self-test") == 0) {
+            BOOL valid = [unsignedNumber(@0, 255) isEqual:@0] && [unsignedNumber(@255, 255) isEqual:@255];
+            for (id invalid in @[@YES, @NO, @0.0, @(-1), @256, @"0", NSNull.null])
+                valid = valid && unsignedNumber(invalid, 255) == nil;
+            valid = valid && CFGetTypeID((__bridge CFTypeRef)@NO) == CFBooleanGetTypeID()
+                && CFGetTypeID((__bridge CFTypeRef)@0) != CFBooleanGetTypeID();
+            emit(@{@"parserSelfTest": valid ? @"passed" : @"failed", @"hardwareValidated": @NO});
+            return valid ? 0 : 1;
+        }
         if (argc == 2 && strcmp(argv[1], "inventory") == 0) {
-            NSArray *hid = entries("IOHIDDevice"), *usb = entries("IOUSBHostDevice"),
-                *bluetooth = entries("IOBluetoothHCIController");
-            if (!hid || !usb || !bluetooth) return 1;
+            NSMutableArray *queryErrors = [NSMutableArray array];
+            NSArray *hid = entries("IOHIDDevice", queryErrors), *usb = entries("IOUSBHostDevice", queryErrors),
+                *bluetooth = entries("IOBluetoothHCIController", queryErrors),
+                *interfaces = entries("IOUSBHostInterface", queryErrors);
+            NSMutableDictionary *transports = [NSMutableDictionary dictionary];
+            // Query base classes (including subclasses), plus explicit transport families for evidence.
+            // These registry reads do not instantiate CoreBluetooth or IOBluetooth APIs.
+            for (NSString *className in @[@"IOBluetoothHostControllerTransport", @"IOBluetoothHostController",
+                @"IOBluetoothHostControllerUSBTransport", @"IOBluetoothHostControllerUARTTransport",
+                @"IOBluetoothHostControllerPCIeTransport"]) {
+                NSArray *found = entries(className.UTF8String, queryErrors);
+                transports[className] = found ? inventoryMetadata(found, @"class", nil) : (id)NSNull.null;
+            }
+            if (!hid || !usb || !bluetooth || !interfaces || queryErrors.count) {
+                emit(@{@"schemaVersion": @2, @"enumerationComplete": @NO, @"queryErrors": queryErrors,
+                       @"mode": @"read-only-registry"});
+                return 1;
+            }
+            NSSet *usbIDs = [NSSet setWithArray:[usb valueForKey:@"ProbeRegistryID"]];
+            for (NSDictionary *interface in interfaces) {
+                if (![usbIDs containsObject:interface[@"ProbeUSBParentRegistryID"]]) {
+                    emit(@{@"schemaVersion": @2, @"enumerationComplete": @NO,
+                        @"queryErrors": @[@{@"query": @"IOUSBHostInterface", @"operation": @"unobserved-USB-parent"}],
+                        @"mode": @"read-only-registry"});
+                    return 1;
+                }
+            }
             unsigned unsafe = 0;
+            BOOL unsafeKnown = YES;
             NSMutableArray *feeds = [NSMutableArray array];
             for (NSDictionary *p in hid) {
                 if (ownGeneric(p)) {
@@ -106,19 +253,22 @@ int main(int argc, const char *argv[]) {
                     continue;
                 }
                 // Missing or malformed HID metadata cannot establish an empty host.
-                if (![p[@"PrimaryUsagePage"] isKindOfClass:NSNumber.class]
-                    || ![p[@"PrimaryUsage"] isKindOfClass:NSNumber.class]
-                    || ![p[@"Transport"] isKindOfClass:NSString.class]) return 1;
+                if (!unsignedNumber(p[@"PrimaryUsagePage"], UINT16_MAX)
+                    || !unsignedNumber(p[@"PrimaryUsage"], UINT16_MAX)
+                    || ![p[@"Transport"] isKindOfClass:NSString.class]) { unsafeKnown = NO; continue; }
                 int page = [p[@"PrimaryUsagePage"] intValue], usage = [p[@"PrimaryUsage"] intValue];
                 NSString *transport = p[@"Transport"];
-                if (page <= 0 || usage <= 0 || transport.length == 0) return 1;
+                if (page <= 0 || usage <= 0 || transport.length == 0) { unsafeKnown = NO; continue; }
                 if ((page == 1 && (usage == 4 || usage == 5 || usage == 8)) || page >= 0xff00
                     || [transport hasPrefix:@"Bluetooth"] || [transport isEqual:@"USB"]) ++unsafe;
             }
-            emit(@{@"unsafeHIDCount": @(unsafe), @"usbDeviceCount": @(usb.count),
+            emit(@{@"schemaVersion": @2, @"enumerationComplete": @YES, @"queryErrors": queryErrors,
+                @"mode": @"read-only-registry", @"unsafeHIDCount": unsafeKnown ? @(unsafe) : NSNull.null,
+                @"usbDeviceCount": @(usb.count), @"usbInterfaceCount": @(interfaces.count),
                 @"bluetoothControllerCount": @(bluetooth.count), @"feeds": feeds,
-                @"hidInventory": inventoryMetadata(hid), @"usbInventory": inventoryMetadata(usb),
-                @"bluetoothInventory": inventoryMetadata(bluetooth)});
+                @"hidInventory": inventoryMetadata(hid, @"hid", nil), @"usbInventory": inventoryMetadata(usb, @"usb", interfaces),
+                @"bluetoothInventory": inventoryMetadata(bluetooth, @"bluetooth", nil),
+                @"bluetoothTransportQueries": transports, @"vmProvenance": vmProvenance()});
             return 0;
         }
         if (argc != 3 || strcmp(argv[1], "inspect") != 0) return 2;

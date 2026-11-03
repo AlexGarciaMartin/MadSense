@@ -56,6 +56,50 @@ def check_empty_inventory(inventory: dict) -> None:
         raise Blocked("host is not empty: physical/controller/Bluetooth/preexisting broker devices present")
 
 
+def check_inventory_capture(inventory: dict) -> None:
+    """Validate capture completeness, not hardware absence or permission to launch."""
+    if (inventory.get("schemaVersion") != 2 or type(inventory.get("schemaVersion")) is not int
+            or inventory.get("mode") != "read-only-registry" or inventory.get("enumerationComplete") is not True
+            or inventory.get("queryErrors") != []):
+        raise Blocked("read-only registry enumeration is incomplete or has an unexpected schema")
+    for count, rows in (("usbDeviceCount", "usbInventory"), ("bluetoothControllerCount", "bluetoothInventory")):
+        if type(inventory.get(count)) is not int or type(inventory.get(rows)) is not list or inventory[count] != len(inventory[rows]):
+            raise Blocked(f"inconsistent read-only inventory: {count}")
+    for key in ("hidInventory", "feeds"):
+        if type(inventory.get(key)) is not list:
+            raise Blocked(f"missing read-only inventory: {key}")
+    interfaces = []
+    for device in inventory["usbInventory"]:
+        if type(device) is not dict or type(device.get("interfaces")) is not list:
+            raise Blocked("USB interface enumeration is missing")
+        interfaces.extend(device["interfaces"])
+    if type(inventory.get("usbInterfaceCount")) is not int or inventory["usbInterfaceCount"] != len(interfaces):
+        raise Blocked("USB interface enumeration is inconsistent")
+    queries = inventory.get("bluetoothTransportQueries")
+    expected = {"IOBluetoothHostControllerTransport", "IOBluetoothHostController",
+                "IOBluetoothHostControllerUSBTransport", "IOBluetoothHostControllerUARTTransport",
+                "IOBluetoothHostControllerPCIeTransport"}
+    if type(queries) is not dict or set(queries) != expected or any(type(rows) is not list for rows in queries.values()):
+        raise Blocked("Bluetooth transport enumeration is incomplete")
+    all_rows = inventory["hidInventory"] + inventory["usbInventory"] + inventory["bluetoothInventory"] + interfaces
+    all_rows += [row for rows in queries.values() for row in rows]
+    for row in all_rows:
+        if type(row) is not dict or type(row.get("class")) is not str or type(row.get("metadataErrors")) is not list:
+            raise Blocked("registry metadata must retain its class and explicit field errors")
+    for controller in inventory["bluetoothInventory"]:
+        if "BluetoothTransportConnected" not in controller or type(controller["BluetoothTransportConnected"]) not in (bool, type(None)):
+            raise Blocked("Bluetooth transport evidence must be an exact Boolean or explicit unknown")
+        if controller["BluetoothTransportConnected"] is None and not controller["metadataErrors"]:
+            raise Blocked("unknown Bluetooth evidence must retain its diagnostic")
+    vm = inventory.get("vmProvenance")
+    if (type(vm) is not dict or vm.get("source") != "sysctl:kern.hv_vmm_present"
+            or type(vm.get("complete")) is not bool or vm.get("provesHardwareIsolation") is not False
+            or type(vm.get("hypervisorPresent")) not in (bool, type(None))
+            or any(type(vm.get(key)) is not int for key in ("queryStatus", "queryErrno", "valueSize"))
+            or (vm["complete"] and (vm["queryStatus"] != 0 or type(vm["hypervisorPresent"]) is not bool))):
+        raise Blocked("virtualization evidence is missing or overstates hardware isolation")
+
+
 def stop_owned(process: subprocess.Popen) -> None:
     """Only process groups created by this runner, never a process-name match."""
     # A CLI can spawn a bounded systemextensionsctl query. Its group can outlive
@@ -161,6 +205,32 @@ class Experiment:
     def guard(self):
         if self.overflow.is_set():
             raise Blocked("child exceeded diagnostic output limit")
+
+    def execute_inventory(self):
+        """No download, signature assessment, OJD launch, Bluetooth API or device open."""
+        if sys.platform != "darwin" or os.environ.get("GITHUB_ACTIONS") != "true":
+            raise Blocked("inventory capture is restricted to disposable GitHub macOS CI")
+        self.record("scope", mode="inventory-only", originalReleaseExecuted=False, signingRechecked=False)
+        with ExitStack() as cleanup:
+            directory = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="madsense-ojd-inventory-", dir=self.output))
+            cleanup.callback(self.close)
+            observer = Path(directory) / "observer"
+            self.run("build-observer", ["/usr/bin/xcrun", "clang", "-fobjc-arc", "-Wall", "-Wextra",
+                "-framework", "Foundation", "-framework", "IOKit", Path(__file__).with_name("ojd_broker_observer.m"),
+                "-o", observer], timeout=90)
+            self.run("observer-parser-self-test", [observer, "self-test"])
+            _, data, _ = self.run("empty-host", [observer, "inventory"])
+            inventory = json.loads(data)
+            check_inventory_capture(inventory)
+            try:
+                check_empty_inventory(inventory)
+                current_gate = "would-pass"
+            except Blocked:
+                current_gate = "blocked"
+            self.record("result", result="inventory-collected", currentUnchangedGate=current_gate,
+                        originalReleaseExecuted=False, signingRechecked=False,
+                        physicalDeviceOpened=False, hardwareIsolationValidated=False)
+            return 0
 
     def execute(self):
         if sys.platform != "darwin" or os.environ.get("GITHUB_ACTIONS") != "true":
@@ -337,12 +407,14 @@ class Experiment:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-on-empty-ci", action="store_true", required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--run-on-empty-ci", action="store_true")
+    mode.add_argument("--inventory-only-ci", action="store_true")
     parser.add_argument("--output", type=Path, default=Path("dist/ojd-broker"))
     args = parser.parse_args()
     experiment = Experiment(args.output)
     try:
-        return experiment.execute()
+        return experiment.execute_inventory() if args.inventory_only_ci else experiment.execute()
     except Blocked as error:
         experiment.record("result", result="blocked", reason=str(error))
         return 77
