@@ -32,6 +32,8 @@ class ExistingOutputTests(unittest.TestCase):
                     value = next(values) if values else 42
                     if isinstance(value, Exception):
                         raise value
+                    if isinstance(value, SimpleNamespace):
+                        return value
                     return SimpleNamespace(st_mode=stat.S_IFCHR | 0o600, st_dev=1,
                                            st_ino=value, st_rdev=55)
                 return original(path, *args, **kwargs)
@@ -87,11 +89,58 @@ class ExistingOutputTests(unittest.TestCase):
                     self.scan(root)
                 self.assertEqual(error.exception.code, "isolation_unverified")
 
-    def test_descriptor_replacement_during_flags_read_is_not_clear(self):
-        with self.proc(identities=[42, 43]) as root:
+    def test_descriptor_replacement_during_flags_read_is_reclassified(self):
+        with self.proc(identities=[42, 43, 43, 43]) as root:
+            self.assertEqual(self.scan(root), [(7, 123, "3")])
+
+    def test_descriptor_continuous_replacement_never_passes_as_clear(self):
+        with self.proc(identities=[42, 43, 44, 45, 46, 47]) as root:
             with self.assertRaises(core.BrokerError) as error:
                 self.scan(root)
             self.assertEqual(error.exception.code, "isolation_unverified")
+            self.assertIn("pid=7, fd=3, stage=node-after-metadata", str(error.exception))
+
+    def test_initial_stat_closed_then_reused_by_regular_file_is_not_missing_metadata(self):
+        regular = SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_dev=1, st_ino=90, st_rdev=0)
+        with self.proc(identities=[FileNotFoundError(), regular, regular]) as root:
+            self.assertEqual(self.scan(root), [])
+
+    def test_closed_descriptor_recheck_permission_denial_is_not_clear(self):
+        with self.proc(identities=[FileNotFoundError(), PermissionError()]) as root:
+            with self.assertRaisesRegex(core.BrokerError, "Cannot inspect descriptor metadata.*pid=7, fd=3, stage=node-recheck"):
+                self.scan(root)
+
+    def test_initial_stat_closed_then_reused_by_target_still_blocks(self):
+        for targets in ({"writers": (55,)}, {"writers": (), "force_feedback_targets": {55}}):
+            with self.subTest(targets=targets), self.proc(identities=[FileNotFoundError(), 43, 43, 43]) as root:
+                self.assertEqual(self.scan(root, **targets), [(7, 123, "3")])
+        with self.proc(metadata=None, identities=[FileNotFoundError(), 43, 43, 43]) as root:
+            self.assertEqual(core.foreign_device_owners({55}, 9, root), [(7, 123, "3")])
+
+    def test_fdinfo_closed_then_reused_by_writable_target_is_reclassified(self):
+        original = Path.open
+        missing = True
+        def replaced(path, *args, **kwargs):
+            nonlocal missing
+            if path.parent.name == "fdinfo" and missing:
+                missing = False
+                raise FileNotFoundError("closed and reused during metadata open")
+            return original(path, *args, **kwargs)
+        with self.proc(identities=[42, 43, 43, 43]) as root, patch.object(Path, "open", replaced):
+            self.assertEqual(self.scan(root), [(7, 123, "3")])
+
+    def test_retry_cannot_use_another_process_identity(self):
+        regular = SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_dev=1, st_ino=90, st_rdev=0)
+        with self.proc(identities=[FileNotFoundError(), regular]) as root, \
+                patch.object(core, "process_start", side_effect=[123, 124]):
+            with self.assertRaisesRegex(core.BrokerError, "Process identity changed.*pid=7, fd=3"):
+                self.scan(root)
+
+    def test_live_process_missing_identity_is_not_clear(self):
+        with self.proc(identities=[FileNotFoundError(), 43]) as root, \
+                patch.object(core, "process_start", side_effect=[123, FileNotFoundError()]):
+            with self.assertRaisesRegex(core.BrokerError, "live process identity is unavailable.*pid=7, fd=3"):
+                self.scan(root)
 
     def test_descriptor_closed_during_flags_read_is_allowed(self):
         with self.proc(identities=[42, FileNotFoundError(), FileNotFoundError()]) as root:

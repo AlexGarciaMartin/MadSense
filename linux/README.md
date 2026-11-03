@@ -22,15 +22,15 @@ mandos. La conexión permanece bloqueada hasta verificar el componente de acceso
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
 
-En la revisión `0325da7`, el
-[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41628578726)
-pasó en ambas arquitecturas: 381 pruebas compartidas, 100 de plataforma y 17 de
+En la revisión `fc141e9`, el
+[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966405)
+pasó en ambas arquitecturas: 425 pruebas compartidas, 100 de plataforma y 17 de
 aplicación, las seis interfaces y el ciclo de escritorio de los paquetes extraídos.
-Las [tres pruebas del kernel en `5733910`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41611760328)
+Las [tres pruebas del kernel en `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966377)
 pasaron con DualSense, Edge y Xbox, incluida la retirada de la VM y restauración
 de permisos KVM. Las dos Sony conservaron las 48.000 muestras por canal en la
 reproducción ALSA y el audio ISO IN sintético.
-El [servicio nativo en `0325da7`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41628578777)
+El [servicio nativo en `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966389)
 pasó diez casos de aislamiento/recuperación, dos actualizaciones en reposo y
 cuatro casos de desinstalación/reinstalación. El núcleo pasó
 sus nueve casos: identidad y calibración física del fixture, entrada completa,
@@ -44,8 +44,15 @@ no certifican el funcionamiento de un mando físico.
 
 La [primera ejecución SDL/Wine](research/CONSUMER-RUN-7d9f906.md) ya aporta
 capturas: SDL2/SDL3 reciben entrada y envían efectos; su parada explícita limpia
-los selectores, una forma que la aserción anterior aún no acepta. Wine 9 falla
-antes de verificar las características nativas HID; no se ha validado WASAPI.
+los selectores. En [el ensayo `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966438)
+pasaron los cuatro casos SDL, con el informe USB completo y el Bluetooth con CRC
+válido, incluida la fase de parada separada de LED/cierre. Eso verifica reenvío,
+no actuación física. El ensayo completo falló durante el cierre de Wine: una
+carrera al inspeccionar descriptores de procesos terminó el aislamiento y dejó
+sin confirmar la limpieza del consumidor. La variante UDEV no llegó a arrancar;
+su guard de limpieza bloqueó correctamente la continuación.
+Wine 9 predeterminado falla antes de verificar las características nativas HID;
+no se ha validado WASAPI.
 La [repetición en `0325da7`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41628578603)
 registra capacidades de entrada de 15 bytes y cero bytes de salida y de informes
 de características en Wine 9 predeterminado. Se investiga por separado su ruta
@@ -61,11 +68,15 @@ de cola. Los doce casos de control/restricción pasan en Linux x64 y ARM64,
 incluido el cierre con ACK seguido inmediatamente por EOF. No son medidas de
 latencia física.
 
-El [análisis independiente del audio en `0325da7`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41628578687)
+El [análisis independiente del audio en `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966487)
 pasó en ambas arquitecturas: Opus decodificado con libopus y hápticos contrastados
 byte a byte, incluyendo controles que rechazan paquetes corruptos o reordenados.
 Es una prueba del pipeline de audio sin transporte físico; no mide la latencia
-del mando. Ninguno de estos resultados sustituye un mando o un juego real.
+del mando. La [primera medición sintética del puente](tests/latency/README.md)
+recibió 1.000/1.000 estados a 100 Hz y 9.954/9.998 a 1.000 Hz. Conserva las 44
+pérdidas y dos plazos de generación omitidos como límites del ensayo; no se ha
+atribuido todavía cada pérdida ni medido Bluetooth físico. Ninguno de estos
+resultados sustituye un mando o un juego real.
 
 El motor de la app ya conecta la sesión del broker con el servicio de emulación,
 los ajustes originales y el forwarder Bluetooth. Pausar cancela una adquisición

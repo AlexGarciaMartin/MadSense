@@ -455,10 +455,11 @@ def run_audio_defaults_observer(ready_path, evidence, physical_parent):
 
 
 def run_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
-              observe_audio_defaults=False, observe_pipewire_defaults=False, wine_udev_variant=False):
+              observe_audio_defaults=False, observe_pipewire_defaults=False, wine_udev_variant=False,
+              adjust_owned_rear_unity=False):
     def primary():
         return _run_primary_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
-                                  observe_audio_defaults, observe_pipewire_defaults)
+                                  observe_audio_defaults, observe_pipewire_defaults, adjust_owned_rear_unity)
     if wine_udev_variant:
         from run_wine_variant import run_after_default
         return run_after_default(primary, ready_path, wine_exe, fixture_state_callback, evidence, physical_parent)
@@ -466,9 +467,12 @@ def run_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, 
 
 
 def _run_primary_suite(ready_path, binaries, wine_exe, fixture_state_callback, evidence, physical_parent,
-                       observe_audio_defaults=False, observe_pipewire_defaults=False):
+                       observe_audio_defaults=False, observe_pipewire_defaults=False, adjust_owned_rear_unity=False):
     """Fixture callback accepts 'south' or 'neutral'; it must not replace the device."""
-    observation = pipewire_observation = None
+    observation = pipewire_observation = gain_experiment = None
+    if adjust_owned_rear_unity:
+        from pipewire_gain import run_optional
+        gain_experiment = run_optional(ready_path, Path(evidence).parent / "pipewire-gain", physical_parent)
     if observe_pipewire_defaults:
         from pipewire_defaults import run_optional
         pipewire_observation = run_optional(ready_path, Path(evidence).parent / "pipewire-defaults", physical_parent)
@@ -477,7 +481,9 @@ def _run_primary_suite(ready_path, binaries, wine_exe, fixture_state_callback, e
     with ConsumerSession(ready_path, evidence, physical_parent) as session:
         session.result["audioDefaultsObservation"] = observation
         session.result["pipewireDefaultsObservation"] = pipewire_observation
-        session.result["privateAudioObserverOrder"] = (["pipewire"] if observe_pipewire_defaults else []) + (
+        session.result["pipewireGainExperiment"] = gain_experiment
+        session.result["privateAudioObserverOrder"] = (["pipewire-gain"] if adjust_owned_rear_unity else []) + (
+            ["pipewire"] if observe_pipewire_defaults else []) + (
             ["pulseaudio"] if observe_audio_defaults else [])
         session.result["wineRequested"] = wine_exe is not None
         programs = ["consumer_sdl2", "consumer_sdl3"]

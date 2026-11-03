@@ -118,7 +118,86 @@ def foreign_device_owners(target_rdev, own_pid, proc=Path("/proc"), *, writable_
     targets = set(target_rdev) if isinstance(target_rdev, (tuple, list, set, frozenset)) else {target_rdev}
     writable_targets = set(writable_targets)
     force_feedback_targets = set(force_feedback_targets)
+    relevant_targets = targets | writable_targets | force_feedback_targets
     stored = {tuple(node[key] for key in ("dev", "inode", "rdev")) for node in systemd_grabs}
+
+    def inspect_descriptor(entry, fd, start):
+        # A proc FD number is not a stable handle: close/reuse can race either
+        # stat or fdinfo. Reclassify its current node instead of treating a
+        # successful second stat as proof that the original metadata vanished.
+        stage = "node"
+        def failure(message):
+            return BrokerError("isolation_unverified",
+                               f"{message} (pid={entry.name}, fd={fd.name}, stage={stage})")
+        def same_process():
+            if process_start(int(entry.name), proc) != start:
+                raise failure("Process identity changed during descriptor inspection")
+        last_race = stage
+        for attempt in range(3):
+            try:
+                if attempt:
+                    stage = "process-before-retry"
+                    same_process()
+                stage = "node"
+                info = fd.stat()
+                relevant = stat.S_ISCHR(info.st_mode) and info.st_rdev in relevant_targets
+                if not relevant:
+                    if attempt:
+                        stage = "process-after-retry"
+                        same_process()
+                    return False
+                stage = "process-before-metadata"
+                same_process()
+                conflict = info.st_rdev in targets
+                if not conflict:
+                    stage = "fdinfo"
+                    with (entry / "fdinfo" / fd.name).open() as metadata:
+                        text = metadata.read(8193)
+                    flags = re.findall(r"^flags:[ \t]*([0-7]+)[ \t]*$", text, re.MULTILINE)
+                    if len(text) > 8192 or len(flags) != 1:
+                        raise failure("Cannot determine an existing evdev descriptor's access mode")
+                    access = int(flags[0], 8) & 3  # Linux O_ACCMODE, including on portable tests.
+                    trusted_grab = (int(entry.name) == 1 and start == systemd_start and access == 0
+                                    and (info.st_dev, info.st_ino, info.st_rdev) in stored)
+                    conflict = ((info.st_rdev in force_feedback_targets and not trusted_grab) or access in (1, 2))
+                stage = "node-after-metadata"
+                after = fd.stat()
+                if not stat.S_ISCHR(after.st_mode) or identity(after) != identity(info):
+                    last_race = stage
+                    continue
+                stage = "process-after-metadata"
+                same_process()
+                return conflict
+            except (FileNotFoundError, ProcessLookupError):
+                last_race = stage
+                try:
+                    stage = "node-recheck"
+                    replacement = fd.stat()
+                except (FileNotFoundError, ProcessLookupError):
+                    return False  # The descriptor has actually gone.
+                except (PermissionError, OSError, ValueError):
+                    raise failure("Cannot inspect descriptor metadata") from None
+                try:
+                    stage = "process-recheck"
+                    same_process()
+                except (FileNotFoundError, ProcessLookupError):
+                    if entry.exists():
+                        raise failure("A live process identity is unavailable") from None
+                    return False
+                except (PermissionError, OSError, ValueError):
+                    raise failure("Cannot inspect descriptor process identity") from None
+                if not stat.S_ISCHR(replacement.st_mode) or replacement.st_rdev not in relevant_targets:
+                    # This successful stat has already classified the new node,
+                    # and the process identity was checked afterwards. Retain
+                    # that evidence instead of racing another unrelated close.
+                    return False
+                # A live replacement must undergo the entire classification,
+                # including access mode and identity checks, on the next pass.
+            except (PermissionError, OSError, ValueError):
+                raise failure("Cannot inspect descriptor metadata") from None
+        stage = last_race
+        raise failure("Descriptor metadata did not stabilize after three inspections")
+
     owners = []
     for entry in proc.iterdir():
         if not entry.name.isdecimal() or int(entry.name) == own_pid:
@@ -127,35 +206,8 @@ def foreign_device_owners(target_rdev, own_pid, proc=Path("/proc"), *, writable_
             start = process_start(int(entry.name), proc)
             fds = list((entry / "fd").iterdir())
             for fd in fds:
-                try:
-                    info = fd.stat()
-                    if not stat.S_ISCHR(info.st_mode):
-                        continue
-                    if info.st_rdev in targets:
-                        owners.append((int(entry.name), start, fd.name))
-                    elif info.st_rdev in writable_targets or info.st_rdev in force_feedback_targets:
-                        with (entry / "fdinfo" / fd.name).open() as metadata:
-                            text = metadata.read(8193)
-                        flags = re.findall(r"^flags:[ \t]*([0-7]+)[ \t]*$", text, re.MULTILINE)
-                        require(len(text) <= 8192 and len(flags) == 1,
-                                "isolation_unverified", "Cannot determine an existing evdev descriptor's access mode")
-                        after = fd.stat()
-                        require(stat.S_ISCHR(after.st_mode) and identity(after) == identity(info),
-                                "isolation_unverified", "An output descriptor changed during inspection")
-                        # Linux O_ACCMODE/WRONLY/RDWR are 3/1/2; keep this pure
-                        # metadata validator runnable on the Windows dev host.
-                        access = int(flags[0], 8) & 3
-                        trusted_grab = (int(entry.name) == 1 and start == systemd_start and access == 0
-                                        and (info.st_dev, info.st_ino, info.st_rdev) in stored)
-                        if ((info.st_rdev in force_feedback_targets and not trusted_grab)
-                                or access in (1, 2)):
-                            owners.append((int(entry.name), start, fd.name))
-                except FileNotFoundError:
-                    try:
-                        fd.stat()
-                    except (FileNotFoundError, ProcessLookupError):
-                        continue  # A descriptor was closed during enumeration.
-                    raise BrokerError("isolation_unverified", "A live descriptor's metadata is unavailable") from None
+                if inspect_descriptor(entry, fd, start):
+                    owners.append((int(entry.name), start, fd.name))
         except (FileNotFoundError, ProcessLookupError):
             if entry.exists():
                 raise BrokerError("isolation_unverified", "A live process could not be inspected") from None

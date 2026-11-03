@@ -66,6 +66,7 @@ def main():
     parser.add_argument("--wine-udev-variant", action="store_true")
     parser.add_argument("--observe-audio-defaults", action="store_true")
     parser.add_argument("--observe-pipewire-defaults", action="store_true")
+    parser.add_argument("--adjust-owned-rear-unity", action="store_true")
     parser.add_argument("--extended-protocol", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -77,6 +78,8 @@ def main():
             "Audio defaults observation requires the optional consumer suite")
     require(not args.observe_pipewire_defaults or args.consumer_binaries is not None,
             "PipeWire defaults observation requires the optional consumer suite")
+    require(not args.adjust_owned_rear_unity or args.consumer_binaries is not None,
+            "Private PipeWire gain experiment requires the optional consumer suite")
     require(os.geteuid() == 0, "Run only as root inside the owned test guest")
     scope = validate_environment(args.owned_guest_token)
     require(scope["kind"] == "owned-qemu-guest", "Owned QEMU guest required")
@@ -341,6 +344,7 @@ def main():
                 args.wine_consumer, consumer_state, output / "consumer-suite", fixture.parent,
                 observe_audio_defaults=args.observe_audio_defaults,
                 observe_pipewire_defaults=args.observe_pipewire_defaults,
+                adjust_owned_rear_unity=args.adjust_owned_rear_unity,
                 wine_udev_variant=args.wine_udev_variant)
             require(result["consumers"].get("result") == "passed"
                     and result["consumers"].get("accountProcessesAndFilesRemoved") is True

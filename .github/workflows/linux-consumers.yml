@@ -30,6 +30,9 @@ on:
       - 'linux/research/pipewire_defaults.py'
       - 'linux/research/test_pipewire_defaults.py'
       - 'linux/research/PIPEWIRE-DEFAULTS-OBSERVER.md'
+      - 'linux/research/pipewire_gain.py'
+      - 'linux/research/test_pipewire_gain.py'
+      - 'linux/research/PIPEWIRE-GAIN-EXPERIMENT.md'
       - 'linux/research/ge_umu_*'
       - 'linux/research/ge-umu-lock.json'
       - 'linux/research/test_ge_umu.py'
@@ -56,6 +59,7 @@ jobs:
           python3 -m unittest discover -s linux/research -p test_wine_variant.py -v
           python3 -m unittest discover -s linux/research -p test_audio_defaults.py -v
           python3 -m unittest discover -s linux/research -p test_pipewire_defaults.py -v
+          python3 -m unittest discover -s linux/research -p test_pipewire_gain.py -v
           python3 -m unittest discover -s linux/research -p test_ge_umu.py -v
           python3 -m py_compile linux/research/consumer_session.py linux/research/run_wine_consumer.py linux/research/qemu_consumers.py
           bash -n linux/research/run_consumer_guest.sh
@@ -152,6 +156,7 @@ jobs:
           --windows-artifact dist/windows-build/wine-consumer
           --observe-audio-defaults
           --observe-pipewire-defaults
+          --adjust-owned-rear-unity
           --wine-udev-variant
           --output dist/consumer-runtime --work dist/consumer-qemu-private
       - uses: actions/upload-artifact@v4

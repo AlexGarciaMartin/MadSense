@@ -181,7 +181,7 @@ class IdentityTests(unittest.TestCase):
                 original = Path.stat
                 def fake_stat(path, *args, **kwargs):
                     if path.name == "3":
-                        return types.SimpleNamespace(st_mode=stat.S_IFCHR, st_rdev=55)
+                        return types.SimpleNamespace(st_mode=stat.S_IFCHR, st_rdev=55, st_dev=1, st_ino=2)
                     return original(path, *args, **kwargs)
                 with patch.object(Path, "stat", fake_stat):
                     self.assertEqual(core.foreign_device_owners(55, 9, root), [(7, 123, "3")])

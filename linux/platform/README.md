@@ -83,6 +83,15 @@ atomically without replacing an existing rule. It applies final root ownership a
 ACLs are removed, every evdev child is grabbed, and the helper audits all other
 processes for open descriptors to any corresponding hidraw or force-feedback
 evdev interface, and writable descriptors to children with LED or sound output.
+An FD number that closes and is reused during `/proc` inspection is classified
+again, at most three times, with process start identity and relevant node identity
+rechecked. It is not accepted merely because a second `stat` succeeds. Persistent
+missing or denied metadata, malformed flags, changing identity or exhausted
+retries still prevent isolation; diagnostics identify only PID, FD and inspection
+stage. Run 41629966438 at `fc141e9` ended during Wine process activity with the old
+ambiguous live-descriptor-metadata error. Deterministic close/reuse tests reproduce
+that exact error in the old code and pass the correction; the artifact did not
+capture the affected FD, so native confirmation of this correction remains pending.
 The latter matters because `EVIOCGRAB` does not exclude another already-open evdev
 writer. Event capabilities come from each opened node's `EVIOCGBIT(0)` result;
 access modes come from bounded `/proc/PID/fdinfo/FD` reads with node identity

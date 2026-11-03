@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs after the native broker baseline, inside the owned hardware-free guest.
 set -euo pipefail
-[[ $# -ge 1 ]] || { echo 'usage: run_consumer_guest.sh OWNER_UUID [--observe-audio-defaults] [--observe-pipewire-defaults] [--wine-udev-variant]' >&2; exit 2; }
+[[ $# -ge 1 ]] || { echo 'usage: run_consumer_guest.sh OWNER_UUID [--observe-audio-defaults] [--observe-pipewire-defaults] [--adjust-owned-rear-unity] [--wine-udev-variant]' >&2; exit 2; }
 owner_uuid=$1
 shift
 observer_args=()
@@ -10,6 +10,7 @@ for option in "$@"; do
   case "$option" in
     --observe-audio-defaults) observer_args+=("$option") ;;
     --observe-pipewire-defaults) observer_args+=("$option"); pipewire_observer=true ;;
+    --adjust-owned-rear-unity) observer_args+=("$option"); pipewire_observer=true ;;
     --wine-udev-variant) observer_args+=("$option") ;;
     *) echo "Unknown consumer experiment option: $option" >&2; exit 2 ;;
   esac
@@ -34,6 +35,7 @@ python3 -m unittest discover -s linux/research -p test_consumer_stop.py -v
 python3 -m unittest discover -s linux/research -p test_wine_variant.py -v
 python3 -m unittest discover -s linux/research -p test_audio_defaults.py -v
 python3 -m unittest discover -s linux/research -p test_pipewire_defaults.py -v
+python3 -m unittest discover -s linux/research -p test_pipewire_gain.py -v
 cc -std=c11 -O2 -Wall -Wextra -Werror linux/research/host_probe.c -o host_probe
 chmod +x core-probe/MadSense.Linux.CoreProbe consumer-bin/consumer_sdl2 consumer-bin/consumer_sdl3 consumer-bin/ff_probe
 sudo -n python3 linux/platform/integration/run_core_guest.py --owned-guest-token "$owner_uuid" \

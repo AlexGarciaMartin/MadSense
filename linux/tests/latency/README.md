@@ -6,11 +6,34 @@ raw converter and USB/IP import to that lease's virtual hidraw reader. It reuses
 the existing ordinary AppProbe executable; no production factory, endpoint,
 authorization or scheduling policy is replaced. It does not run the GUI.
 
-Native C compilation and all eight validation tests passed on Linux x64 and
-arm64 at commit `477687d` in [run 41615446664](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41615446664).
-Both source-tagged artifacts were downloaded and their archive hashes verified.
-Timing execution is still pending; this experiment has produced no latency
-numbers yet.
+Native C compilation and all fifteen validation tests passed on Linux x64 and
+arm64 at commit `0325da7` in [run 41629387209](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629387209).
+That run also completed the first native timing experiment after all 10 broker,
+9 core and 10 application cases, two idle installations and four removal cases
+passed in the same owned KVM guest. The collected CSVs were recomputed using the
+verifiers from the exact commit; 79 guest source files and four installed helper
+files were checked against their recorded hashes.
+
+| Synthetic input | Written / observed unique | Missing written reports | Upper interval p50 / p95 / p99 | Maximum upper interval |
+|---|---|---|---|---|
+| 100 Hz, 10 s | 1,000 / 1,000 | 0 | 0.126 / 0.254 / 2.338 ms | 4.419 ms |
+| 1,000 Hz, 10 s | 9,998 / 9,954 | 44 | 0.095 / 0.164 / 0.720 ms | 3.520 ms |
+
+The 1,000 Hz producer skipped two deadlines before injection, separately from
+the 44 written sequences absent at the virtual reader. Its classification is
+`transport-limit`, so the overall benchmark retains that classification even
+though the workflow successfully validated and collected the experiment. Neither
+case overflowed the broker client queue, discarded reports during initialization,
+or reordered observed sequences. Repeated reads of an already observed sequence
+were counted separately (9,851 at 100 Hz; 9,543 at 1,000 Hz), not counted as new
+input samples. All case cleanup, QEMU shutdown and KVM ACL restoration passed.
+
+These percentiles describe only successfully matched synthetic reports in this
+one shared-host VM run. They are not physical Bluetooth or game latency, do not
+include missing samples as successful measurements, and do not establish the
+cause of a lost sequence. No production scheduling, queue or priority change is
+justified by this single run. The original runtime artifact SHA-256 is
+`e0ec2ba79e1acdbe6e0b8d756979e306b58e636ee70241bd308968b441c8701a`.
 
 Run only after all broker, core and application functional gates passed in the
 same owned QEMU guest. The runner checks their case sets and ownership tokens,
@@ -127,8 +150,7 @@ and restored fixture snapshots are checked again on the host.
 `functionalResult` and `benchmarkResult` remain separate in provenance. Missing
 or failed functional gates skip timing. A measured workload limit retains its
 classification without failing functional results; invalid timing evidence or
-unconfirmed cleanup fails this independent workflow job. Runtime invocation has
-not yet occurred.
+unconfirmed cleanup fails this independent workflow job.
 
 An existing live-VM owner can reuse `add_latency_payload(payload)` before its
 single upload and `run_latency_stage(guest)` after its functional stages, without
