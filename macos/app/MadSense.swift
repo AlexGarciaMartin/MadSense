@@ -192,6 +192,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             paused = fixture == "paused"
             requestedPaused = paused
             blocked = fixture == "blocked"
+            if blocked { window.setContentSize(window.contentMinSize) }
             setState(localizeBackendState(fixture),
                 detail: fixture == "paused" ? localizeBackendDetail("Controller released.") :
                     "Virtual HID unavailable (0xe00002bc): macOS refused virtual HID creation. Check the executable's accepted com.apple.developer.hid.virtual.device entitlement/signature.",
@@ -304,9 +305,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func buildWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 760),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 730),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.contentMinSize = NSSize(width: 800, height: 760)
+        window.contentMinSize = NSSize(width: 800, height: 730)
         window.title = "MadSense · macOS"
         window.backgroundColor = Palette.paper
         window.appearance = NSAppearance(named: .aqua)
@@ -315,18 +316,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         window.center()
         let root = AppContentView()
         window.contentView = root
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
         let header = BrandHeaderView(tagline: brandText("Ui.HeaderTagline"),
-            version: brandText("Ui.Version").replacingOccurrences(of: "{0}", with: "0.5 DEV"))
+            version: brandText("Ui.Version").replacingOccurrences(of: "{0}", with: version + " DEV"))
         hero = BrandHeroView()
         hero.mode = brandText("Ui.HeroDualSense")
         header.heightAnchor.constraint(equalToConstant: 106).isActive = true
-        hero.heightAnchor.constraint(equalToConstant: 250).isActive = true
+        hero.heightAnchor.constraint(greaterThanOrEqualToConstant: 230).isActive = true
+        hero.setContentHuggingPriority(NSLayoutConstraint.Priority(rawValue: 200), for: .vertical)
 
         // Actual backend state remains native, selectable and accessible in the
         // Windows LINK strip; the artwork never invents a connected controller.
         stateLabel.maximumNumberOfLines = 1
         detailLabel.maximumNumberOfLines = 2
-        detailLabel.lineBreakMode = .byTruncatingTail
+        detailLabel.lineBreakMode = .byWordWrapping
         let statusText = NSStackView(views: [stateLabel, detailLabel, telemetryLabel, lowBatteryLabel])
         statusText.orientation = .vertical
         statusText.alignment = .leading
@@ -380,6 +383,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         footer.spacing = 12
         diagnosticButton.widthAnchor.constraint(equalToConstant: 132).isActive = true
         pauseButton.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        activityLabel.widthAnchor.constraint(equalTo: footer.widthAnchor, constant: -336).isActive = true
         footer.heightAnchor.constraint(equalToConstant: 44).isActive = true
         activityLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
         activityLabel.maximumNumberOfLines = 2
@@ -390,21 +394,26 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             "El dispositivo de audio/PCM CoreAudio es opcional y experimental. La asociación con juegos y la compatibilidad con hardware no están verificadas. XInput no está soportado. El HID virtual requiere una firma autorizada por Apple."), size: 12, color: Palette.muted)
         let development = label(tr("macOS · DEVELOPMENT BUILD", "macOS · VERSIÓN EN DESARROLLO"), size: 10, weight: .bold, color: Palette.muted)
         development.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
-        let stack = NSStackView(views: [header, hero, statusRow, development, speakerSection, speakerRow, limitation, footer])
+        let sectionRow = NSStackView(views: [speakerSection, development])
+        sectionRow.orientation = .horizontal
+        sectionRow.distribution = .equalSpacing
+        sectionRow.spacing = 12
+        let stack = NSStackView(views: [header, hero, statusRow, sectionRow, speakerRow, limitation, footer])
         stack.orientation = .vertical
+        stack.distribution = .fill
         stack.alignment = .leading
         stack.spacing = 10
         stack.setCustomSpacing(0, after: hero)
-        stack.setCustomSpacing(6, after: speakerSection)
+        stack.setCustomSpacing(6, after: sectionRow)
         stack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
             stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16)
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -16)
         ])
-        for view in [header, hero, statusRow, speakerRow, limitation, footer] {
+        for view in [header, hero, statusRow, sectionRow, speakerRow, limitation, footer] {
             view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
         redrawState()
@@ -415,22 +424,26 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let appItem = NSMenuItem()
         main.addItem(appItem)
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: tr("Show MadSense", "Mostrar MadSense"), action: #selector(showWindow), keyEquivalent: "0").target = self
+        appMenu.addItem(withTitle: brandText("Ui.Open"), action: #selector(showWindow), keyEquivalent: "0").target = self
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: tr("Quit MadSense", "Salir de MadSense"), action: #selector(quit), keyEquivalent: "q").target = self
+        appMenu.addItem(withTitle: brandText("Ui.Quit"), action: #selector(quit), keyEquivalent: "q").target = self
         appItem.submenu = appMenu
         NSApp.mainMenu = main
         if let existing = statusItem { NSStatusBar.system.removeStatusItem(existing) }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "M·S"
+        if let url = Bundle.main.url(forResource: "MadSense", withExtension: "icns"), let icon = NSImage(contentsOf: url) {
+            icon.size = NSSize(width: 18, height: 18)
+            statusItem.button?.image = icon
+            statusItem.button?.imagePosition = .imageLeading
+        }
         statusItem.button?.toolTip = "MadSense"
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
-        menu.addItem(withTitle: tr("Show MadSense", "Mostrar MadSense"), action: #selector(showWindow), keyEquivalent: "").target = self
+        menu.addItem(withTitle: brandText("Ui.Open"), action: #selector(showWindow), keyEquivalent: "").target = self
         pauseMenuItem = menu.addItem(withTitle: tr("Pause bridge", "Pausar puente"), action: #selector(togglePause), keyEquivalent: "")
         pauseMenuItem.target = self
-        menu.addItem(withTitle: tr("Diagnostics", "Diagnóstico"), action: #selector(showDiagnostics), keyEquivalent: "").target = self
+        menu.addItem(withTitle: brandText("Ui.Logs"), action: #selector(showDiagnostics), keyEquivalent: "").target = self
         activityMenuItem = menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
         activityMenuItem.isEnabled = false
         refreshActivity()
@@ -443,7 +456,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             item.representedObject = mode
             speakerMenuItems[mode] = item
         }
-        let speakerItem = menu.addItem(withTitle: tr("Speaker · optional audio", "Altavoz · audio opcional"), action: nil, keyEquivalent: "")
+        let speakerItem = menu.addItem(withTitle: brandText("Ui.SpeakerMenu"), action: nil, keyEquivalent: "")
         speakerItem.submenu = speakerMenu
         refreshSpeaker()
         let languages = NSMenu()
@@ -454,7 +467,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             item.representedObject = code
             item.state = language == code ? .on : .off
         }
-        let languageItem = menu.addItem(withTitle: tr("Language", "Idioma"), action: nil, keyEquivalent: "")
+        let languageItem = menu.addItem(withTitle: brandText("Ui.Language"), action: nil, keyEquivalent: "")
         languageItem.submenu = languages
         menu.addItem(.separator())
         loginMenuItem = menu.addItem(withTitle: tr("Launch at login", "Abrir al iniciar sesión"), action: #selector(toggleLogin), keyEquivalent: "")
@@ -463,7 +476,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         loginSettingsMenuItem.target = self
         refreshLogin()
         menu.addItem(.separator())
-        menu.addItem(withTitle: tr("Quit MadSense", "Salir de MadSense"), action: #selector(quit), keyEquivalent: "").target = self
+        menu.addItem(withTitle: brandText("Ui.Quit"), action: #selector(quit), keyEquivalent: "").target = self
         statusItem.menu = menu
     }
 
@@ -693,7 +706,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func refreshStatusItem() {
-        var title = displayedReady ? "M·S ●" : "M·S"
+        var title = displayedReady ? "●" : ""
+        if statusItem?.button?.image == nil { title = "MadSense" + (displayedReady ? " ●" : "") }
         var tooltip = "MadSense · \(displayedState?() ?? tr("Starting", "Iniciando"))"
         if let battery = batteryPercent {
             title += " \(battery)%"
