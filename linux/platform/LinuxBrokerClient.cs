@@ -164,6 +164,7 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
                 if (!completion.Task.Wait(Remaining(), cancellation.Token)) throw new TimeoutException();
             }
             catch (AggregateException) { } // GetAwaiter below preserves the original protocol exception.
+            ct.ThrowIfCancellationRequested();
             return completion.Task.GetAwaiter().GetResult();
         }
         catch (TimeoutException)
@@ -173,9 +174,19 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
+            if (!ct.IsCancellationRequested && lifetime.IsCancellationRequested && completion.Task.IsCompleted)
+                return completion.Task.GetAwaiter().GetResult();
             if (!lifetime.IsCancellationRequested) Terminate("The device broker request was cancelled.");
             if (ct.IsCancellationRequested) throw;
             throw new IOException(FailureReason ?? "The device broker session ended.");
+        }
+        catch (Exception error) when (ct.IsCancellationRequested &&
+                                     error is IOException or SocketException or ObjectDisposedException)
+        {
+            // Explicit cancellation closes the socket and faults pending RPCs.
+            // Either wake-up can win; the caller's token still defines the result.
+            Terminate("The device broker request was cancelled.");
+            throw new OperationCanceledException("The device broker request was cancelled.", error, ct);
         }
         catch (Exception error) when (error is SocketException or ObjectDisposedException)
         {
@@ -223,16 +234,29 @@ public sealed class LinuxBrokerClient : IAsyncDisposable
                 await stream.FlushAsync(timeout.Token).ConfigureAwait(false);
             }
             finally { writes.Release(); }
-            return await completion.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+            JsonElement result = await completion.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            return result;
         }
         catch (OperationCanceledException)
         {
+            // A fully validated ACK can precede EOF while WaitAsync's source
+            // continuation is still queued. Lifetime cancellation must not
+            // replace that actual reply (or its typed protocol error).
+            if (!ct.IsCancellationRequested && lifetime.IsCancellationRequested && completion.Task.IsCompleted)
+                return completion.Task.GetAwaiter().GetResult();
             // A timed-out attach/acquire might still complete in the helper.
             // Closing the lease makes its cleanup authoritative instead of guessing.
             if (!lifetime.IsCancellationRequested)
                 Terminate(ct.IsCancellationRequested ? "The device broker request was cancelled." : "The device broker request timed out.");
             if (ct.IsCancellationRequested) throw;
             throw new IOException(FailureReason ?? "The device broker session ended.");
+        }
+        catch (Exception error) when (ct.IsCancellationRequested &&
+                                     error is IOException or SocketException or ObjectDisposedException)
+        {
+            Terminate("The device broker request was cancelled.");
+            throw new OperationCanceledException("The device broker request was cancelled.", error, ct);
         }
         catch (Exception error) when (error is SocketException or ObjectDisposedException)
         {

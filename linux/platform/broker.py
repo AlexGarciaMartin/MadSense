@@ -44,6 +44,34 @@ class RecoveryRequired(RuntimeError):
     """Leave PID 1's descriptors intact and force a service restart."""
 
 
+def drain_setup_input(fd, max_reports=128, max_seconds=.05):
+    """Discard only pre-ACTIVE input, requiring a bounded drain to EAGAIN.
+
+    Isolation setup opens hidraw before udev, audits and FDSTORE. Its buffered
+    history must not be replayed as a burst into the eight-report active queue.
+    This counts reports actually read, not unobservable earlier kernel losses.
+    """
+    started = time.monotonic()
+    count = 0
+    try:
+        while True:
+            require(count < max_reports and time.monotonic() - started < max_seconds,
+                    "input_setup_failed", "Physical input did not reach EAGAIN within the setup drain bounds")
+            try:
+                data = os.read(fd, MAX_REPORT)
+            except BlockingIOError as error:
+                require(error.errno in (errno.EAGAIN, errno.EWOULDBLOCK), "input_setup_failed", str(error))
+                require(time.monotonic() - started < max_seconds,
+                        "input_setup_failed", "Physical input setup drain exceeded its time bound")
+                return count
+            require(data, "isolation_lost", "Physical HID stream closed during setup")
+            count += 1
+    except BaseException as error:
+        print(json.dumps({"event": "setup-input-drain-failed", "setupReportsDrained": count,
+                          "reason": str(error)[:512]}), flush=True)
+        raise
+
+
 def queue_packet(client, value):
     packet = (json.dumps(value, separators=(",", ":")) + "\n").encode()
     require(len(client["out"]) + len(packet) <= 65536, "client_stalled", "Client response queue is full")
@@ -598,10 +626,26 @@ class Lease:
         require(process_start(1) == self.saved["systemdStart"], "isolation_unverified", "The descriptor-store owner changed")
         self.saved["isolationVerified"] = True
         atomic_json(JOURNAL, self.saved)
+        setup_reports = self.finish_input_setup()
+        return {"isolationVerified": True, "path": path, "vendorId": vendor, "productId": product,
+                "productName": "DualSense Edge" if product == 0x0DF2 else "DualSense",
+                "setupReportsDrained": setup_reports}
+
+    def finish_input_setup(self):
+        # All durable journal/FDSTORE work is already complete. A failure here
+        # leaves ACTIVE false and the caller performs normal ordered cleanup.
+        count = drain_setup_input(self.fd)
+        try:
+            self.alive()
+        except BaseException as error:
+            print(json.dumps({"event": "setup-input-drain-failed", "setupReportsDrained": count,
+                              "reason": str(error)[:512]}), flush=True)
+            raise
         self.active = True
         self.start_audit()
-        return {"isolationVerified": True, "path": path, "vendorId": vendor, "productId": product,
-                "productName": "DualSense Edge" if product == 0x0DF2 else "DualSense"}
+        print(json.dumps({"event": "lease-acquired", "ownerPid": self.pid,
+                          "setupReportsDrained": count}), flush=True)
+        return count
 
     def verify(self):
         self.alive()

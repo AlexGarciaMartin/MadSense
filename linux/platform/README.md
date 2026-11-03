@@ -210,11 +210,29 @@ client's first nonempty `Read`/`ReadAsync`, the shared controller constructor mu
 read firmware and pairing features. During this setup phase only, the client
 retains the latest eight input reports and counts every superseded report in
 `InitializationDiscardedReports`. Once reading begins, that behavior cannot
-resume; an active queue overflow always ends isolation. No discard is silent.
+resume; an active queue overflow always ends isolation. Every client discard is counted.
 The helper counts a report until its complete JSON frame has been passed to the
 socket and requests a 4,096-byte socket send buffer. Kernel socket and hidraw
 buffers are separate and can still hold earlier input. This limit is not an
 end-to-end latency measurement.
+
+At the end of helper acquisition, after the durable journal and FDSTORE barrier
+and before ACTIVE or the acquire reply, the helper drains the nonblocking hidraw
+descriptor to `EAGAIN`. This discards history accumulated while permissions,
+udev and process audits were being established. It reads at most 128 reports and
+must observe `EAGAIN` within 50 ms; reaching either bound, EOF or a device error
+fails acquisition and uses the normal ordered cleanup. The report bound exceeds
+the 64-slot hidraw queue of the tested Linux 6.8 kernel, leaving room for arrivals
+during the drain; it does not relax either active eight-report queue. The acquire
+reply and structured `lease-acquired` journal event expose `setupReportsDrained`.
+A failed drain logs the observed count too. This is the number actually read and
+discarded from that descriptor, not total setup input: hidraw can silently drop
+reports when its per-open queue is full before the drain starts. No total kernel
+loss count or lossless initialization is claimed; see the kernel's
+[per-open hidraw queue](https://github.com/torvalds/linux/blob/v6.8/drivers/hid/hidraw.c).
+Native evidence of this change
+is still pending; the portable checks cover backlog, deadlines, EOF and failure
+before ACTIVE, with a real nonblocking packet descriptor check on Linux.
 
 The IPC reader has its own blocking thread. Synchronous HID and legacy USB/IP
 attachment calls wait directly on the reply completed by that reader; synchronous

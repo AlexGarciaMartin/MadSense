@@ -26,6 +26,14 @@ finish, input was not received, payload verification failed or cleanup was not
 acknowledged. The JSON includes every control and restricted result. No ThreadPool
 limits leak into NUnit or another test process.
 
+The restricted cases also force a release race: after the peer receives release,
+an independent worker occupies the sole pool slot before the peer sends its ACK
+and closes. The dedicated reader must process both before the worker is freed.
+The ACK's queued continuation can then race synchronous lifetime cancellation;
+the already validated reply must survive. `releaseEofWhileWorkerHeld=true`
+records this barrier. An EOF without an ACK is covered separately and must never
+set cleanup confirmed.
+
 ```sh
 dotnet run --project linux/platform/tests/starvation/StarvationProbe.csproj \
   --configuration Release > starvation.json
@@ -39,7 +47,11 @@ with a dedicated blocking reader, synchronous RPC waits and a pool-independent
 synchronous input wait passes all twelve cases while the clamp is still active.
 This proves
 the shared-pool dependency of that client, not the timing of the native VM's
-separate `client_stalled` failure. Native execution of this probe remains pending.
+separate `client_stalled` failure. The first native run (`8743326`, run
+41619490187, both Linux architectures) exposed the ACK/EOF race during cleanup.
+The additional barrier reproduces that failure on Windows too. After preserving
+validated replies across lifetime cancellation, all twelve cases pass locally;
+the native rerun remains pending.
 
 For a controlled before/after comparison, `PlatformSourceDirectory` can point to
 a separate directory containing the exact platform `.cs` files from a recorded

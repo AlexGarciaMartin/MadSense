@@ -47,7 +47,9 @@ static class Program
             bool passed = cases.All(value => value.GetProperty("completedWhilePoolRestricted").GetBoolean()
                 && value.GetProperty("exactResult").GetBoolean()
                 && value.GetProperty("receivedReportsAtDeadline").GetInt64() == 1
-                && value.GetProperty("cleanupConfirmed").GetBoolean());
+                && value.GetProperty("cleanupConfirmed").GetBoolean()
+                && (value.GetProperty("pool").GetString() != "one-worker" ||
+                    value.GetProperty("releaseEofWhileWorkerHeld").GetBoolean()));
             Console.WriteLine(JsonSerializer.Serialize(new { result = passed ? "passed" : "blocked", cases }));
             return passed ? 0 : 1;
         }
@@ -68,6 +70,8 @@ static class Program
         using var replySent = new ManualResetEventSlim();
         using var operationCompleted = new ManualResetEventSlim();
         using var peerCompleted = new ManualResetEventSlim();
+        using var releaseRequested = new ManualResetEventSlim();
+        using var allowReleaseReply = new ManualResetEventSlim();
         Exception? peerError = null, operationError = null;
         Thread? worker = null;
         object? actual = null;
@@ -131,6 +135,8 @@ static class Program
                 replySent.Set();
                 JsonElement release = ReadRequest();
                 if (release.GetProperty("op").GetString() != "release") throw new IOException("Expected release.");
+                releaseRequested.Set();
+                if (!allowReleaseReply.Wait(5000)) throw new TimeoutException("Supervisor did not release cleanup ACK.");
                 Send(new { id = release.GetProperty("id").GetInt64(), ok = true, result = new { released = true } });
             }
             catch (Exception error) { peerError = error; }
@@ -212,13 +218,53 @@ static class Program
             "write" => actual is int written && written == Input.Length,
             _ => actual is true
         };
-        session.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        Task disposing = session.DisposeAsync().AsTask();
+        if (!releaseRequested.Wait(3000)) throw new TimeoutException("Cleanup request did not reach the peer.");
+        bool releaseEofWhileWorkerHeld = false;
+        using var holdWorker = new ManualResetEventSlim();
+        using var holderEntered = new ManualResetEventSlim();
+        using var holderExited = new ManualResetEventSlim();
+        try
+        {
+            if (bounded)
+            {
+                if (!ThreadPool.SetMinThreads(1, minIo) || !ThreadPool.SetMaxThreads(1, maxIo))
+                    throw new InvalidOperationException("Cannot establish cleanup continuation barrier.");
+                ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    holderEntered.Set(); holdWorker.Wait(); holderExited.Set();
+                });
+                if (!holderEntered.Wait(3000)) throw new TimeoutException("Cleanup barrier did not occupy the worker.");
+            }
+            allowReleaseReply.Set();
+            if (bounded)
+            {
+                if (!SpinWait.SpinUntil(() => !client.IsConnected, 3000))
+                    throw new TimeoutException("Reader did not process cleanup ACK followed by EOF.");
+                // The reply's RunContinuationsAsynchronously callback cannot
+                // use the pool. Lifetime cancellation may still run inline on
+                // the dedicated reader; it must not overwrite this valid ACK.
+                releaseEofWhileWorkerHeld = !holderExited.IsSet;
+                if (!releaseEofWhileWorkerHeld) throw new IOException("Cleanup continuation barrier was not effective.");
+            }
+        }
+        finally
+        {
+            allowReleaseReply.Set(); holdWorker.Set();
+            if (bounded)
+            {
+                ThreadPool.SetMaxThreads(maxWorkers, maxIo);
+                ThreadPool.SetMinThreads(minWorkers, minIo);
+                if (!holderExited.Wait(3000)) throw new TimeoutException("Cleanup worker did not unwind.");
+            }
+        }
+        disposing.GetAwaiter().GetResult();
         if (!peerCompleted.Wait(3000)) throw new TimeoutException("Peer did not finish ordered release.");
         if (peerError is not null) throw new IOException("Synthetic peer failed.", peerError);
         Console.WriteLine(JsonSerializer.Serialize(new { operation, pool = bounded ? "one-worker" : "control",
             completedWhilePoolRestricted = completed, exactResult = exact, receivedReportsAtDeadline = receivedAtDeadline,
             readReportsAtDeadline = readAtDeadline, replyToDeadlineMilliseconds = elapsed,
-            error = operationError?.ToString(), cleanupConfirmed = session.CleanupConfirmed,
+            error = operationError?.ToString(), cleanupConfirmed = session.CleanupConfirmed, releaseEofWhileWorkerHeld,
             scope = "synthetic TCP IPC; no helper, UHID, radio or latency claim" }));
         return 0;
     }

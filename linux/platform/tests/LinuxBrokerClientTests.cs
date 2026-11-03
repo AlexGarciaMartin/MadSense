@@ -22,13 +22,14 @@ public sealed class LinuxBrokerClientTests
             input = new(server.GetStream(), Encoding.UTF8, leaveOpen: true);
             output = new(server.GetStream(), new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         }
-        public static async Task<Peer> OpenAsync()
+        public static async Task<Peer> OpenAsync(Func<Stream, Stream>? decorate = null)
         {
             var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
             var client = new TcpClient();
             await client.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
             TcpClient server = await listener.AcceptTcpClientAsync();
-            return new(listener, server, new LinuxBrokerClient(client.GetStream()));
+            Stream stream = client.GetStream();
+            return new(listener, server, new LinuxBrokerClient(decorate?.Invoke(stream) ?? stream));
         }
         public async Task<JsonElement> RequestAsync()
         {
@@ -56,6 +57,32 @@ public sealed class LinuxBrokerClientTests
         public async ValueTask DisposeAsync()
         {
             await Client.DisposeAsync(); output.Dispose(); input.Dispose(); server.Dispose(); listener.Stop();
+        }
+    }
+
+    sealed class InterruptedWriteStream(Stream inner, Action beforeWrite, Action onClose) : Stream
+    {
+        public bool InterceptWrite { get; set; }
+        public override bool CanRead => inner.CanRead;
+        public override bool CanWrite => inner.CanWrite;
+        public override bool CanSeek => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            if (InterceptWrite) beforeWrite();
+            inner.Write(buffer, offset, count);
+        }
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellation = default) =>
+            inner.WriteAsync(buffer, cancellation);
+        public override void Flush() => inner.Flush();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { inner.Dispose(); onClose(); }
+            base.Dispose(disposing);
         }
     }
 
@@ -433,6 +460,57 @@ public sealed class LinuxBrokerClientTests
         await Assert.ThrowsAsync<OperationCanceledException>(async () => await task.WaitAsync(TimeSpan.FromSeconds(3)));
         Assert.That(await peer.ConnectionEndedAsync(), Is.True);
         Assert.That(session.IsolationLostReason, Does.Contain("cancelled"));
+        Assert.That(session.CleanupConfirmed, Is.False);
+    }
+
+    [Test]
+    public async Task ExplicitCancellationKeepsItsTokenWhenClosingTheSocketInterruptsWrite()
+    {
+        using var writeEntered = new ManualResetEventSlim();
+        using var streamClosed = new ManualResetEventSlim();
+        InterruptedWriteStream? wrapped = null;
+        await using var peer = await Peer.OpenAsync(stream => wrapped = new(stream, () =>
+        {
+            writeEntered.Set();
+            if (!streamClosed.Wait(TimeSpan.FromSeconds(3))) throw new TimeoutException("Cancellation did not close the stream.");
+            throw new IOException("The synchronous write was interrupted by socket closure.");
+        }, streamClosed.Set));
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        using var cancel = new CancellationTokenSource();
+        wrapped!.InterceptWrite = true;
+        var request = Task.Run(() => peer.Client.Request("get_feature", new() { ["reportId"] = 5, ["size"] = 41 }, cancel.Token));
+        Assert.That(writeEntered.Wait(TimeSpan.FromSeconds(3)), Is.True);
+        cancel.Cancel();
+        var error = await Assert.ThrowsAsync<OperationCanceledException>(async () => await request.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.That(error!.CancellationToken, Is.EqualTo(cancel.Token));
+        Assert.That(await peer.ConnectionEndedAsync(), Is.True);
+        Assert.That(session.CleanupConfirmed, Is.False);
+    }
+
+    [Test]
+    public async Task EofBeforeReleaseAcknowledgementNeverConfirmsCleanup()
+    {
+        await using var peer = await Peer.OpenAsync();
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        Task disposing = session.DisposeAsync().AsTask();
+        Assert.That((await peer.RequestAsync()).GetProperty("op").GetString(), Is.EqualTo("release"));
+        peer.Disconnect();
+        await Assert.ThrowsAsync<IOException>(async () => await disposing.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.That(session.CleanupConfirmed, Is.False);
+    }
+
+    [Test]
+    public async Task RejectedReleaseFollowedByEofNeverConfirmsCleanup()
+    {
+        await using var peer = await Peer.OpenAsync();
+        LinuxPhysicalSession session = await peer.AcquireAsync();
+        Task disposing = session.DisposeAsync().AsTask();
+        JsonElement request = await peer.RequestAsync();
+        await peer.SendAsync(new { id = request.GetProperty("id").GetInt64(), ok = false,
+            error = new { code = "recovery_pending", message = "Physical reset is not confirmed" } });
+        peer.Disconnect();
+        var error = await Assert.CatchAsync<IOException>(async () => await disposing.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.That(error!.Message, Is.EqualTo("recovery_pending: Physical reset is not confirmed"));
         Assert.That(session.CleanupConfirmed, Is.False);
     }
 
