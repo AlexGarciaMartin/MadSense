@@ -82,6 +82,27 @@ The transport-connected property follows Chromium's
 Registry access uses public IOKit APIs; these particular Bluetooth registry names
 are implementation evidence, not an Apple guarantee of physical hardware absence.
 
+The final [inventory run 41570969805](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41570969805)
+at `91581519004d4cf1debcbee52647043f30a27fdd` compiled the observer and passed
+its parser/absent-class self-test on both architectures. Both inventories have
+complete registry enumeration, no query errors, no field-metadata errors and no
+entries in the five Bluetooth host-controller/transport queries. However, both
+generic Bluetooth services explicitly report **`BluetoothTransportConnected: true`**.
+Thus these artifacts do not establish radio absence, and the signed OJD app
+remains unlaunched. Empty transport-class results and a hypervisor flag do not
+override that positive presence evidence.
+
+ARM inventory contains two Apple USB peripherals (`05ac:8105/8106`) and Intel
+contains five `1d9e:0003`–`0007` peripherals. All observed HID usage pairs and USB
+interface signatures fall outside the pinned OJD gamepad/signature admissions;
+that exclusion does not settle the independent Bluetooth startup risk. The run
+also exposed a reporting bug: C comparison boxing emitted numeric `1` for
+`hypervisorPresent`, so the strict Python parser rejected the capture. The native
+observer now emits an explicit Boolean and self-tests its type; numeric values
+remain rejected. This reporting correction does not change the launch gate or
+retroactively make the failed run pass. Signature/Gatekeeper acceptance from the
+earlier run remains separate from unproven broker runtime behavior.
+
 Run only through `.github/workflows/macos-ojd-broker.yml` (macOS 26 ARM and Intel).
 In the separately selected `--run-on-empty-ci` mode, exit 77 means blocked, exit 1
 means an unexpected probe error, and exit 0 requires the limited neutral-device

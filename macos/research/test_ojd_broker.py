@@ -85,6 +85,11 @@ class BrokerGateTests(unittest.TestCase):
         data["vmProvenance"]["provesHardwareIsolation"] = True
         with self.assertRaises(Blocked):
             check_inventory_capture(data)
+        for value in (0, 1, "true", None):
+            data = inventory_fixture()
+            data["vmProvenance"]["hypervisorPresent"] = value
+            with self.subTest(hypervisor=value), self.assertRaises(Blocked):
+                check_inventory_capture(data)
 
     def test_partial_evidence_cannot_pass_either_parser_even_with_zero_counts(self):
         data = inventory_fixture()

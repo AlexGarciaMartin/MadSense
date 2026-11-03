@@ -179,7 +179,9 @@ static NSDictionary *vmProvenance(void) {
     int queryError = errno;
     BOOL valid = status == 0 && size == sizeof(present) && (present == 0 || present == 1);
     // This is corroborating kernel evidence, never proof that USB passthrough is absent.
-    return @{@"source": @"sysctl:kern.hv_vmm_present", @"hypervisorPresent": valid ? @(present == 1) : NSNull.null,
+    // C comparisons have type int; @(present == 1) serializes as JSON 0/1, not Boolean.
+    id hypervisor = valid ? (present == 1 ? @YES : @NO) : NSNull.null;
+    return @{@"source": @"sysctl:kern.hv_vmm_present", @"hypervisorPresent": hypervisor,
         @"queryStatus": @(status), @"queryErrno": @(queryError), @"valueSize": @(size),
         @"complete": @(valid), @"provesHardwareIsolation": @NO};
 }
@@ -215,6 +217,11 @@ int main(int argc, const char *argv[]) {
                 valid = valid && unsignedNumber(invalid, 255) == nil;
             valid = valid && CFGetTypeID((__bridge CFTypeRef)@NO) == CFBooleanGetTypeID()
                 && CFGetTypeID((__bridge CFTypeRef)@0) != CFBooleanGetTypeID();
+            NSDictionary *vm = vmProvenance();
+            id hypervisor = vm[@"hypervisorPresent"];
+            valid = valid && (![vm[@"complete"] boolValue]
+                ? hypervisor == NSNull.null
+                : CFGetTypeID((__bridge CFTypeRef)hypervisor) == CFBooleanGetTypeID());
             NSMutableArray *queryErrors = [NSMutableArray array];
             NSArray *absent = entries("MadSenseObserverAbsentClass_5314928EF0344DAA", queryErrors);
             BOOL absentPassed = absent && absent.count == 0 && queryErrors.count == 0;
