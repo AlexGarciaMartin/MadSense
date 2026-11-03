@@ -1,9 +1,11 @@
 # Build in this checkout without overwriting a running development copy.
 [CmdletBinding()]
 param([string]$IsccPath, [string]$DotnetPath, [switch]$InstallerTestBuild,
-      [string]$PublishDirectory, [string]$DependencyDirectory)
+      [string]$PublishDirectory, [string]$DependencyDirectory, [string]$PreviewVersion)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+if ($PreviewVersion -and $PreviewVersion -notmatch '^0\.4\.8\.[12]$') { throw 'PreviewVersion must be 0.4.8.1 or 0.4.8.2.' }
+if ($PreviewVersion -and $PublishDirectory) { throw 'PreviewVersion cannot reuse a publish directory.' }
 & (Join-Path $root 'tests\installer\test-languages.ps1')
 $buildRoot = Join-Path $root '.build'
 New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
@@ -44,7 +46,8 @@ if (!$DotnetPath) {
 if (!$PublishDirectory) {
     if (!(Test-Path -LiteralPath $DotnetPath)) { throw 'Instala .NET SDK 10 o indica -DotnetPath.' }
     $PublishDirectory = Join-Path $buildRoot ('publish-' + [Guid]::NewGuid().ToString('N'))
-    & $DotnetPath publish (Join-Path $root 'src\MadSense.csproj') -c Release -r win-x64 --self-contained true -o $PublishDirectory --nologo
+    $versionArgs = if ($PreviewVersion) { @("-p:Version=$PreviewVersion") } else { @() }
+    & $DotnetPath publish (Join-Path $root 'src\MadSense.csproj') -c Release -r win-x64 --self-contained true -o $PublishDirectory --nologo @versionArgs
     if ($LASTEXITCODE -ne 0) { throw 'La publicacion ha fallado; no se empaquetaran binarios anteriores.' }
 }
 $PublishDirectory = (Resolve-Path -LiteralPath $PublishDirectory).Path
@@ -82,6 +85,7 @@ foreach ($driver in $manifest.drivers) {
 }
 $version = ([xml](Get-Content -LiteralPath (Join-Path $root 'src\MadSense.csproj'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 $outputDir = Join-Path $root 'dist\installer'
+if ($PreviewVersion) { $version = $PreviewVersion }
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 $compilerArgs = @('/Qp', ('/DAppVersion=' + $version), ('/DPublishDirectory=' + $stage),
     ('/DDependencyDirectory=' + $dependencyStage), ('/DOutputDirectory=' + $outputDir))

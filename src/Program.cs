@@ -24,6 +24,7 @@ static class Program
     [STAThread]
     static int Main(string[] args)
     {
+        if (args.FirstOrDefault() == "--apply-update") return IntegratedUpdate.Apply(args);
         if (InstallerMaintenance.TryRun(args, out var maintenanceExit)) return maintenanceExit;
         Directory.SetCurrentDirectory(AppContext.BaseDirectory);
         L.Use(Preferences.LoadLanguage());
@@ -71,6 +72,7 @@ static class Program
             catch (Exception e) { bridge.Log(e.ToString()); return 1; }
         }
         ApplicationConfiguration.Initialize();
+        IntegratedUpdate.CleanCache();
         Application.Run(new MainWindow(startHidden: args.Contains("--tray")));
         return 0;
     }

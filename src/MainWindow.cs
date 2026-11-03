@@ -49,6 +49,8 @@ sealed class MainWindow : Form
     AppUpdate? availableUpdate;
     Icon? updateTrayIcon;
     int updateCheckRunning;
+    bool installingUpdate;
+    string? rehearsalDescriptor;
     string updateCheckLabel = "Ui.CheckUpdates";
     bool paused, quitting, hasHiddenTip, allowVisible, lowBatteryNotified;
     float phase;
@@ -184,6 +186,28 @@ sealed class MainWindow : Form
         menu.Items.Add(downloadUpdateItem);
         checkUpdatesItem.Click += async (_, _) => await CheckForUpdatesAsync(manual: true);
         menu.Items.Add(checkUpdatesItem);
+        if (typeof(MainWindow).Assembly.GetName().Version!.Revision > 0)
+        {
+            var rehearse = new ToolStripMenuItem(L.Text("Ui.UpdateRehearsal"));
+            rehearse.Click += (_, _) =>
+            {
+                using var picker = new OpenFileDialog { Filter = "MadSense update (*.update.json)|*.update.json", CheckFileExists = true };
+                if (picker.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    if (new FileInfo(picker.FileName).Length > 32768) throw new InvalidDataException("Descriptor too large.");
+                    var package = IntegratedUpdate.VerifyDescriptor(File.ReadAllBytes(picker.FileName),
+                        typeof(MainWindow).Assembly.GetName().Version!, preview: true);
+                    rehearsalDescriptor = picker.FileName;
+                    availableUpdate = new AppUpdate(package.Version, new Uri(package.DownloadUrl),
+                        new Uri($"https://github.com/AlexGarciaMartin/MadSense/releases/tag/update-preview-{package.Version}"));
+                    RefreshUpdateUi();
+                    ShowActivity(L.Message("Ui.UpdateAvailable", package.Version));
+                }
+                catch (Exception error) { MessageBox.Show(this, L.Text("Ui.UpdateFailed") + "\n" + error.Message, "MadSense"); }
+            };
+            menu.Items.Add(rehearse);
+        }
         menu.Closed += (_, _) => { updateCheckLabel = "Ui.CheckUpdates"; RefreshUpdateUi(); };
         menu.Items.Add(new ToolStripSeparator());
         quitItem.Click += async (_, _) => await QuitAsync(); menu.Items.Add(quitItem);
@@ -315,7 +339,7 @@ sealed class MainWindow : Form
             Post(() =>
             {
                 // A temporary network failure must not hide a previously verified release.
-                if (result.Status != UpdateCheckStatus.Unavailable) availableUpdate = result.Update;
+                if (rehearsalDescriptor is null && result.Status != UpdateCheckStatus.Unavailable) availableUpdate = result.Update;
                 if (manual)
                 {
                     updateCheckLabel = result.Status switch
@@ -351,16 +375,37 @@ sealed class MainWindow : Form
         tray.Icon = availableUpdate is not null ? updateTrayIcon : Icon;
     }
 
-    void OpenUpdateDownload()
+    async void OpenUpdateDownload()
     {
-        if (availableUpdate is not { } update || quitting) return;
+        if (availableUpdate is null || quitting || previewOnly) return;
+        await InstallUpdateAsync(rehearsalDescriptor);
+    }
+
+    async Task InstallUpdateAsync(string? rehearsal)
+    {
+        if (installingUpdate || quitting || previewOnly) return;
+        if (MessageBox.Show(this, L.Text("Ui.UpdateConfirm"), "MadSense",
+            MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
+        installingUpdate = true;
+        downloadUpdateItem.Enabled = false;
         try
         {
-            // The installed application continues running. Only the user starts the installer.
-            if (!previewOnly) Process.Start(new ProcessStartInfo(update.DownloadUri.AbsoluteUri) { UseShellExecute = true });
-            ShowActivity(L.Message("Ui.UpdateDownloadOpened"));
+            ShowActivity(L.Message("Ui.UpdateDownloading", 0));
+            var progress = new Progress<int>(percent => { if (!quitting) ShowActivity(L.Message("Ui.UpdateDownloading", percent)); });
+            var offer = availableUpdate;
+            var directory = await Task.Run(() => IntegratedUpdate.StageAsync(offer, rehearsal, progress, updateToken));
+            await IntegratedUpdate.LaunchAsync(directory, updateToken);
+            await QuitAsync();
         }
-        catch { ShowActivity(L.Message("Ui.UpdateOpenFailed")); }
+        catch (OperationCanceledException) when (quitting) { }
+        catch (Exception error)
+        {
+            LogFiles.Append("updates.log", $"{DateTimeOffset.Now:O} Update failed: {error}\n");
+            ShowActivity(L.Message("Ui.UpdateFailed"));
+            if (!quitting) MessageBox.Show(this, L.Text("Ui.UpdateFailed") + "\n" + error.Message,
+                "MadSense", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally { installingUpdate = false; if (!quitting) downloadUpdateItem.Enabled = true; }
     }
 
     internal void SetPreviewUpdate(AppUpdate? update)
@@ -488,8 +533,11 @@ sealed class MainWindow : Form
                     // The speaker only exists for the DualSense persona; an Xbox pad has none.
                     foreach (var pair in speakerButtons) { pair.Value.Selected = pair.Key == speakerLevel; pair.Value.Enabled = mode != "Xbox"; pair.Value.Invalidate(); }
                     foreach (var pair in speakerItems) { pair.Value.Checked = pair.Key == speakerLevel; pair.Value.Enabled = mode != "Xbox"; }
-                    displayedMessage = message;
-                    RefreshStatusText();
+                    if (!installingUpdate)
+                    {
+                        displayedMessage = message;
+                        RefreshStatusText();
+                    }
                     if (notifyLowBattery) tray.ShowBalloonTip(6000, L.Text("Ui.LowBatteryTitle"), L.Text("Ui.LowBatteryBody", signals.Battery), ToolTipIcon.Warning);
                 });
                 // Sleep until a command, a device event or the bridge's own schedule needs us.
@@ -588,7 +636,7 @@ sealed class MainWindow : Form
             update = value;
             download.Text = value is null ? "" : L.Text("Ui.UpdateBadge", value.Version);
             download.AccessibleName = value is null ? "" : L.Text("Ui.UpdateAvailable", value.Version);
-            download.AccessibleDescription = L.Text("Ui.UpdateDownloadOpened");
+            download.AccessibleDescription = L.Text("Ui.UpdateConfirm");
             tip.SetToolTip(download, download.AccessibleName + "\n" + L.Text("Ui.Version", DisplayVersion));
             PositionBadge();
             Invalidate();
