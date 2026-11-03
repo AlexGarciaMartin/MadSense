@@ -241,10 +241,10 @@ internal static class IntegratedUpdate
             File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { installer.ExitCode, package.Version }));
             var status = File.Exists(Path.Combine(directory, "install-status.txt"))
                 ? File.ReadAllText(Path.Combine(directory, "install-status.txt")).Trim() : "";
+            if (installer.ExitCode is not (0 or 3010)) throw new IOException($"Installer exit code: {installer.ExitCode}");
             if (status is not ("ready" or "reboot")) throw new IOException("Installer did not confirm successful driver registration.");
             if (installer.ExitCode == 3010 || status == "reboot")
                 MessageBox.Show(L.Text("Ui.UpdateRestartRequired"), "MadSense", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            else if (installer.ExitCode != 0) throw new IOException($"Installer exit code: {installer.ExitCode}");
             else
             {
                 var installed = Version.Parse(FileVersionInfo.GetVersionInfo(target).FileVersion!);
