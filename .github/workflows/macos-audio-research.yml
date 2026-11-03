@@ -1,6 +1,12 @@
 name: macOS audio path research
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/macos]
+    paths:
+      - '.github/workflows/macos-audio-research.yml'
+      - 'macos/research/*audio*'
+      - 'macos/research/AudioProbeSignal.hpp'
 permissions:
   contents: read
 concurrency:

@@ -1,6 +1,11 @@
 name: macOS native USB research
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/macos]
+    paths:
+      - '.github/workflows/macos-usb-research.yml'
+      - 'macos/research/usb_native_probe.swift'
 permissions:
   contents: read
 jobs:

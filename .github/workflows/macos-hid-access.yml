@@ -1,6 +1,11 @@
 name: macOS HID access research
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/macos]
+    paths:
+      - '.github/workflows/macos-hid-access.yml'
+      - 'macos/research/*hid_access*'
 permissions:
   contents: read
 jobs:
