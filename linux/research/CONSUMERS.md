@@ -50,7 +50,8 @@ the named virtual nodes and no access to the synthetic physical UHID fixture.
 SDL can inspect devices while initializing; running it as root would invalidate
 the broker's foreign-reader isolation test. The runner clears supplementary
 groups and the inherited environment, and stages root-owned executables under
-`/run` so it does not require traversal of another user's private home.
+`/opt` so it does not require traversal of another user's private home or assume
+that the guest's `/run` mount permits execution.
 
 ```sh
 sudo python3 linux/research/run_consumers.py \

@@ -160,7 +160,9 @@ class ConsumerSession:
         self.result.update(ready=self.ready, user=self.user, scope="owned-core-consumers")
         self.save()
         try:
-            self.root = Path(tempfile.mkdtemp(prefix="madsense-consumers-", dir="/run"))
+            # /run can be a noexec mount. Keep this test account's executable
+            # and Wine prefix on the guest root filesystem, without remounting.
+            self.root = Path(tempfile.mkdtemp(prefix="madsense-consumers-", dir="/opt"))
             self.root.chmod(0o755)
             home = self.root / "home"
             self.root_command(["useradd", "--no-create-home", "--user-group", "--home-dir", home,
@@ -175,6 +177,14 @@ class ConsumerSession:
                         "USER": self.user, "LOGNAME": self.user,
                         "XDG_RUNTIME_DIR": str(self.root / "runtime"),
                         "MADSENSE_CONSUMER_ISOLATED": token}
+            self.result["staging"] = dict(path=str(self.root), mode=oct(stat.S_IMODE(self.root.stat().st_mode)),
+                                          mountFlags=os.statvfs(self.root).f_flag,
+                                          runMountFlags=os.statvfs("/run").f_flag)
+            (self.output / "mountinfo.txt").write_text(Path("/proc/self/mountinfo").read_text())
+            smoke = self.root / "exec-smoke"
+            smoke.write_text("#!/bin/sh\nexit 0\n"); smoke.chmod(0o755)
+            self.command("ordinary-exec-smoke", [smoke])
+            self.result["staging"]["ordinaryExecutionVerified"] = True
             self.card = None
             for candidate in Path("/sys/class/sound").glob("card[0-9]*"):
                 if (candidate / "device").resolve().is_relative_to(parent):
@@ -359,7 +369,7 @@ class ConsumerSession:
             except BaseException as error:
                 errors.append(str(error))
         if self.root is not None and not self.owned_processes() and not errors:
-            require(self.root.parent == Path("/run") and self.root.name.startswith("madsense-consumers-"),
+            require(self.root.parent == Path("/opt") and self.root.name.startswith("madsense-consumers-"),
                     "Unexpected consumer private directory")
             shutil.rmtree(self.root)
         if errors:

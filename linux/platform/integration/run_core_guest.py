@@ -23,6 +23,7 @@ import time
 import uuid
 
 from production_fixture import SyntheticDualSense, features, input_report, manifest
+from actor_staging import stage_probe, verify_actor_execution
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "research"))
@@ -74,11 +75,12 @@ def main():
     result = dict(schema=1, result="failed", scope="production-core-synthetic-UHID", environment=scope,
                   physicalDevices=False, radioInitialized=False, applicationUiExercised=False,
                   temporaryVmTestPolicies=True, cases=[])
-    actor_root = Path("/run", "madsense-core-ci-" + uuid.uuid4().hex)
+    actor_root = Path("/opt", "madsense-core-ci-" + uuid.uuid4().hex)
     actor_output = actor_root / "output"
     user = "madsense-core-ci"
     process, fixture, log, baseline, usb = None, None, None, None, None
     created_files, created_user = [], False
+    actor_root_created = False
     observers = []
 
     def save(name, value):
@@ -132,7 +134,10 @@ def main():
             raise RuntimeError("Refusing to reuse a pre-existing test account")
         account = pwd.getpwnam(user)
         actor_root.mkdir(mode=0o755)
-        shutil.copytree(args.probe_directory, actor_root / "probe", ignore=shutil.ignore_patterns("*.pdb"))
+        actor_root_created = True
+        actor_root.chmod(0o755)
+        executable = stage_probe(args.probe_directory, actor_root / "probe", "MadSense.Linux.CoreProbe")
+        verify_actor_execution(actor_root, executable, account, output / "actor-staging.json")
         actor_output.mkdir(mode=0o700)
         os.chown(actor_output, account.pw_uid, account.pw_gid)
         fixture_file(Path("/etc/polkit-1/rules.d/45-madsense-core-ci.rules"),
@@ -372,8 +377,8 @@ def main():
             command("restart-restored-polkit", ["systemctl", "restart", "polkit.service"], check=False)
             if created_user:
                 command("delete-actor", ["userdel", user], check=False)
-            # actor_root was created by this invocation under /run with UUID.
-            if actor_root.parent == Path("/run") and actor_root.name.startswith("madsense-core-ci-"):
+            # Remove only the fresh UUID staging directory made by this invocation.
+            if actor_root_created and actor_root.parent == Path("/opt") and actor_root.name.startswith("madsense-core-ci-"):
                 shutil.rmtree(actor_root, ignore_errors=True)
             save("result.json", result)
     return 0 if result["result"] == "passed" else 1

@@ -1,0 +1,39 @@
+name: Linux input timing observer validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/linux]
+    paths:
+      - '.github/workflows/linux-latency.yml'
+      - 'linux/tests/latency/**'
+permissions:
+  contents: read
+jobs:
+  observer:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record source and native compiler
+        run: |
+          mkdir -p dist/latency-observer
+          git rev-parse HEAD > dist/latency-observer/source.txt
+          uname -a > dist/latency-observer/kernel.txt
+          cc --version > dist/latency-observer/compiler.txt
+          python3 -c 'import sys,shutil; assert sys.platform == "linux" and shutil.which("cc"), "Native compilation cannot be skipped"'
+      - name: Compile observer and reject invalid timing evidence
+        run: |
+          set -o pipefail
+          python3 -m unittest discover -s linux/tests/latency -p 'test_*.py' -v 2>&1 | tee dist/latency-observer/tests.txt
+          python3 -m py_compile linux/tests/latency/*.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-latency-observer-${{ matrix.runner }}
+          path: dist/latency-observer/**
+          retention-days: 14
+          if-no-files-found: warn

@@ -75,3 +75,7 @@ HIDAPI/ALSA, start the installed broker and invoke `run_app_guest.py` with
 `--owned-guest-token UUID --baseline-result /path/result.json
 --probe-directory /path/app-probe --output /path/fresh-evidence` as root.
 The C# actor itself runs as the fresh ordinary test account.
+Its root-owned publish tree is staged under a fresh `/opt` UUID directory with
+explicit modes, using the shared core `actor_staging.py`. An execution smoke
+under that ordinary UID and saved mount/permission diagnostics precede fixture
+creation; no mount options or production permissions are relaxed.

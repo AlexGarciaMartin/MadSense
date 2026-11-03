@@ -89,8 +89,22 @@ of suppressing it. In run 41610372588 at `6d54ee8`, the driver successfully requ
 before starting the C# actor: hid-playstation replaces `HID_UNIQ` with the pairing
 MAC. Discovery now matches the exact UHID name/physical path plus its expected
 MAC, requires the virtual UHID parent and actual character nodes, and the app
-actor uses the same stable identity. This discovery correction remains pending
-native verification.
+actor uses the same stable identity. Run 41613298915 at `884f0fd` discovered the real Sony
+fixture and passed both pre-existing evdev writer and read-only FF refusal cases,
+then failed to execute the C# actor with `EACCES` from its `/run` staging path.
+The artifact did not preserve staging modes/mount flags, so it cannot distinguish
+the exact permission cause. The broker baseline, both idle upgrades and all four
+removal/reinstall cases passed in that run.
+
+Core and application actors now use a fresh root-owned UUID directory under
+`/opt`, normalize publish directories/data/apphost modes to 755/644/755, and
+reject symlinks or special files in the publish tree. Before creating a fixture,
+the harness records staging identity, `/proc/self/mountinfo`, filesystem flags
+for the selected directory and `/run`, then executes a copied system `true`
+binary under the actor UID with no supplementary groups. This catches an
+execution-permission failure before controller work without changing any mount
+options. The directory is removed only if this invocation created it. The new
+staging path and the actual C# runtime remain pending native verification.
 
 Portable preparation:
 

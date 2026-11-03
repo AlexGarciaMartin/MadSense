@@ -60,8 +60,18 @@ and maximum normalized RMS error 0.07901. The fitted 312-frame codec alignment i
 not a radio or acoustic measurement. Five deliberate corruptions were rejected:
 repeated Opus, reordered Opus, corrupted haptics, swapped speaker channels and bad
 CRC. The first four retain valid CRCs and packet counters, so framing alone cannot
-make those negative cases pass. Linux execution of this offline probe and native
-core/application audio captures remain pending.
+make those negative cases pass.
+
+[Linux run 41613299026](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41613299026)
+at `884f0fd9215058fd9ee2ae06cd0b7dcf1eb2d189` passed on Ubuntu x64 and ARM64
+with libopus 1.4 (`1.4-1build1`). Both architectures passed seven tests and all
+five corruption checks, decoded all 112 packets/53,760 stereo frames and matched
+the complete haptic reference byte for byte. Resampling error stayed at one LSB;
+minimum active-window correlation was 0.99720 and maximum normalized RMS error
+0.07901. The capture traces were identical across architectures. Both artifact
+archive digests and 402 source-file hashes per architecture were verified against
+that commit. Native core/application audio captures remain a separate pending
+integration stage; none of these results measures physical output or latency.
 
 The independent `linux-audio.yml` workflow runs the seven tests, production
 capture and five corruption checks on Ubuntu x64 and ARM64 with the distribution's

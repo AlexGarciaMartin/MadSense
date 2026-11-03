@@ -1,6 +1,16 @@
 # Owned production-core consumer session
 
-The first runtime result is pending. `linux-consumers.yml` builds the Linux and
+Consumer execution is still pending. The first owned runtime attempt,
+[41613298887](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41613298887)
+at `884f0fd`, passed both builds, the broker baseline and idle install/removal,
+then failed with `EACCES` launching the ordinary core actor's copy under `/run`.
+It did not execute SDL or Wine. KVM permissions were restored and QEMU stopped.
+The retained runtime ZIP SHA256 is
+`8b8881d23f0f07d7337d214a7b0df6f31673f13bf2f636f67a85e75f28575ffb`.
+Missing mount/mode observations prevent attributing that failure specifically
+to `noexec`; subsequent staging records those observations and checks execution.
+
+`linux-consumers.yml` builds the Linux and
 Windows observers, then passes artifacts from the same workflow run to a separate
 QEMU job. `qemu_consumers.py` verifies the exact source commit and every executable
 SHA256 before copying them into the guest. The official signed Ubuntu image,
@@ -31,7 +41,10 @@ The callback receives `south` or `neutral` while the same fixture and core actor
 stay alive. Each SDL observer independently verifies the south button and then
 neutral controls, requests rumble and its stop, and sends RGB when supported.
 The root orchestrator creates a fresh ordinary account with no supplementary
-groups and a private home/runtime directory. It grants that UID access only to
+groups and a private home/runtime directory under a root-owned `/opt` staging
+directory. It records mount flags and verifies an ordinary-UID executable there
+before granting device access, without remounting `/run` or changing mount policy.
+It grants that UID access only to
 the attributed virtual evdev/hidraw and ALSA nodes, after requiring simple base
 ACLs. A child running as that UID audits every guest HID/input/PCM node; foreign
 nodes, including the physical UHID fixture, must remain inaccessible.

@@ -24,6 +24,7 @@ from ci_environment import validate_environment
 from kernel_probe import owned_nodes, ports, wait_for
 from qemu_broker import verify_result
 from production_fixture import SyntheticDualSense
+from actor_staging import stage_probe, verify_actor_execution
 from run_core_guest import state_payload, valid_output
 
 
@@ -54,10 +55,11 @@ def main():
                   applicationUiExercised=False, physicalDevices=False, radioInitialized=False,
                   temporaryVmTestPolicies=True, cases=[])
     user = "madsense-app-ci"
-    root = Path("/run", "madsense-app-ci-" + uuid.uuid4().hex)
+    root = Path("/opt", "madsense-app-ci-" + uuid.uuid4().hex)
     actor = root / "output"
     process = fixture = log = account = baseline = None
     created_files, created_user, commands, fixture_number = [], False, 0, 0
+    root_created = False
 
     def save(name, value):
         (output / name).write_text(json.dumps(value, indent=2) + "\n")
@@ -196,7 +198,10 @@ def main():
             raise RuntimeError("Refusing pre-existing test account")
         account = pwd.getpwnam(user)
         root.mkdir(mode=0o755)
-        shutil.copytree(args.probe_directory, root / "probe")
+        root_created = True
+        root.chmod(0o755)
+        executable = stage_probe(args.probe_directory, root / "probe", "MadSense.Linux.AppProbe")
+        verify_actor_execution(root, executable, account, output / "actor-staging.json")
         actor.mkdir(mode=0o700); os.chown(actor, account.pw_uid, account.pw_gid)
         fixture_file(Path("/etc/polkit-1/rules.d/45-madsense-app-ci.rules"),
                      'polkit.addRule(function(action, subject) { if (action.id === "org.madsense.bridge.acquire" '
@@ -297,7 +302,7 @@ def main():
             command("restore-polkit", ["systemctl", "restart", "polkit.service"], check=False)
             if created_user:
                 command("delete-actor", ["userdel", user], check=False)
-            if root.parent == Path("/run") and root.name.startswith("madsense-app-ci-"):
+            if root_created and root.parent == Path("/opt") and root.name.startswith("madsense-app-ci-"):
                 shutil.rmtree(root, ignore_errors=True)
             save("result.json", result)
     return 0 if result["result"] == "passed" else 1

@@ -73,10 +73,10 @@ def main():
         raise RuntimeError("Fresh output directory required")
     result = dict(schema=1, result="failed", ready=data, consumers=[],
                   outputDeliveryVerified=False, gamesValidated=False, physicalLatencyValidated=False)
-    # /home/ubuntu may be 0750. A root-owned, traversable copy avoids granting
-    # access to the repository or depending on the consumer's home permissions.
+    # /home/ubuntu may be 0750 and /run may be noexec. A root-owned,
+    # traversable copy on the guest root filesystem avoids both assumptions.
     try:
-        with tempfile.TemporaryDirectory(prefix="madsense-consumers-", dir="/run") as directory:
+        with tempfile.TemporaryDirectory(prefix="madsense-consumers-", dir="/opt") as directory:
             stage = Path(directory)
             stage.chmod(0o755)
             names = ["consumer_sdl2", "consumer_sdl3"]
