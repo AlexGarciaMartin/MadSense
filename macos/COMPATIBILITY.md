@@ -50,6 +50,22 @@ Los valores de rendimiento y juegos jugados que publica MacGameFix son resultado
 
 La cuenta de pago no es un requisito general para leer un mando USB ni desarrollar una aplicación Mac local. Tampoco concede por sí sola la autorización de HID virtual. Para nuestra publicación global, Apple exige `com.apple.developer.hid.virtual.device`, con firma y aprovisionamiento que la acrediten. CoreHID es una API más reciente, pero mantiene esa exigencia. Ser administrador y escribir la clave en una firma ad-hoc no equivalen a una autorización válida. [Guía oficial de Apple DTS sobre HID](https://developer.apple.com/forums/thread/843327), [autorización HID](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.hid.virtual.device).
 
+### Qué funciona sin autorización de Apple y qué exige publicar HID virtual
+
+| Capacidad | Sin autorización Apple | Exige `com.apple.developer.hid.virtual.device` | Evidencia y límite |
+| --- | --- | --- | --- |
+| Compilar, firmar ad-hoc y abrir `MadSense.app` en Apple Silicon e Intel, seis idiomas, diagnóstico y preferencias | Sí | No | [CI 41573111283](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41573111283), revisión `7433198`: 69 pruebas macOS y 274 compartidas; runners sin mando |
+| Preflight de autorización antes de capturar el mando físico | Sí: `SecTaskCopyValueForEntitlement` responde `missing` y el backend no abre el mando | No | [CI 41566753074](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41566753074); el permiso presente tampoco garantiza la publicación |
+| Inventario de solo lectura IORegistry, CoreAudio y perfiles GameController | Sí | No | [41560981214](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41560981214): ejecutado sin DualSense conectado (`physical_dualsense_found=false`) |
+| Lectura libre del mando físico por GameController o HIDAPI para un juego nativo que ya lo reconozca | Sí: API pública, permisos normales de entrada | No | Sin prueba física en esta rama; un juego que ya use el DualSense USB no necesita MadSense |
+| Plugin HAL CoreAudio de cuatro canales y lectura con concesión | Sí: instalación manual por el administrador en `/Library/Audio`, sin autorización HID | No | [41565481335](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41565481335) y [41571508286](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41571508286): medidas parciales con pérdidas registradas, sin hardware |
+| Publicar un DualSense virtual con `IOHIDUserDevice` o CoreHID para juegos nativos que no reconozcan el mando físico | No | Sí | [41561331892](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41561331892): 32 negativas sin autorización, 32 terminaciones por firma restringida ad-hoc |
+| HID DualSense visible para Wine/CrossOver con asociación HID/audio por ContainerId | No, con la ruta global | Sí, con la ruta global; la adaptación interna de Wine no la exige | [41568818164](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41568818164) compiló los módulos parcheados; no se cargaron en un juego |
+| Broker firmado de terceros (OpenJoystickDriver) | Sí para su cliente; perfiles Generic/Xbox fijos | No | Firma verificada en [41566753300](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41566753300); no ejecutado en runners con Bluetooth activo, no probado con DualSense |
+| Vibración, gatillos, luces, panel táctil, háptica PCM y altavoz a través del puente | No | Sí, y además reconocimiento por el juego y asociación de audio | Sin mando físico ni juego probado; indicadores de la app reflejan escrituras HID, no actuadores |
+
+Ninguna fila de «Sí» equivale a una prueba con DualSense físico: todas las ejecuciones citadas se hicieron en runners de CI sin mando. Las filas que exigen autorización no pueden validarse sin una cuenta Apple Developer; esta rama no la tiene ni la simula.
+
 | Alternativa | Alcance real | Decisión |
 | --- | --- | --- |
 | USB físico / GameController / HIDAPI | Acceso al hardware existente; permisos normales según operación | Ruta preferida para conservar compatibilidad nativa |
