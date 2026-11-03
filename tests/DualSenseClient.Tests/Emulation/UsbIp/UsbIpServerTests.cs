@@ -442,6 +442,41 @@ public sealed class UsbIpServerTests
         Assert.That(device.OutputReports[0], Is.EqualTo(payload));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void ControlSetReport_NumberedDataFraming_IsOptInAndKeepsWireCount(bool prefixed)
+    {
+        var device = new TestHidDevice();
+        using var harness = new ServerHarness(device, hidSetReportIncludesReportId: prefixed);
+        using var client = harness.Connect();
+        ImportDevice(client, TestBusId);
+        var setup = new UsbSetupPacket { RequestType = 0x21, Request = 9, Value = 0x0205, Index = 0, Length = 3 };
+        byte[] data = [5, 0x45, 0x67];
+        client.Send(CreateControlSubmitFrame(111, setup, UsbIpDirection.Out, 3, data));
+        RetFrame result = ReadRetFrame(client);
+        Assert.That(result.Status, Is.Zero);
+        Assert.That(result.ActualLength, Is.EqualTo(3));
+        Assert.That(device.OutputReports.Single(), Is.EqualTo(prefixed ? data : new byte[] { 5, 5, 0x45, 0x67 }));
+    }
+
+    [Test]
+    public void ControlSetReport_OptInMismatchStallsAndNextTransferRemainsSynchronized()
+    {
+        var device = new TestHidDevice();
+        using var harness = new ServerHarness(device, hidSetReportIncludesReportId: true);
+        using var client = harness.Connect();
+        ImportDevice(client, TestBusId);
+        var setup = new UsbSetupPacket { RequestType = 0x21, Request = 9, Value = 0x0205, Index = 0, Length = 3 };
+        client.Send(CreateControlSubmitFrame(112, setup, UsbIpDirection.Out, 3, [6, 0x45, 0x67]));
+        RetFrame stalled = ReadRetFrame(client);
+        Assert.That(stalled.Status, Is.EqualTo(-32));
+        Assert.That(stalled.ActualLength, Is.Zero);
+        Assert.That(device.OutputReports, Is.Empty);
+        client.Send(CreateControlSubmitFrame(113, CreateGetDeviceDescriptorSetup(), UsbIpDirection.In, 18));
+        Assert.That(ReadRetFrame(client).ActualLength, Is.EqualTo(18));
+        Assert.That(client.ReadExactly(18), Is.EqualTo(TestDevices.CreateSimpleDeviceDescriptor()));
+    }
+
     [Test]
     public void InterruptIn_AdvanceOneInterval_CompletesUrbWithFreshReport()
     {
@@ -1379,7 +1414,7 @@ public sealed class UsbIpServerTests
         /// <param name="device">Device to register; <see langword="null"/> starts an empty server.</param>
         /// <param name="busId">Bus id to register the device under.</param>
         public ServerHarness(VirtualUsbDevice? device, string busId = TestBusId, bool immediateInputDelivery = false,
-            bool acknowledgeInterruptOutBeforeDispatch = false)
+            bool acknowledgeInterruptOutBeforeDispatch = false, bool hidSetReportIncludesReportId = false)
         {
             TimeProvider = new ManualTimeProvider();
             Logger = new RecordingLogger();
@@ -1390,7 +1425,8 @@ public sealed class UsbIpServerTests
                 Logger = Logger,
                 InterruptInterval = Interval,
                 ImmediateInputDelivery = immediateInputDelivery,
-                AcknowledgeInterruptOutBeforeDispatch = acknowledgeInterruptOutBeforeDispatch
+                AcknowledgeInterruptOutBeforeDispatch = acknowledgeInterruptOutBeforeDispatch,
+                HidSetReportIncludesReportId = hidSetReportIncludesReportId
             });
             Server.Start();
             if (device is not null)

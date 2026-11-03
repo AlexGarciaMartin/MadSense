@@ -53,6 +53,9 @@ public sealed class UsbIpServerOptions
     /// their existing validation and completion order. Disabled by default.
     /// </summary>
     public bool AcknowledgeInterruptOutBeforeDispatch { get; set; }
+    /// <summary>Linux HID SET_REPORT data includes its nonzero ID. Normalize it at the HID class
+    /// boundary; default false preserves existing Windows behavior. Audio and interrupt paths are unchanged.</summary>
+    public bool HidSetReportIncludesReportId { get; set; }
 }
 
 /// <summary>
@@ -923,7 +926,8 @@ public sealed class UsbIpServer : IDisposable
             }
 
             byte[] response = header.Direction == UsbIpDirection.In ? new byte[transferLength] : Array.Empty<byte>();
-            int result = _device!.HandleControlRequest(header.Setup, outData, response);
+            int result = _device!.HandleControlRequest(header.Setup, outData, response,
+                _server._options.HidSetReportIncludesReportId);
             if (result < 0)
             {
                 SendRetSubmit(header.SeqNum, UsbIpStatus.Stall, ReadOnlyMemory<byte>.Empty);

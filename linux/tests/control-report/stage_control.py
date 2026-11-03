@@ -9,7 +9,7 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[3]
-DEVICE = 'vendor/DualSenseClient/DualSenseClient.Emulation/Core/VirtualHidDevice.cs'
+DEVICE = 'vendor/DualSenseClient/DualSenseClient.Emulation/Core/VirtualUsbDevice.cs'
 ACTOR = 'linux/platform/integration/Program.cs'
 RUNNER = 'linux/platform/integration/run_core_guest.py'
 HELPER = 'linux/tests/control-report/HidControlTrace.cs'
@@ -22,9 +22,9 @@ def digest(data): return hashlib.sha256(data).hexdigest()
 
 def edits():
     return {
-        DEVICE: [('protected override int OnClassRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> outData, Span<byte> response)\n    {',
-                  'protected override int OnClassRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> outData, Span<byte> response)\n    {\n'
-                  f'        {TRACE}.Record(setup, outData);')],
+        DEVICE: [('public int HandleControlRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> outData, Span<byte> response,\n        bool hidSetReportIncludesReportId)\n    {',
+                  'public int HandleControlRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> outData, Span<byte> response,\n        bool hidSetReportIncludesReportId)\n    {\n'
+                  f'        {TRACE}.Record(this, setup, outData);')],
         ACTOR: [
             ('using Evidence evidence = new(output, observeUsbOutput);',
              f'using Evidence evidence = new(output, observeUsbOutput);\n{TRACE}.Start(output);'),

@@ -203,10 +203,21 @@ public abstract class VirtualUsbDevice
     /// <param name="response">Buffer the response is written to; at least the request length is recommended.</param>
     /// <returns>The number of bytes written to <paramref name="response"/>, or -1 for STALL.</returns>
     public int HandleControlRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> outData, Span<byte> response)
+        => HandleControlRequest(setup, outData, response, hidSetReportIncludesReportId: false);
+
+    /// <summary>Handles a transfer with an explicit HID SET_REPORT framing convention for this
+    /// call. False preserves the historical entry point; no per-device or ambient state is changed.</summary>
+    /// <param name="setup">Original setup packet.</param>
+    /// <param name="outData">Original data stage.</param>
+    /// <param name="response">Response destination.</param>
+    /// <param name="hidSetReportIncludesReportId">Whether a nonzero HID SET_REPORT ID is present in its data stage.</param>
+    /// <returns>Response length, or -1 for STALL.</returns>
+    public int HandleControlRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> outData, Span<byte> response,
+        bool hidSetReportIncludesReportId)
     {
         if ((setup.RequestType & RequestTypeMask) != RequestTypeStandard)
         {
-            return ClampResponse(setup, response, OnClassRequest(setup, outData, response));
+            return ClampResponse(setup, response, OnClassRequest(setup, outData, response, hidSetReportIncludesReportId));
         }
 
         return HandleStandardRequest(setup, response);
@@ -222,6 +233,10 @@ public abstract class VirtualUsbDevice
     /// <param name="response">Buffer for the response of a device-to-host transfer.</param>
     /// <returns>The number of bytes written, or -1 for STALL. The base returns -1.</returns>
     protected virtual int OnClassRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> outData, Span<byte> response) => Stall;
+
+    /// <summary>Transport-aware class dispatch. Non-HID devices retain their existing override.</summary>
+    protected virtual int OnClassRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> outData, Span<byte> response,
+        bool hidSetReportIncludesReportId) => OnClassRequest(setup, outData, response);
 
     /// <summary>
     /// Called after SET_CONFIGURATION changed the current configuration value; the base does

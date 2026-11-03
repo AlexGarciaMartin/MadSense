@@ -38,11 +38,13 @@ public static class HidControlTrace
             catch (Exception failure) { error = failure.ToString(); }
         });
     }
-    public static void Record(in UsbSetupPacket setup, ReadOnlySpan<byte> outData)
+    public static void Record(VirtualUsbDevice device, in UsbSetupPacket setup, ReadOnlySpan<byte> outData)
     {
         // Only GET_REPORT/SET_REPORT at the HID class boundary; this hook does
         // not mutate any request, response, report or dispatch order.
-        if (worker is null || setup.Request is not (1 or 9)) return;
+        if (worker is null || setup.Request is not (1 or 9) || (setup.RequestType & 0x7f) != 0x21
+            || !device.Descriptors.TryGetInterface((byte)setup.Index, 0, out var descriptor)
+            || descriptor.Class != 0x03) return;
         long timestamp = Stopwatch.GetTimestamp();
         if (outData.Length > 256 || Interlocked.Increment(ref admitted) > 256)
         { Interlocked.Increment(ref rejected); return; }

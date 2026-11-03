@@ -3,7 +3,8 @@
 This independent experiment retains the original broker and nine core functional
 gates, including disposal, before a second core actor starts. Only the second
 actor is built from an explicitly recorded source copy. The copy adds a bounded
-observer at `VirtualHidDevice.OnClassRequest` before its existing dispatch logic;
+observer at the four-argument `VirtualUsbDevice.HandleControlRequest` entry,
+before HID report-ID normalization or existing dispatch logic;
 it does not change normalization, acknowledgement order or responses. Every
 source transform is exact, reversible and hashed against the committed archive.
 No latency claim applies to this copy.
@@ -69,7 +70,73 @@ uses the existing official image pinned by HTTPS and SHA-512, without a GPG
 signature; Ubuntu uses its existing signature-verified image. Both inherit the
 same QMP/SSH/owned-guest checks, bounded KVM ACL lifecycle and exact cleanup.
 
-Current validation: the copied managed actor compiles for Linux x64 from the
-40e2 source baseline. Evidence/source-transform tests pass locally. The C build
-and the actual Linux control sequence are pending CI. No native report-ID bug is
-declared fixed or proven by these source-level tests.
+## First native result
+
+[Run 41659561451](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41659561451)
+used commit `add05054ac2999eeb57c6d72a833ffbac5ba7cdd`. All eleven evidence/payload
+tests, the C observer and copied managed actor compiled/passed on Linux. Retained
+artifact SHA-256 values are:
+
+- Build: `a616b33f39432675ddad647bd1a97dcca06c10b1a35cfe856114ed614af1bfff`.
+- Runtime: `af59e5474e55f247ea1a68851fe6febb0945ee4820b6cf7b152318dee11f8ec4`.
+
+The owned Debian guest ran kernel `6.12.113+deb13-amd64`, package version
+`6.12.113-1`. The original ten broker and nine core gates passed, followed by all
+nine disposal/functional gates in a fresh instrumented actor (PIDs 3273 and
+3604). The fixed observations were:
+
+| Case | Actual API result | Retained evidence |
+| --- | --- | --- |
+| hidraw write | 48 | Exact raw USB48, then matching CRC-valid Bluetooth RGB `456789`; no SET_REPORT |
+| HIDIOCSOUTPUT | 48 | Exact raw USB48, then matching CRC-valid Bluetooth RGB `56789a`; no SET_REPORT |
+| USBDEVFS_CONTROL | -1, errno16 (`EBUSY`) | No class request reached the actor; no detach attempted |
+| FEATURE80 → 81 | SET returned3, GET returned64 | SET_REPORT setup `21 09 0380 0003 0003`, actual OUT data `80 03 00`; response starts `81 01 00 00 00`, expected status byte4 is `01` |
+
+The feature observation demonstrates a real mismatch in the tested virtual
+persona: Linux includes the nonzero report ID in the SET_REPORT data, whereas
+the existing feature decoder consumes its first byte as the command payload.
+The copied observer retained these bytes before dispatch; it did not alter them.
+Output SET_REPORT duplication remains unproven natively because USBFS refused
+that request. The successful HIDIOCSOUTPUT case used the interrupt route and
+does not establish control-output compatibility. That run contains no production
+fix; its source archive and original observer transform remain unchanged.
+
+The class recorder retained all 15 requests with zero rejection/error; the raw
+output recorder drained with zero rejected/unwritten snapshots. Both actor
+cleanup checks passed. All six consumer ACL snapshots, including USBFS, were
+restored exactly, the disposable account/processes/files were removed, QEMU
+exited and the host's temporary KVM ACL was restored. The observed core read
+all 570 received reports, ended with no queued report or proxy overflow, and
+acknowledged sequence570. Kernel input backlog remains unmeasured.
+
+An independent audit verified both ZIP hashes, every build member, the source
+transforms, original ACL text and the four cases without importing the runtime
+correlator. Its SHA-256 is
+`4f8c3794268add66267f55e70de23961784e6c2dd6eaebe079698b47eb97ffd2`.
+The job correctly remains failed: a complete, cleaned-up observation contains
+both an untested control-output route and a feature-response mismatch.
+
+## Linux report-ID correction
+
+The subsequent candidate introduces `HidSetReportIncludesReportId`, disabled by
+default in both server option types. Only the Linux app, core actor and neutral
+probe enable it. The option travels as an immutable call parameter; existing
+three-argument callers retain the original data convention. The neutral wrapper
+forwards that parameter to its production persona.
+
+For an output or feature SET_REPORT addressed to a HID interface with a nonzero
+report ID, the selected convention requires a matching first byte and the full
+declared transfer. It removes exactly that one ID before dispatch. ID zero is
+unnumbered and remains untouched. Empty, mismatched or truncated numbered wire
+reports stall before callbacks; an ID-only numbered report delivers an empty
+body to the existing handler. Bytes beyond `wLength` remain ignored. GET_REPORT,
+audio class routing, interrupt OUT and Windows/macOS defaults are unchanged.
+
+The current observer transform records setup and original data at the base
+entry, before this normalization. Its retained source hashes distinguish it from
+the older `add0505` transform at `VirtualHidDevice.OnClassRequest`. Local tests
+cover the recorded `80 03 00` command, Edge65's complete echo, output shape,
+original USB/IP completion count and negative/size boundaries. Native corrected
+feature behavior is still pending. Output control remains natively unvalidated;
+`EBUSY` will continue to fail that case and the outer compatibility job even if
+the feature case succeeds. No driver detach is added.

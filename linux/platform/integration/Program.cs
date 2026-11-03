@@ -90,7 +90,7 @@ try
         {
             ListenEndPoint = new IPEndPoint(IPAddress.Loopback, 0), AttachStrategy = session.AttachStrategy,
             ImmediateInputDelivery = true, PackIsoInPayload = true, MeasureIsoOutLatency = true,
-            AcknowledgeInterruptOutBeforeDispatch = true
+            AcknowledgeInterruptOutBeforeDispatch = true, HidSetReportIncludesReportId = true
         }), factory, () => session.IsolationVerified);
     emulation.Start(); tracker.TrackController(pad);
     var start = Stopwatch.StartNew();

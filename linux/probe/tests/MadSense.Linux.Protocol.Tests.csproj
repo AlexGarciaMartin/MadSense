@@ -10,6 +10,7 @@
     <Using Include="NUnit.Framework" />
     <ProjectReference Include="../../../vendor/DualSenseClient/DualSenseClient.Emulation/DualSenseClient.Emulation.csproj" />
     <Compile Include="../../../tests/DualSenseClient.Tests/Emulation/UsbIp/*.cs" Link="UsbIp/%(Filename)%(Extension)" />
+    <Compile Include="../../../tests/DualSenseClient.Tests/Emulation/Core/LinuxHidSetReportTests.cs" Link="Core/LinuxHidSetReportTests.cs" />
     <Compile Include="../../../tests/DualSenseClient.Tests/Emulation/TestSupport/*.cs" Link="TestSupport/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

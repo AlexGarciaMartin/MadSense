@@ -58,4 +58,7 @@ public sealed class EmulationServerOptions
     /// <summary>Opt in to acknowledging complete interrupt OUT receipt before synchronous physical dispatch.
     /// Preserves callback order without a new queue; the acknowledgement does not certify physical delivery.</summary>
     public bool AcknowledgeInterruptOutBeforeDispatch { get; set; }
+    /// <summary>Opt in to Linux HID SET_REPORT data that already includes a nonzero report ID.
+    /// Disabled by default to preserve the existing Windows control-transfer convention.</summary>
+    public bool HidSetReportIncludesReportId { get; set; }
 }

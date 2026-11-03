@@ -73,7 +73,7 @@ using UsbIpServer server = new(new UsbIpServerOptions
 {
     ListenEndPoint = new IPEndPoint(IPAddress.Loopback, 0),
     ImmediateInputDelivery = true, MeasureIsoOutLatency = true, PackIsoInPayload = true, Logger = capture,
-    AcknowledgeInterruptOutBeforeDispatch = true
+    AcknowledgeInterruptOutBeforeDispatch = true, HidSetReportIncludesReportId = true
 });
 server.AddDevice("1-1", device);
 server.Start();
@@ -100,9 +100,12 @@ Atomic("stopped.json", new { completed = true, physicalDeviceAccess = false, rad
 sealed class ProbePersona(DualSenseDevice inner, Capture capture) : VirtualUsbDevice(inner.Descriptors)
 {
     long microphoneFrame;
-    protected override int OnClassRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> data, Span<byte> response)
+    protected override int OnClassRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> data, Span<byte> response) =>
+        OnClassRequest(setup, data, response, hidSetReportIncludesReportId: false);
+    protected override int OnClassRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> data, Span<byte> response,
+        bool hidSetReportIncludesReportId)
     {
-        int length = inner.HandleControlRequest(setup, data, response);
+        int length = inner.HandleControlRequest(setup, data, response, hidSetReportIncludesReportId);
         capture.Event("class-request", new { setup.RequestType, setup.Request, setup.Value, setup.Index, setup.Length, result = length });
         return length;
     }

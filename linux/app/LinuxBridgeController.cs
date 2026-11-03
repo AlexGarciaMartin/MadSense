@@ -166,7 +166,7 @@ sealed class LinuxBridgeController : IAsyncDisposable
                 ListenEndPoint = new IPEndPoint(IPAddress.Loopback, 0),
                 AttachStrategy = session.AttachStrategy, Logger = new EmulationLoggerAdapter(),
                 ImmediateInputDelivery = true, PackIsoInPayload = true,
-                AcknowledgeInterruptOutBeforeDispatch = true,
+                AcknowledgeInterruptOutBeforeDispatch = true, HidSetReportIncludesReportId = true,
                 MeasureIsoOutLatency = Program.Arguments.Contains("--diagnostic-audio")
             }), new VirtualControllerFactory(), () => session.IsolationVerified);
         emulation.StateChanged += (_, _) => Nudge();

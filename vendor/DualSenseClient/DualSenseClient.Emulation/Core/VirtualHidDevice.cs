@@ -144,6 +144,43 @@ public abstract class VirtualHidDevice : VirtualUsbDevice
     }
 
     /// <summary>
+    /// Accepts the Linux SET_REPORT data convention only when explicitly selected for this call.
+    /// The original transfer is validated before removing exactly one matching nonzero ID.
+    /// Existing class overrides still route audio and HID requests. ID zero means unnumbered
+    /// data and is never stripped. An ID-only numbered report delivers an empty body to the
+    /// existing handler; an empty wire report, mismatch or truncated declared transfer stalls.
+    /// </summary>
+    protected override int OnClassRequest(in UsbSetupPacket setup, ReadOnlySpan<byte> outData, Span<byte> response,
+        bool hidSetReportIncludesReportId)
+    {
+        byte reportType = (byte)(setup.Value >> 8);
+        byte reportId = (byte)setup.Value;
+        if (!hidSetReportIncludesReportId
+            || setup.RequestType != (RequestTypeClass | RecipientInterface)
+            || setup.Request != RequestSetReport
+            || !IsHidInterface((byte)setup.Index)
+            || reportType is not (ReportTypeOutput or ReportTypeFeature)
+            || reportId == 0)
+        {
+            return OnClassRequest(setup, outData, response);
+        }
+
+        if (setup.Length == 0 || outData.Length < setup.Length || outData[0] != reportId)
+        {
+            return Stall;
+        }
+
+        // Length is ushort and nonzero; subtraction cannot underflow. Trailing
+        // bytes beyond wLength retain the historical ignored-byte behavior.
+        UsbSetupPacket bodySetup = new()
+        {
+            RequestType = setup.RequestType, Request = setup.Request, Value = setup.Value,
+            Index = setup.Index, Length = (ushort)(setup.Length - 1)
+        };
+        return OnClassRequest(bodySetup, outData.Slice(1, bodySetup.Length), response);
+    }
+
+    /// <summary>
     /// Handles one HID class request addressed to an interface: GET_REPORT, SET_REPORT, GET_IDLE,
     /// SET_IDLE, GET_PROTOCOL and SET_PROTOCOL. Requests of another type, another recipient, a
     /// direction that does not match the request, or an interface that is not declared as HID
