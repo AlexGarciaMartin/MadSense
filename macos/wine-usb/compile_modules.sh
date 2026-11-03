@@ -71,8 +71,10 @@ make -j"$(sysctl -n hw.ncpu)" dlls/winebus.sys/all dlls/mmdevapi/all dlls/wineco
 python3 - "$evidence" "$pe" "$unix" <<'PY'
 import hashlib, json, pathlib, subprocess, sys
 evidence, pe, unix = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+# Public Wine builds native libraries beside its native objects. The
+# architecture-named -unix layout belongs to installed distributions.
 paths = [f'dlls/winebus.sys/{pe}/winebus.sys', f'dlls/mmdevapi/{pe}/mmdevapi.dll',
-         f'dlls/winebus.sys/{unix}/winebus.so', f'dlls/winecoreaudio.drv/{unix}/winecoreaudio.so']
+         'dlls/winebus.sys/winebus.so', 'dlls/winecoreaudio.drv/winecoreaudio.so']
 files = []
 for relative in paths:
     path = pathlib.Path(relative)
@@ -86,6 +88,7 @@ for relative in paths:
 result = {'wine_commit': '36b6a2cf679fb395f668a917b76537190e212d9c',
           'toolchain_tag': '20261006',
           'toolchain_sha256': 'a7a19b11048e89372637d26279cdb7c430ed3cf8c1e224310421312bf986ebf6',
+          'pe_target': pe, 'native_target': unix,
           'module_compilation_passed': True, 'full_wine_built': False,
           'installed': False, 'wine_executed': False, 'hardware_validation': False,
           'game_validation': False, 'files': files}
