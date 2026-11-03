@@ -68,6 +68,15 @@ def same_target(current, original):
             "Owned card/sink/route identity, profile or default changed; no write to replacement")
 
 
+def require_route_restorable(state):
+    # A Route write also updates the sink. If the initial sink differs, the
+    # original Route cannot restore both snapshots. Do not normalize this
+    # private desktop state or perform a write merely to make it testable.
+    for field in ("channelMap", "channelVolumes", "softVolumes", "mute"):
+        require(state["routeProps"].get(field) == state["nodeProps"].get(field),
+                f"Initial Route/Node {field} disagree; Route-only rollback cannot restore this baseline")
+
+
 def route_request(state, volumes):
     require(len(volumes) == 4 and all(type(value) in (int, float) and math.isfinite(value)
                                     and 0 <= value <= 1 for value in volumes), "Invalid bounded channel-volume request")
@@ -356,6 +365,7 @@ def run(ready_path, output, physical_parent, *, adjust_owned_rear_unity=False):
                         require(any(str(props(client).get("application.process.id")) == str(manager.pid)
                                     for client in objects(raw, "Client")), "Owned WirePlumber has not connected")
                         current = target_state(raw, session.card, card_sysfs)
+                        require_route_restorable(current)
                         if current == prior:
                             original = current; break
                         prior = current
@@ -365,7 +375,8 @@ def run(ready_path, output, physical_parent, *, adjust_owned_rear_unity=False):
                         session.result["lastStartupObservationError"] = str(error)
                         prior = None
                     time.sleep(.1)
-                require(original is not None, "Owned card policy did not stabilize")
+                require(original is not None, "Owned card policy did not stabilize: " +
+                        session.result.get("lastStartupObservationError", "no stable target"))
                 route_request(original, original["routeProps"]["channelVolumes"])
                 session.result["original"] = original
                 session.result["alsaBeforeAdjustment"] = controls("alsa-before-adjustment")

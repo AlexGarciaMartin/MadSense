@@ -95,6 +95,11 @@ The caller must explicitly opt in and supply a verified private cache path.
         primary()
     except Exception as failure:
         original_error = failure
+    # An earlier observer can refuse continuation before the default consumer
+    # session exists (for example failed PipeWire restoration). Preserve that
+    # real cause; absence of its result is not permission to start GE.
+    if original_error is not None and not (evidence / "result.json").is_file():
+        raise original_error
     ready = json.loads(bounded_bytes(Path(ready_path)))
     baseline = prerequisites(evidence / "result.json", ready)
     error = None

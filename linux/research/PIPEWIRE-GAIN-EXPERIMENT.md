@@ -1,6 +1,6 @@
 # Private PipeWire rear-volume experiment
 
-This is prepared research, not production policy. Its eighteen portable tests cover identity, channel
+This is prepared research, not production policy. Its twenty portable tests cover identity, channel
 binding, PCM alignment/gain evidence, conservative control restoration, staged
 imports and the mandatory cleanup boundary before subsequent consumers. The
 target/control parsers also accept the retained real dumps from both observations
@@ -9,7 +9,8 @@ the observer incorrectly looked for process identity directly on a Node. The
 actual dump contains credentials on Client 50, referenced by Node 51's
 `client.id`, and four active matching links to the owned sink. The corrected
 join is covered by unmodified reduced fields from that dump and negative peer,
-port-owner and inactive-link cases. A new full native measurement is pending.
+port-owner and inactive-link cases. The corrected full measurement ran at
+`d8f3ca0`, as recorded below.
 
 That failed run made no route-volume request. It restored the pre-stack ALSA
 snapshot byte for byte, all five device ACLs, and removed the private account and
@@ -19,6 +20,70 @@ were approximately 0.9040036 on **all four** channels, with maximum residual bel
 0.502 LSB and no sign mismatches. This supports the baseline software attenuation
 observation; it does not turn the failed runtime gate into a pass. Adjusted and
 restored PCM phases did not run.
+
+## Full private measurement at d8f3ca0
+
+Consumer run `41634461320` completed all three gain phases and verified cleanup.
+An independent read-only audit located one unique 128-frame sign anchor per
+capture, compared every marked sample on all four channels, recomputed gains,
+checked each capture against core ingress at its recorded byte offset, and
+matched the final graph snapshot to the original. Each phase contains 48,000
+marked frames; no per-window realignment or numerical acceptance threshold was
+added.
+
+| Phase | ALSA PCM control | Raw FL/FR | Software FL/FR | Measured PCM FL/FR | Measured PCM RL/RR |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 77 | 0.063997 | 0.904004 | ≈0.904004 | ≈0.904004 |
+| Rear raw request set to 1 | 100 | 0.063997 | 0.063997 | ≈0.063997 | exactly 1 |
+| Original route restored | 77 | 0.063997 | 0.904004 | ≈0.904004 | ≈0.904004 |
+
+Both adjusted rear channels matched all 48,000 source samples exactly, with zero
+residual. The front channels acquired about 23 dB of additional PCM attenuation
+despite unchanged raw front requests. This demonstrates the shared mixer
+control's interaction with software volumes on this synthetic UAC implementation;
+rear unity alone is insufficient for a production policy.
+
+The restored marked quad PCM was byte-identical to baseline. Device/node serials,
+all routes, profile, node properties and private default matched their originals.
+After stopping the private daemons, the complete ALSA control text returned to its
+pre-session snapshot (PCM control 80), all five ACLs returned exactly, and the
+account/process/directory cleanup completed. The full PCM-control sequence was
+80 → 77 → 100 → 77 → 80.
+
+The retained gain result SHA-256 is
+`643001087da2096a8be30e94c41950700afc67eeff8d5522d0ce9f7a547f1678`.
+The collected runtime archive SHA-256 is
+`e9e2d1f1f7bb00eae5e91675ca089be6f5357b362518fa8ae036e356313610b2`.
+These observations establish this private session's PCM behavior and restoration;
+they do not establish real-desktop behavior, physical speaker loudness or
+Bluetooth haptic/audio delivery. No production audio policy was changed.
+
+## Incoherent initial state at 64d
+
+Run `41636078566` had the same Route values as d8, but the sink Node initially
+reported raw and software volumes of 1.0 on all four channels. The retained
+baseline PCM was also unity. Restoring the original Route subsequently put the
+Node at raw 0.063997 / software 0.904004; the only differences from the original
+graph were those two Node arrays. Repeating the Route write could not recreate
+that inconsistent initial state. The experiment therefore correctly reported
+unverified graph restoration and stopped later consumers. Its pre-session ALSA
+controls, five ACLs, private processes and account did restore successfully.
+
+The corrected preflight requires matching Route/Node channel maps, raw volumes,
+software volumes and mute state before selecting a mutable baseline. It retains
+incomplete or inconsistent snapshots and retries within the existing startup
+deadline. If coherence never arrives, no Route write occurs: the result remains
+`failed` with the specific cause. Later SDL/Wine/GE sessions may proceed only if
+the existing ALSA/ACL/account/process cleanup checks pass. This is neither a
+measurement nor a relaxed restoration gate. The twenty tests include rejection
+of the native inconsistent shape and continuation after a failed, unmodified
+experiment with verified cleanup; replay also rejects both valid-shaped 64d
+startup snapshots and accepts the d8 baseline. The new native run is pending.
+
+The 64d gain result SHA-256 is
+`60d2c89bc404bef5fab340af82c62dafcd23d4086eae029f48afd3abc9578b40`;
+the final failed-restore dump SHA-256 is
+`f390f01a0be3edd660892d43fac3db78e2a521acb6d344c86f9baadbfef3f7cc`.
 
 The first private observations at commits `7d9f906` and `0325da7` used PipeWire
 1.0.5 / WirePlumber 0.4.17 on Noble. Both exposed the owned virtual card as
@@ -85,7 +150,8 @@ the target. Only one ALSA card and one sink on it are allowed.
 
 1. Snapshot ALSA controls before starting the private stack. After policy settles,
    retain all active routes, the exact node/route volume properties, profile and
-   default. Play a saved 48 kHz S16LE quad WAV containing silence and a one-second
+   default. Require matching Route and Node volume/map/mute properties so that
+   the original Route can restore the baseline. Play a saved 48 kHz S16LE quad WAV containing silence and a one-second
    marked sequence. `pw-play --target` uses the captured object serial. The dump
    must show that exact child's stream linked to that sink on four matching
    channels. The join uses Node `client.id` and the Client's protocol-provided
@@ -147,5 +213,6 @@ to its stream rather than trusting a player-supplied display property.
 No upstream code or configuration is copied into this implementation. The shared
 observer retains installed package notices and configuration in runtime artifacts;
 see [PIPEWIRE-DEFAULTS-OBSERVER.md](PIPEWIRE-DEFAULTS-OBSERVER.md) for source/license
-details. Native route behavior, link schema and rollback still require the first
-owned-VM execution before this can support a production decision.
+details. The native result above covers the pinned private stack and synthetic
+USB persona. Broader desktop and hardware behavior still require separate evidence
+before a production decision.

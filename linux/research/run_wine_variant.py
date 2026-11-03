@@ -83,6 +83,10 @@ def run_after_default(primary, ready_path, executable, fixture_state_callback, e
         primary()
     except Exception as failure:
         error = failure
+    # A mandatory observer cleanup failure may precede creation of the primary
+    # consumer result. Retain that failure instead of masking it with ENOENT.
+    if error is not None and not (evidence / "result.json").is_file():
+        raise error
     ready = json.loads(bounded_bytes(Path(ready_path)))
     baseline = clean_result(evidence / "result.json", ready)
     require(baseline.get("wineSession", {}).get("kind") == "distribution-wine"

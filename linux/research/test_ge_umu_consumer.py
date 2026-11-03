@@ -104,6 +104,21 @@ class GePrerequisiteTests(unittest.TestCase):
             run_suite("ready", "bins", "pe", None, "output", "physical", ge_umu_cache="cache")
         primary.assert_not_called(); ge.assert_not_called()
 
+    def test_preconsumer_cleanup_failure_survives_both_wrappers_without_fabricated_result(self):
+        (self.evidence / "result.json").unlink()
+        # Fresh configured-prefix location, as in an actual early observer failure.
+        (self.variant / "result.json").unlink(); self.variant.rmdir()
+        original = RuntimeError("Gain state restoration was not verified")
+        with patch("consumer_session._run_primary_suite", side_effect=original), \
+             patch("run_wine_variant.run_variant") as variant, \
+             patch("ge_umu_consumer._run_ge_suite") as ge, self.assertRaises(RuntimeError) as caught:
+            run_suite(self.ready_path, "bins", "pe", None, self.evidence, "physical",
+                      wine_udev_variant=True, ge_umu_cache="private-cache")
+        self.assertIs(caught.exception, original)
+        variant.assert_not_called(); ge.assert_not_called()
+        self.assertFalse((self.evidence / "result.json").exists())
+        self.assertFalse((self.root / "ge-umu-suite").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

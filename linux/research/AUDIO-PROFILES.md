@@ -52,6 +52,34 @@ limitada a la tarjeta virtual propiedad de esa sesión de MadSense. También hay
 que comprobar que crearla no sustituye la salida de audio predeterminada del
 usuario. Las pruebas usarán salidas sintéticas propias, sin altavoces físicos.
 
+## Ganancia y llegada de dispositivos: resultados y siguientes comprobaciones
+
+El [ensayo nativo d8f3ca0](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41634461320)
+midió las muestras de los cuatro canales, no sólo los valores de los controles.
+El baseline PipeWire entregó una ganancia aproximada de 0,904. Al llevar los
+volúmenes traseros a 1, sus muestras llegaron exactas, pero la ganancia delantera
+cayó a aproximadamente 0,064 aunque sus valores raw no habían cambiado. El
+mezclador ALSA común pasó de 77 a 100 y cambió la compensación software. La fase
+de restauración recuperó el PCM baseline byte a byte y los controles previos.
+[PIPEWIRE-GAIN-EXPERIMENT.md](PIPEWIRE-GAIN-EXPERIMENT.md) conserva el detalle.
+Ese ajuste rear-only no es una política válida del producto: la corrección debe
+medir y preservar el audio delantero además de los hápticos.
+
+La [documentación de prioridades de WirePlumber](https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/priorities.html)
+explica que la elección automática depende de `priority.session`; una selección
+guardada del usuario tiene preferencia. Por ello son casos distintos y ambos
+necesitan una prueba de llegada y retirada. Los defaults de reproducción y
+captura se eligen por separado: también hay que observar el micrófono. No se
+debe concluir que se conserva el default sólo porque MadSense no lo escriba.
+
+Las [reglas del monitor ALSA](https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/alsa.html)
+permiten configurar propiedades al crear dispositivos y nodos. Son una posible
+vía para reducir la prioridad del virtual sin deshabilitar su salida para los
+juegos. Una regla de producto debe identificar el virtual de MadSense con
+precisión y cubrir la versión de WirePlumber instalada; una coincidencia
+genérica por Sony/VID/PID también alcanzaría mandos USB físicos y no sirve.
+Todavía no se instala ninguna regla global ni se cambia la elección del usuario.
+
 ## Alternativa libre que merece comparación
 
 [dualsense-neo, revisión 8af7898](https://github.com/forgerpl/dualsense-neo/tree/8af78981115167affec777a134070fce7e90ab3d)

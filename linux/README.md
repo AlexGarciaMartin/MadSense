@@ -22,15 +22,15 @@ mandos. La conexión permanece bloqueada hasta verificar el componente de acceso
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
 
-En la revisión `4d5cc8d`, el
-[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41632075369)
+En la revisión `d8f3ca0`, el
+[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41634461039)
 pasó en ambas arquitecturas: 425 pruebas compartidas, 100 de plataforma y 17 de
 aplicación, las seis interfaces y el ciclo de escritorio de los paquetes extraídos.
 Las [tres pruebas del kernel en `fc141e9`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41629966377)
 pasaron con DualSense, Edge y Xbox, incluida la retirada de la VM y restauración
 de permisos KVM. Las dos Sony conservaron las 48.000 muestras por canal en la
 reproducción ALSA y el audio ISO IN sintético.
-El [servicio nativo en `4d5cc8d`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41632075372)
+El [servicio nativo en `d8f3ca0`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41634461048)
 pasó diez casos de aislamiento/recuperación, dos actualizaciones en reposo y
 cuatro casos de desinstalación/reinstalación. El núcleo pasó
 sus nueve casos: identidad y calibración física del fixture, entrada completa,
@@ -39,20 +39,27 @@ controlador real de la app pasó sus diez casos de conexión y ciclo de vida.
 La enumeración Linux admite un mando presente pero todavía silencioso y mantiene
 el requisito de recibir entrada antes de Ready. Después pasaron una prueba
 adicional del núcleo y seis de la app para gatillos, auriculares y controles
-DualSense Edge. Todas estas pruebas usan un fixture sintético en una VM propia;
+DualSense Edge. Una sesión nueva de la app pasó además sus diez casos y el
+[ensayo de vibración Xbox](tests/app-integration/XBOX-FF.md): un consumidor evdev
+ordinario envió dos intensidades distintas y una parada explícita; ambos informes
+Bluetooth llegaron con CRC válido antes de borrar el efecto o cerrar el dispositivo.
+Todas estas pruebas usan un fixture sintético en una VM propia;
 no certifican el funcionamiento de un mando físico.
 
 La [primera ejecución SDL/Wine](research/CONSUMER-RUN-7d9f906.md) ya aporta
 capturas: SDL2/SDL3 reciben entrada y envían efectos; su parada explícita limpia
-los selectores. En [el ensayo `4d5cc8d`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41632075665)
+los selectores. En [el ensayo `d8f3ca0`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41634461320)
 pasaron los cuatro casos SDL, con el informe USB completo y el Bluetooth con CRC
 válido, incluida la fase de parada separada de LED/cierre. Eso verifica reenvío,
 no actuación física. La corrección de la carrera al inspeccionar descriptores
 permitió cerrar Wine y completar la limpieza del núcleo y de ambos consumidores.
 La prueba real de reutilización de descriptores también pasó en x64 y ARM64.
 La variante Wine UDEV recibió las características nativas y Raw Input completo;
-sus marcadores RGB llegaron a USB y Bluetooth. Sigue fallando la comprobación
-del contador de escritura y no publica el ContainerId necesario para asociar
+sus marcadores RGB llegaron a USB y Bluetooth. La escritura asíncrona termina
+correctamente pero informa de 47 bytes frente a los 48 solicitados. La captura
+independiente contiene los 48 bytes USB y el informe Bluetooth íntegro. Se
+conserva el fallo del contador: todavía no acredita equivalencia con el contrato
+de la API de Windows. Wine 9 tampoco publica el ContainerId necesario para asociar
 HID/audio en nuestra prueba. El diagnóstico detallado y las diferencias con
 Proton están en [WINE-CONSUMER.md](research/WINE-CONSUMER.md).
 Wine 9 predeterminado falla antes de verificar las características nativas HID;
@@ -61,8 +68,15 @@ La [repetición en `0325da7`](https://github.com/AlexGarciaMartin/MadSense/actio
 registra capacidades de entrada de 15 bytes y cero bytes de salida y de informes
 de características en Wine 9 predeterminado. Se investiga por separado su ruta
 UDEV/hidraw, conservando este fallo de la configuración predeterminada.
-Los observadores privados de PipeWire y Pulse completan la colección y limpieza,
-pero esos resultados no equivalen a un escritorio ni a juegos reales.
+Los observadores privados de PipeWire y Pulse completan la colección y limpieza.
+La [medición de ganancia PipeWire](research/PIPEWIRE-GAIN-EXPERIMENT.md) confirmó
+una interacción del mezclador: elevar únicamente las traseras a unidad conserva
+sus 48.000 muestras exactas, pero reduce las delanteras de aproximadamente 0,904
+a 0,064. La restauración recuperó exactamente el PCM inicial de los cuatro
+canales, el grafo, ALSA y los permisos. Por ello ese ajuste aislado no se aplica
+como política del producto. Falta validar una solución que preserve el audio
+delantero y el comportamiento de los dispositivos predeterminados al conectar.
+Estos resultados no equivalen a un escritorio ni a juegos reales.
 
 Una [prueba aislada de bloqueo del grupo de hilos](platform/tests/starvation/README.md)
 reproduce la dependencia del cliente anterior: con su único worker ocupado por

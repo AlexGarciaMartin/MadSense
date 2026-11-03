@@ -12,7 +12,7 @@ from unittest.mock import patch
 from pipewire_defaults import PREFIX
 from pipewire_gain import (CHANNELS, control_snapshot, marked_pcm, measure_pcm,
                            optional_result, restore_values, route_request, run_optional,
-                           same_target, stream_binding, target_state)
+                           require_route_restorable, same_target, stream_binding, target_state)
 
 
 # Reduced, unmodified binding fields from native run 41632075665, commit 4d5cc8.
@@ -96,6 +96,22 @@ class GainEvidenceTests(unittest.TestCase):
         request = route_request(state, [.063997, .063997, 1, 1])
         self.assertEqual(request, dict(index=2, device=4, props={'channelVolumes': [.063997, .063997, 1, 1]}, save=False))
         self.assertNotIn('softVolumes', request['props'])
+
+    def test_native_unity_node_cannot_be_restored_by_its_attenuated_route(self):
+        # Native 41636078566 / 64d: Route had these values while the Node
+        # remained unity through baseline PCM. Restore updated Node to Route,
+        # so equality with the initial snapshot was impossible, not delayed.
+        state = self.target()
+        require_route_restorable(state)
+        for fields in (('channelVolumes',), ('softVolumes',), ('channelVolumes', 'softVolumes')):
+            changed = copy.deepcopy(state)
+            for field in fields:
+                changed['nodeProps'][field] = [1.0] * 4
+            with self.subTest(fields=fields), self.assertRaisesRegex(RuntimeError, 'Route-only rollback'):
+                require_route_restorable(changed)
+        for field, replacement in (('channelMap', ['FR', 'FL', 'RL', 'RR']), ('mute', True)):
+            changed = copy.deepcopy(state); changed['nodeProps'][field] = replacement
+            with self.subTest(field=field), self.assertRaises(RuntimeError): require_route_restorable(changed)
 
     def test_reused_id_changed_profile_or_default_does_not_authorize_a_write(self):
         before = self.target()
@@ -297,6 +313,28 @@ class OptionalGainTests(unittest.TestCase):
                         _run_primary_suite(ready, None, None, None, root / "consumer-suite", "fixture",
                                            observe_audio_defaults=True, adjust_owned_rear_unity=True)
                 self.assertEqual(events, ["gain-failed", "pulse", "consumer"] if cleanup else ["gain-failed"])
+
+    def test_unmodified_incoherent_baseline_remains_failed_and_allows_next_session_after_cleanup(self):
+        from consumer_session import _run_primary_suite
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); ready = root / 'ready.json'; ready.write_text(json.dumps(self.ready))
+            events = []
+            def measure(*args, **kwargs):
+                output = Path(args[1]); output.mkdir()
+                record = self.record() | dict(graphMutationAttempted=False, liveGraphRestored=None,
+                    error='Initial Route/Node channelVolumes disagree; Route-only rollback cannot restore this baseline')
+                (output / 'result.json').write_text(json.dumps(record))
+                summary = optional_result(output / 'result.json', self.ready)
+                self.assertEqual(summary['result'], 'failed')
+                self.assertIsNone(summary['rearUnityPcmExact'])
+                events.append('unmodified-gain-failed')
+            def consumer(*_):
+                events.append('next-consumer-session'); raise RuntimeError('consumer boundary')
+            with patch('pipewire_gain.run', side_effect=measure), patch('consumer_session.ConsumerSession', side_effect=consumer):
+                with self.assertRaisesRegex(RuntimeError, 'consumer boundary'):
+                    _run_primary_suite(ready, None, None, None, root / 'consumer-suite', 'fixture',
+                                       adjust_owned_rear_unity=True)
+            self.assertEqual(events, ['unmodified-gain-failed', 'next-consumer-session'])
 
     def test_real_staged_gain_module_imports_without_repository_dependencies(self):
         from qemu_consumers import stage_consumer_research

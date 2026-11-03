@@ -77,6 +77,15 @@ class WineVariantTests(unittest.TestCase):
             self.run_all(self.primary)
         self.assertNotIn("wineUdevVariant", json.loads((self.evidence / "result.json").read_text()))
 
+    def test_early_observer_failure_is_preserved_without_starting_variant(self):
+        original = RuntimeError("Gain state restoration was not verified")
+        def early_failure(): raise original
+        with patch("run_wine_variant.run_variant") as variant, self.assertRaises(RuntimeError) as caught:
+            self.run_all(early_failure)
+        self.assertIs(caught.exception, original)
+        variant.assert_not_called()
+        self.assertFalse((self.evidence / "result.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
