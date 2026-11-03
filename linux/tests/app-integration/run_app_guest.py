@@ -44,6 +44,7 @@ def main():
     parser.add_argument("--baseline-result", type=Path, required=True)
     parser.add_argument("--probe-directory", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--extended-protocol", action="store_true")
     args = parser.parse_args()
     require(os.geteuid() == 0, "Root observer required inside owned guest")
     scope = validate_environment(args.owned_guest_token)
@@ -55,6 +56,7 @@ def main():
     result = dict(schema=1, result="failed", environment=scope, applicationControllerExercised=True,
                   applicationUiExercised=False, physicalDevices=False, radioInitialized=False,
                   temporaryVmTestPolicies=True, cases=[])
+    result["protocolExtension"] = dict(requested=args.extended_protocol, result="not-requested", cases=[])
     user = "madsense-app-ci"
     root = Path("/opt", "madsense-app-ci-" + uuid.uuid4().hex)
     actor = root / "output"
@@ -170,14 +172,18 @@ def main():
         result["cases"].append(dict(name=name, passed=True, **evidence))
         save("result.json", result)
 
-    def create_fixture():
+    def extended_passed(name, **evidence):
+        result["protocolExtension"]["cases"].append(dict(name=name, passed=True, **evidence))
+        save("result.json", result)
+
+    def create_fixture(edge=False):
         nonlocal fixture, fixture_number, baseline
         fixture_number += 1
         require(not list(Path("/sys/bus/hid/devices").glob("000[35]:054C:*")), "Pre-existing Sony device before fixture creation")
         command(f"load-driver-{fixture_number}", ["modprobe", "hid_playstation"])
         directory = output / f"fixture-{fixture_number}"
         directory.mkdir()
-        fixture = SyntheticDualSense("madsense-app-" + uuid.uuid4().hex[:12], directory)
+        fixture = SyntheticDualSense("madsense-app-" + uuid.uuid4().hex[:12], directory, edge=edge)
         require((fixture.parent / "driver").resolve().name == "playstation", "Fixture must use the real Sony kernel driver")
         rule = Path("/run/udev/rules.d/71-madsense-app-ci.rules")
         fixture_file(rule, f'SUBSYSTEM=="hidraw|input", KERNELS=="{fixture.parent.name}", OWNER="root", '
@@ -186,7 +192,8 @@ def main():
         command(f"trigger-{fixture_number}", ["udevadm", "trigger", "--action=change", "--parent-match=" + str(fixture.parent)])
         command(f"settle-{fixture_number}", ["udevadm", "settle", "--timeout=5"])
         baseline = snapshot()
-        save(f"fixture-{fixture_number}-identity.json", dict(parent=str(fixture.parent), hidraw=str(fixture.hidraw), baseline=baseline))
+        save(f"fixture-{fixture_number}-identity.json", dict(parent=str(fixture.parent), hidraw=str(fixture.hidraw),
+             productId=0x0df2 if edge else 0x0ce6, baseline=baseline))
 
     try:
         require(idle(False), "Pre-existing lease, recovery or import")
@@ -223,6 +230,9 @@ def main():
         usb, _ = ready()
         initial = wait_for(lambda: settings(100, 7, "DualSense"))
         passed("production_connect_settings_and_ready_require_input", settings=initial)
+        if args.extended_protocol:
+            from protocol_observer import audio_route_matches, exercise_triggers, observe_edge_buttons
+            extended_passed("app_distinct_l2_r2_and_explicit_off_delivered", observations=exercise_triggers(usb, fixture))
 
         # Only kernel-observed output is examined. No virtual factory decorator
         # or duplicated application settings implementation feeds this test.
@@ -238,6 +248,24 @@ def main():
                                 and payload[37] & 7 == gain for data in fixture.outputs[start:]), 15)
             require(all(valid_output(data) for data in fixture.outputs[start:]), "Invalid physical output CRC/framing")
             passed("speaker_" + level.lower() + "_settings_and_delivered_control", settings=saved)
+
+        if args.extended_protocol:
+            action("speaker", "Bajo")
+            wait_for(lambda: settings(100, 2, "DualSense"))
+            for headset in (True, False):
+                fixture.headset = headset
+                state = observed_state(lambda state: state["ready"] and state["headset"] == headset)
+                start = len(fixture.outputs)
+                label = "headset" if headset else "speaker-return"
+                command("play-" + label, ["aplay", "-D", f"hw:{card.name[4:]},0", "-t", "raw",
+                    "-f", "S16_LE", "-r", "48000", "-c", "4", pcm])
+                report = wait_for(lambda: next((data for data in fixture.outputs[start:]
+                                               if audio_route_matches(data, headset)), None), 15)
+                require(all(valid_output(data) for data in fixture.outputs[start:]), "Invalid routed physical output CRC/framing")
+                extended_passed("app_" + label.replace("-", "_") + "_input_and_exact_audio_route",
+                                state=state["state"], deliveredHex=report.hex())
+            action("speaker", "Off")
+            wait_for(lambda: settings(0, 0, "DualSense"))
 
         for mode, vid, pid, setting in (("Xbox", 0x045e, 0x028e, "Xbox360"), ("Auto", 0x054c, 0x0ce6, "DualSense")):
             old_usb = usb
@@ -266,11 +294,31 @@ def main():
         action("pause")
         observed_state(lambda state: state["paused"] and not state["releasing"])
         require(idle(), "Final paused state is unconfirmed by root observer")
+        if args.extended_protocol:
+            fixture.close(); fixture = None
+            wait_for(lambda: idle(False), 30)
+            Path("/run/udev/rules.d/71-madsense-app-ci.rules").unlink()
+            create_fixture(edge=True)
+            action("resume")
+            wait_for(lambda: attached(0x054c, 0x0df2), 45)
+            require(not status()["state"]["ready"], "Edge Ready preceded physical input")
+            fixture.input_enabled = True
+            usb, value = ready(0x054c, 0x0df2)
+            saved = wait_for(lambda: settings(0, 0, "DualSense"))
+            require(saved["variant"]["dualsense"] == "Edge", "Production Auto settings did not select Edge")
+            extended_passed("app_edge_auto_uses_real_enumerator_settings_and_kernel_persona", settings=saved, state=value["state"])
+            extended_passed("app_edge_each_fn_and_paddle_preserved", observations=observe_edge_buttons(usb, fixture))
+            action("pause")
+            observed_state(lambda state: state["paused"] and not state["releasing"])
+            require(idle(), "Edge pause preceded physical/kernel restoration")
+            extended_passed("app_edge_pause_restores_physical_and_virtual_state", metrics=metrics(status()))
         action("exit")
         require(process.wait(timeout=30) == 0, "Application actor failed disposal")
         stopped = load(actor / "stopped.json")
         require(stopped and stopped["cleanupConfirmed"] and idle(), "Final cleanup lacks fresh helper and kernel confirmation")
         passed("dispose_and_fresh_helper_confirm_cleanup", metrics=metrics(stopped))
+        if args.extended_protocol:
+            result["protocolExtension"]["result"] = "passed"
         result["result"] = "passed"
     except BaseException as error:
         result["reason"] = f"{type(error).__name__}: {error}"

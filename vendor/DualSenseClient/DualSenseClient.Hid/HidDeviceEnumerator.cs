@@ -294,12 +294,13 @@ public class HidDeviceEnumerator : IHidDeviceEnumerator
     /// </summary>
     private List<IHidDeviceInfo> FilterConnected(List<IHidDeviceInfo> all)
     {
-        if (OperatingSystem.IsMacOS())
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
-            // IOHIDManager enumerates current IORegistry services rather than the
-            // cached paired-device entries exposed by Windows. Probe-opening on
-            // macOS would interfere with our exclusive handle and incorrectly
-            // remove an already-owned controller from the connection snapshot.
+            // IOHIDManager and Linux hidraw enumerate currently registered
+            // kernel devices, rather than Windows' cached paired entries.
+            // Opening and requiring an input report would reject a present,
+            // quiet controller and interfere with an owned exclusive/isolation
+            // handle. The caller still verifies identity and I/O on acquisition.
             return all;
         }
 

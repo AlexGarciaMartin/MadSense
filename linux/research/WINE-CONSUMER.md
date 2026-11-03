@@ -86,3 +86,14 @@ Official Proton remains separate. An upstream Wine run cannot establish Proton
 behavior. No official Proton runtime has been acquired or executed for this
 experiment; the observer is suitable for a future explicitly identified runtime
 without changing those evidence labels.
+
+The first native run (`7d9f906`, workflow 41626531215) executed Ubuntu Wine 9.0,
+but its Sony candidate failed the feature-capability-length requirement before
+MAC/ContainerId verification or WASAPI playback. The observer now emits the
+actual HID path and input/output/feature capability lengths before this check;
+the native feature requirements remain unchanged. Wine 9's
+[driver selection](https://github.com/wine-mirror/wine/blob/wine-9.0/dlls/winebus.sys/main.c#L788)
+starts UDEV only if SDL is disabled or fails to initialize. Thus the default SDL
+backend is a candidate explanation for the missing native feature surface,
+pending the new capability evidence. An explicit UDEV variant needs its own
+fresh prefix and result label; it must not replace or relabel this default run.

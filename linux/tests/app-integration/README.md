@@ -7,7 +7,7 @@ connection/cleanup overrides, alternate socket or replacement virtual factory.
 The ordinary actor observes the sole attributed Bluetooth UHID fixture through
 the real HID enumerator. Only the executable entry point is different.
 
-It is prepared and builds locally; native execution is still pending. It does
+It builds locally; a complete native app pass is still pending. It does
 not exercise Avalonia, tray, preferences UI or singleton behavior, and cannot
 validate radio, hardware timing, acoustic output or actuator response.
 
@@ -79,3 +79,23 @@ Its root-owned publish tree is staged under a fresh `/opt` UUID directory with
 explicit modes, using the shared core `actor_staging.py`. An execution smoke
 under that ordinary UID and saved mount/permission diagnostics precede fixture
 creation; no mount options or production permissions are relaxed.
+## Linux enumeration regression
+
+Run 41626531451 at `7d9f906` first passed all nine production-core cases, but the
+app actor stopped at its initial enumeration guard. Its fixture was deliberately
+silent until attachment to test that Ready requires a parsed input report. The
+shared enumerator applied the Windows Bluetooth liveness probe on Linux: opening
+hidraw and demanding a nonzero report within 200 ms removed that silent device
+from the current snapshot. The fixture trace contained no injected input.
+
+The installed guest package was `libhidapi-hidraw0 0.14.0-1build1`. Upstream
+[HIDAPI 0.14.0 Linux enumeration](https://github.com/libusb/hidapi/blob/hidapi-0.14.0/linux/hid.c#L788)
+scans current udev `hidraw` devices and reads identity/usage from sysfs. Linux now
+uses that current snapshot without the extra probe-open/read; Windows retains
+its previous behavior, and VID/PID, bus, usage and broker acquisition checks
+remain. A portable Linux regression invokes the actual snapshot policy; the
+native actor remains the end-to-end check for present-but-silent enumeration and
+Ready staying false until input begins. Its preflight now records the ordinary
+user's descriptor access, open access and returned identity/usage metadata, with
+temporary trace logging only during that initial enumeration. Native validation
+of this correction is pending.

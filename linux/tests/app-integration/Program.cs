@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using DualSenseClient.Hid;
+using DualSenseClient.Logging;
 using MadSense.Platform;
 
 namespace MadSense;
@@ -36,15 +37,32 @@ static class Program
         if (!uevent.Contains("HID_NAME=" + label) || !uevent.Contains("HID_PHYS=madsense-core-ci") ||
             !uevent.Any(line => line.Equals("HID_UNIQ=02:FA:11:22:33:44", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Device is not the runner's UHID fixture.");
-        using (var enumerator = new HidDeviceEnumerator())
+        string output = Path.GetFullPath(options["--output"]);
+        if (Directory.EnumerateFileSystemEntries(output).Any()) throw new IOException("Fresh actor output required.");
+        var descriptorPath = "/sys/class/hidraw/" + Path.GetFileName(path) + "/device/report_descriptor";
+        string? descriptorHex = null, descriptorError = null, openError = null;
+        try { descriptorHex = Convert.ToHexString(File.ReadAllBytes(descriptorPath)); }
+        catch (Exception error) { descriptorError = error.Message; }
+        try { using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite); }
+        catch (Exception error) { openError = error.Message; }
+        var oldLevel = DualSenseClientLogger.MinimumLevel;
+        DualSenseClientLogger.MinimumLevel = LogLevel.Trace;
+        try
         {
-            var candidates = enumerator.Enumerate(0x054c).Where(info => info.ProductId is 0x0ce6 or 0x0df2 &&
+            using var enumerator = new HidDeviceEnumerator();
+            var enumerated = enumerator.Enumerate(0x054c).ToArray();
+            File.WriteAllText(Path.Combine(output, "preflight-enumeration.json"), JsonSerializer.Serialize(new
+            {
+                pid = Environment.ProcessId, uid = Native.GetUid(), path, descriptorHex, descriptorError, openError,
+                nodeMode = File.GetUnixFileMode(path).ToString(),
+                devices = enumerated.Select(info => new { info.Path, info.VendorId, info.ProductId, info.BusType, info.UsagePage, info.Usage })
+            }, Json));
+            var candidates = enumerated.Where(info => info.ProductId is 0x0ce6 or 0x0df2 &&
                 info.UsagePage == 1 && info.BusType == ConnectionType.Bluetooth).ToArray();
             if (candidates.Length != 1 || candidates[0].Path != path)
                 throw new InvalidOperationException("The real application must discover exactly this one Bluetooth fixture.");
         }
-        string output = Path.GetFullPath(options["--output"]);
-        if (Directory.EnumerateFileSystemEntries(output).Any()) throw new IOException("Fresh actor output required.");
+        finally { DualSenseClientLogger.MinimumLevel = oldLevel; }
         Directory.CreateDirectory(Path.Combine(output, "commands"));
         Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", Path.Combine(output, "config"));
         Environment.SetEnvironmentVariable("XDG_STATE_HOME", Path.Combine(output, "state"));

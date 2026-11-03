@@ -53,7 +53,7 @@ def stage_consumer_research(payload):
     for name in ("host_probe.c", "run_consumers.py", "consumer_session.py", "run_wine_consumer.py",
                  "test_consumer_session.py", "qemu_consumers.py", "run_consumer_guest.sh",
                  "audio_defaults.py", "test_audio_defaults.py", "pipewire_defaults.py", "test_pipewire_defaults.py",
-                 "consumer_phases.py", "test_consumer_phases.py"):
+                 "consumer_phases.py", "test_consumer_phases.py", "consumer_files.py", "test_consumer_files.py"):
         shutil.copy2(research / name, target / name)
 
 

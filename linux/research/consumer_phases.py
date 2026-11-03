@@ -133,7 +133,7 @@ def main():
     results = []
     for command in suite["consumers"]:
         observed = command.get("evidence", {})
-        if observed.get("sdlMajor") not in (2, 3):
+        if not isinstance(observed, dict) or observed.get("sdlMajor") not in (2, 3):
             continue
         try:
             left, right = expected_motors(suite["ready"], observed)

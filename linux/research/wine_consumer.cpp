@@ -180,6 +180,14 @@ static Hid identify_hid(unsigned vendor, unsigned product, const std::array<unsi
             HIDD_ATTRIBUTES attributes{}; attributes.Size = sizeof(attributes);
             if (!HidD_GetAttributes(handle.value, &attributes) || attributes.VendorID != vendor || attributes.ProductID != product) continue;
             Hid candidate; candidate.path = detail->DevicePath; candidate.caps = caps_for(handle.value);
+            // Preserve the backend's actual capability surface even when it
+            // cannot serve the native DualSense feature reports required below.
+            std::cout << "{\"kind\":\"hid-capabilities\",\"path\":" << json(candidate.path)
+                      << ",\"usagePage\":" << candidate.caps.UsagePage << ",\"usage\":" << candidate.caps.Usage
+                      << ",\"inputReportByteLength\":" << candidate.caps.InputReportByteLength
+                      << ",\"outputReportByteLength\":" << candidate.caps.OutputReportByteLength
+                      << ",\"featureReportByteLength\":" << candidate.caps.FeatureReportByteLength << "}\n";
+            std::cout.flush();
             if (candidate.caps.UsagePage != 1 || candidate.caps.Usage != 5) continue;
             candidate.pairing = feature(handle.value, candidate.caps, 0x09, 20);
             bool same = mac_matches(candidate.pairing, mac);

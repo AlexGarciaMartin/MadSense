@@ -55,6 +55,16 @@ class CombinedPayloadTests(unittest.TestCase):
             self.assertEqual(calls, expected)
             self.assertEqual(guest.provenance, {name + "Exit": code for name, code in zip(expected, exits)})
 
+    def test_protocol_is_opt_in_and_runs_only_after_all_original_actors_pass(self):
+        for exits in ([1], [0, 1], [0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 1]):
+            calls = []
+            def run(name, command, timeout, required):
+                calls.append(name.removesuffix("-run"))
+                return SimpleNamespace(returncode=exits[len(calls) - 1])
+            guest = SimpleNamespace(token="owned", provenance={}, run=run)
+            run_stages(guest, extended_protocol=True)
+            self.assertEqual(calls, ["baseline", "core", "app", "protocol"][:len(exits)])
+
 
 if __name__ == "__main__":
     unittest.main()

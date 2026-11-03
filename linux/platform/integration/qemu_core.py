@@ -55,12 +55,14 @@ def prepare_combined_payload(payload, neutral_probe, core_probe, app_probe):
     return hashes
 
 
-def run_stages(guest):
+def run_stages(guest, extended_protocol=False):
     stages = (
         ("baseline", "linux/platform/tests/run_broker_experiment.sh", 900, ""),
         ("core", "linux/platform/integration/run_core_experiment.sh", 300, ""),
         ("app", "linux/tests/app-integration/run_app_experiment.sh", 660, " --require-core"),
     )
+    if extended_protocol:
+        stages += (("protocol", "linux/platform/integration/run_protocol_experiment.sh", 900, ""),)
     for name, script, timeout, extra in stages:
         result = guest.run(name + "-run", "bash /home/ubuntu/madsense/" + script + " "
                            + shlex.quote(guest.token) + extra, timeout=timeout, required=False)
@@ -76,6 +78,7 @@ def main():
     parser.add_argument("--app-probe-directory", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
+    parser.add_argument("--extended-protocol", action="store_true")
     args = parser.parse_args()
     guest = OwnedQemu(args.output, args.work)
     provenance = guest.provenance
@@ -90,7 +93,7 @@ def main():
         guest.run("payload-check", "cd /home/ubuntu/madsense && sha256sum --check --strict PAYLOAD-SHA256SUMS")
         guest.run("probe-permissions", "chmod +x /home/ubuntu/madsense/probe/MadSense.Linux.Probe")
         try:
-            run_stages(guest)
+            run_stages(guest, args.extended_protocol)
         finally:
             for name in ("prepare.log", "usbip-binary.txt", "result"):
                 guest.collect(name)
@@ -121,8 +124,18 @@ def main():
             raise RuntimeError("Application controller experiment failed; inspect app-run and partial evidence")
         app = json.loads(app_path.read_text())
         verify_app_result(app, guest.token)
-        provenance.update(result="passed", appCases=len(app["cases"]),
+        provenance.update(appCases=len(app["cases"]),
                           appResultSha256=hashlib.sha256(app_path.read_bytes()).hexdigest())
+        if args.extended_protocol:
+            from protocol_checks import verify_protocol_results
+            paths = [guest.output / "result" / stage / "result.json" for stage in ("protocol-core", "protocol-app")]
+            if provenance.get("protocolExit") != 0 or not all(path.exists() for path in paths):
+                raise RuntimeError("Protocol extension failed after the original core/application sessions passed")
+            verify_protocol_results(*(json.loads(path.read_text()) for path in paths), guest.token)
+            provenance["protocolExtension"] = dict(result="passed", coreCases=1, appCases=6,
+                coreResultSha256=hashlib.sha256(paths[0].read_bytes()).hexdigest(),
+                appResultSha256=hashlib.sha256(paths[1].read_bytes()).hexdigest())
+        provenance["result"] = "passed"
     except BaseException as error:
         provenance["reason"] = f"{type(error).__name__}: {error}"
     finally:

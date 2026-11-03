@@ -317,6 +317,12 @@ static class FixtureChecks
                 parsed.Touchpad.Touch1.IsActive || parsed.Touchpad.Touch2.IsActive ||
                 parsed.Input.Cross != (marker || item.Name == "south") || !parsed.Input.DPadNeutral)
                 throw new InvalidDataException("Production typed input parser mismatch.");
+            if (parsed.Connection.Headphone != (item.Name == "headset") ||
+                parsed.Input.EdgeFunctionLeft != (item.Name == "edge_fn_left") ||
+                parsed.Input.EdgeFunctionRight != (item.Name == "edge_fn_right") ||
+                parsed.Input.EdgePaddleLeft != (item.Name == "edge_paddle_left") ||
+                parsed.Input.EdgePaddleRight != (item.Name == "edge_paddle_right"))
+                throw new InvalidDataException("Headset/Edge input marker did not reach the production parser.");
         }
         var features = root.GetProperty("features");
         byte[] physicalCalibration = Convert.FromHexString(features.GetProperty("05").GetString()!);

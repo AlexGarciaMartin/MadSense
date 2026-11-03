@@ -38,7 +38,7 @@ jobs:
       - name: Shared Bluetooth and USB protocol regressions
         run: >-
           dotnet test tests/DualSenseClient.Tests/DualSenseClient.Tests.csproj -c Release
-          --filter 'FullyQualifiedName~HidStringMarshalTests|FullyQualifiedName~DualSenseRawReportTests|FullyQualifiedName~DualSenseFeature|FullyQualifiedName~VirtualDualSenseController|FullyQualifiedName~BluetoothAudioReportBuilderTests|FullyQualifiedName~NativeHapticsQueueTests|FullyQualifiedName~DualSenseBtAudioPipelineTests|FullyQualifiedName~DualSenseAudioForwarderTests|FullyQualifiedName~Emulation.UsbIp'
+          --filter 'FullyQualifiedName~HidStringMarshalTests|FullyQualifiedName~HidLinuxEnumerationTests|FullyQualifiedName~DualSenseRawReportTests|FullyQualifiedName~DualSenseFeature|FullyQualifiedName~VirtualDualSenseController|FullyQualifiedName~BluetoothAudioReportBuilderTests|FullyQualifiedName~NativeHapticsQueueTests|FullyQualifiedName~DualSenseBtAudioPipelineTests|FullyQualifiedName~DualSenseAudioForwarderTests|FullyQualifiedName~Emulation.UsbIp'
           --logger 'trx;LogFileName=linux-shared.trx' --results-directory test-results
       - name: Platform client and application lifetime regressions
         run: |

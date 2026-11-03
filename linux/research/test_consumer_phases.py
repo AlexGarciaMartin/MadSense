@@ -1,9 +1,13 @@
 import binascii
 import copy
+import json
+from pathlib import Path
 import struct
+import tempfile
 import unittest
+from unittest.mock import patch
 
-from consumer_phases import correlate, phase_windows
+from consumer_phases import correlate, main, phase_windows
 
 
 def bt_row(timestamp, *, flags=3, flags1=0, left=0, right=0):
@@ -95,6 +99,27 @@ class PhaseEvidenceTests(unittest.TestCase):
         self.observed = original
         with self.assertRaises(RuntimeError):
             correlate(self.observed, self.command, [], [], 10_000_000)
+
+    def test_actual_mixed_sdl_and_wine_evidence_is_filtered_without_aborting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            observed = self.observed | dict(sdlMajor=3)
+            suite = dict(ready=dict(ownedGuestToken="owned"), consumers=[
+                dict(label="setup"), self.command | dict(evidence=observed),
+                dict(label="wine", evidence=[dict(kind="result", result="failed")])])
+            (root / "suite.json").write_text(json.dumps(suite))
+            (root / "ready.json").write_text(json.dumps(dict(ownedGuestToken="owned", timestampFrequency=1_000_000_000)))
+            (root / "core.jsonl").write_text("")
+            (root / "bt.jsonl").write_text("")
+            argv = ["consumer_phases", "--suite", str(root / "suite.json"),
+                    "--core-ready", str(root / "ready.json"), "--core-events", str(root / "core.jsonl"),
+                    "--uhid-events", str(root / "bt.jsonl"), "--output", str(root / "result.json")]
+            with patch("sys.argv", argv), patch("consumer_phases.expected_motors", return_value=(0x12, 0x56)):
+                main()
+            result = json.loads((root / "result.json").read_text())
+            self.assertFalse(result["stopAcceptanceChanged"])
+            self.assertEqual([row["label"] for row in result["consumers"]], [self.command["label"]])
+            self.assertIn("explicitStop", result["consumers"][0])
 
 
 if __name__ == "__main__":

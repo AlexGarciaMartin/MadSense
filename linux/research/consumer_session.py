@@ -262,10 +262,10 @@ class ConsumerSession:
         self.processes.append(process)
         return process
 
-    def command(self, label, argv, env=None, timeout=45, required=True):
+    def command(self, label, argv, env=None, timeout=45, required=True, pass_fds=()):
         self.check_device()
         start = time.monotonic_ns()
-        process = self.start(label, argv, env)
+        process = self.start(label, argv, env, pass_fds=pass_fds)
         deadline = time.monotonic() + timeout
         fault = None
         try:

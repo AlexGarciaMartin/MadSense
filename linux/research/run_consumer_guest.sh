@@ -27,6 +27,7 @@ if "$pipewire_observer"; then
   sudo -n apt-get install -y --no-install-recommends pipewire pipewire-bin wireplumber alsa-utils
 fi
 python3 -m unittest discover -s linux/research -p test_consumer_session.py -v
+python3 -m unittest discover -s linux/research -p test_consumer_files.py -v
 python3 -m unittest discover -s linux/research -p test_consumer_phases.py -v
 python3 -m unittest discover -s linux/research -p test_audio_defaults.py -v
 python3 -m unittest discover -s linux/research -p test_pipewire_defaults.py -v

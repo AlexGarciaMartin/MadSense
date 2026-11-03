@@ -16,6 +16,7 @@ import time
 import uuid
 
 from consumer_session import bt_state, clear_sony_state, read_rows, require, wait_delivery
+from consumer_files import write_private_file
 
 
 def xauthority(cookie, display):
@@ -26,17 +27,7 @@ def xauthority(cookie, display):
 
 
 def user_file(session, path, content):
-    require(path.is_relative_to(session.root / "home") and path.resolve().is_relative_to(session.root / "home"),
-            "Private consumer configuration must remain inside its owned home")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    for parent in (path.parent, *path.parent.parents):
-        if parent == session.root:
-            break
-        os.chown(parent, session.uid, session.gid)
-        parent.chmod(0o700)
-    with path.open("xb") as stream:
-        stream.write(content if isinstance(content, bytes) else content.encode())
-    os.chown(path, session.uid, session.gid); path.chmod(0o600)
+    write_private_file(session, path, content)
 
 
 def start_display(session):
@@ -53,7 +44,7 @@ def start_display(session):
         require(number.isdigit() and int(number) < 65536 and process.poll() is None, "Invalid owned Xvfb display")
         # Xserver reads authorization protocol/cookie pairs; clients additionally
         # match their display number. Keep the same cookie when assigning it.
-        authority.write_bytes(xauthority(cookie, int(number)))
+        write_private_file(session, authority, xauthority(cookie, int(number)), replace=True)
         session.env.update(DISPLAY=":" + number, XAUTHORITY=str(authority))
         session.result["xvfb"] = dict(display=int(number), tcpListening=False, privateAuthorization=True)
     finally:

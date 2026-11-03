@@ -65,6 +65,7 @@ def main():
     parser.add_argument("--wine-consumer", type=Path)
     parser.add_argument("--observe-audio-defaults", action="store_true")
     parser.add_argument("--observe-pipewire-defaults", action="store_true")
+    parser.add_argument("--extended-protocol", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     require(args.wine_consumer is None or args.consumer_binaries is not None,
@@ -82,6 +83,7 @@ def main():
     result = dict(schema=1, result="failed", scope="production-core-synthetic-UHID", environment=scope,
                   physicalDevices=False, radioInitialized=False, applicationUiExercised=False,
                   temporaryVmTestPolicies=True, cases=[])
+    result["protocolExtension"] = dict(requested=args.extended_protocol, result="not-requested", cases=[])
     actor_root = Path("/opt", "madsense-core-ci-" + uuid.uuid4().hex)
     actor_output = actor_root / "output"
     user = "madsense-core-ci"
@@ -281,6 +283,12 @@ def main():
         wait_for(lambda: any((payload := state_payload(data)) is not None and payload[44:47] == bytes.fromhex("123456")
                              for data in fixture.outputs))
         passed("kernel_rgb_output_to_production_bluetooth_writer")
+        if args.extended_protocol:
+            from protocol_observer import exercise_triggers
+            result["protocolExtension"]["cases"].append(dict(
+                name="core_distinct_l2_r2_and_explicit_off_delivered", passed=True,
+                observations=exercise_triggers(usb, fixture)))
+            save("result.json", result)
         fixture.marker = True
         fd = os.open(hidraw, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
         try:
@@ -353,6 +361,8 @@ def main():
         wait_for(reset_delivered, 5)
         save("final-neutral-reports.json", [data.hex() for data in fixture.outputs[-3:]])
         passed("production_core_dispose_detach_reset_and_physical_restore")
+        if args.extended_protocol:
+            result["protocolExtension"]["result"] = "passed"
         result["result"] = "passed"
     except BaseException as error:
         result["reason"] = f"{type(error).__name__}: {error}"

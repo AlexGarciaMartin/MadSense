@@ -30,17 +30,21 @@ def descriptor():
     return bytes(data + b"\xc0")
 
 
-def input_report(marker=False, sequence=0, south_only=False):
+def input_report(marker=False, sequence=0, south_only=False, headset=False, edge_buttons=0):
+    if edge_buttons & ~0xf0:
+        raise ValueError("Only the four Edge function/paddle bits are fixture parameters")
     data = bytearray(78)
     data[0:2] = b"\x31\x01"
     data[2:6] = bytes([17, 229, 63, 201] if marker else [128] * 4)
     data[6:8] = bytes([91, 173] if marker else [0, 0])
     data[8] = sequence & 255
     data[9] = 0x28 if marker or south_only else 8  # Cross, neutral dpad.
+    data[11] = edge_buttons
     struct.pack_into("<hhhhhhI", data, 17, -1234 if marker else 0, 2345 if marker else 0,
                      -3456 if marker else 0, 0, 0, 8192, sequence * 3000)
     data[34] = data[38] = 0x80  # Both touch points inactive.
     data[54] = 5  # Discharging; deterministic battery field.
+    data[55] = 1 if headset else 0
     struct.pack_into("<I", data, 74, binascii.crc32(b"\xa1" + data[:74]))
     return bytes(data)
 
@@ -74,8 +78,10 @@ def features():
 
 def manifest():
     inputs = {}
-    for name, marker in (("neutral", False), ("marker", True), ("south", False)):
-        report = input_report(marker, south_only=name == "south")
+    for name, marker, edge in (("neutral", False, 0), ("marker", True, 0), ("south", False, 0),
+                              ("headset", False, 0), ("edge_fn_left", False, 0x10), ("edge_fn_right", False, 0x20),
+                              ("edge_paddle_left", False, 0x40), ("edge_paddle_right", False, 0x80)):
+        report = input_report(marker, south_only=name == "south", headset=name == "headset", edge_buttons=edge)
         inputs[name] = {"bluetooth": report.hex(), "usb": (b"\x01" + report[2:65]).hex()}
     return {"schema": 1, "scope": "synthetic-protocol-only", "descriptor": descriptor().hex(),
             "input": inputs, "features": {f"{key:02x}": value.hex() for key, value in features().items()}}
@@ -101,6 +107,7 @@ class SyntheticDualSense:
         self.fd = os.open("/dev/uhid", os.O_RDWR | os.O_NONBLOCK | os.O_CLOEXEC)
         self.gate = threading.Lock()
         self.running, self.marker, self.south_only, self.input_enabled = True, False, False, False
+        self.headset, self.edge_buttons = False, 0
         self.error, self.outputs, self.feature_requests = None, [], []
         self.trace = (self.output / "uhid-events.jsonl").open("x", buffering=1)
         rd = descriptor()
@@ -174,9 +181,10 @@ class SyntheticDualSense:
                         self.send(14, struct.pack("=IH", request, errno.EOPNOTSUPP))
                 now = time.monotonic()
                 if self.input_enabled and now >= next_input:
-                    data = input_report(self.marker, sequence, self.south_only)
+                    data = input_report(self.marker, sequence, self.south_only, self.headset, self.edge_buttons)
                     self.send(12, struct.pack("=H", len(data)) + data)
-                    self.record("input", marker=self.marker, southOnly=self.south_only, sequence=sequence, hex=data.hex())
+                    self.record("input", marker=self.marker, southOnly=self.south_only, headset=self.headset,
+                                edgeButtons=self.edge_buttons, sequence=sequence, hex=data.hex())
                     sequence = (sequence + 1) & 0xfffff
                     next_input = now + .01
         except BaseException as error:

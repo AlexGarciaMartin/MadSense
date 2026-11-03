@@ -88,6 +88,14 @@ zero as older firmware, while pinned SDL3 assumes an updated version in that cas
 Wine runs as the same ordinary account with an ephemeral prefix and private,
 cookie-authenticated Xvfb. The prefix retains default winebus behavior; managed
 and HTML optional installers are disabled. Runtime package versions are logged.
+Private configuration and cookie files are created or replaced by a bounded
+child running as that ordinary UID, with mode 0600. Cookie bytes travel only
+through an inherited pipe. The child walks directories through file descriptors,
+rejects symlinks and hardlinked files, and validates ownership before truncation;
+the root orchestrator never writes or changes permissions inside that user-owned
+tree after giving it to the account. Native Linux regressions exercise redirected
+parent paths, final symlinks, hardlinks and unexpected permissions without
+changing the unrelated target.
 The Windows program matches the virtual MAC before writes, compares feature
 bytes with the core persona, verifies Raw Input input, and correlates RGB output.
 XInput lacks a stable USB identity API, so its future Xbox assertion also relies

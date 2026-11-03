@@ -22,37 +22,39 @@ mandos. La conexión permanece bloqueada hasta verificar el componente de acceso
 no hay un estado «listo» ficticio. El probe de kernel exporta solamente mandos
 sintéticos y nunca inicializa Bluetooth. No es aún un lanzamiento para jugar.
 
-En la revisión `da6bd52`, el
-[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41624312100)
-pasó en ambas arquitecturas: 380 pruebas compartidas, 89 de plataforma y 15 de
+En la revisión `7d9f906`, el
+[CI de la aplicación](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41626531312)
+pasó en ambas arquitecturas: 380 pruebas compartidas, 100 de plataforma y 17 de
 aplicación, las seis interfaces y el ciclo de escritorio de los paquetes extraídos.
 Las [tres pruebas del kernel en `5733910`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41611760328)
 pasaron con DualSense, Edge y Xbox, incluida la retirada de la VM y restauración
 de permisos KVM. Las dos Sony conservaron las 48.000 muestras por canal en la
 reproducción ALSA y el audio ISO IN sintético.
-El [servicio nativo en `da6bd52`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41624312045)
+El [servicio nativo en `7d9f906`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41626531451)
 pasó diez casos de aislamiento/recuperación, dos actualizaciones en reposo y
-cuatro casos de desinstalación/reinstalación. Después, el fixture real de
-hid-playstation pasó los dos rechazos de acceso evdev en conflicto. El actor C#
-alcanzó Ready como usuario ordinario: creó el dispositivo USB virtual y el motor
-de audio, entregó 87 de 87 informes recibidos y cerró con cleanup confirmado,
-sin desbordamientos ni pérdidas en el observador. El helper descartó 19 informes
-antiguos al terminar la adquisición; ese contador no incluye pérdidas anteriores
-del búfer hidraw. La
-[ejecución de consumidores](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41624312051)
-también alcanzó Ready y cerró limpiamente con 94 de 94 informes entregados.
-Ambas ejecuciones se detuvieron después por un error del harness al registrar
-el caso de lectores de sensores (`passed(sensorObservers=...)`). La corrección
-de ese test está preparada. Todavía faltan el recorrido completo del núcleo,
-el controlador de la app y los consumidores SDL/Wine; estos no llegaron a ejecutarse.
+cuatro casos de desinstalación/reinstalación. El núcleo pasó por primera vez
+sus nueve casos: identidad y calibración física del fixture, entrada completa,
+RGB, audio ALSA de cuatro canales y cierre/restauración confirmados. Entregó
+234 de 234 informes recibidos, sin desbordamientos. La prueba del controlador
+de la app se detuvo antes de conectar: la enumeración heredaba un probe de
+lectura de Windows y descartaba el fixture presente pero todavía silencioso.
+La corrección Linux conserva los filtros de identidad y el requisito de recibir
+entrada antes de Ready; su integración completa sigue pendiente.
+
+La [primera ejecución SDL/Wine](research/CONSUMER-RUN-7d9f906.md) ya aporta
+capturas: SDL2/SDL3 reciben entrada y envían efectos; su parada explícita limpia
+los selectores, una forma que la aserción anterior aún no acepta. Wine 9 falla
+antes de verificar las características nativas HID; no se ha validado WASAPI.
+Los observadores privados de PipeWire y Pulse completan la colección y limpieza,
+pero esos resultados no equivalen a un escritorio ni a juegos reales.
 
 Una [prueba aislada de bloqueo del grupo de hilos](platform/tests/starvation/README.md)
 reproduce la dependencia del cliente anterior: con su único worker ocupado por
 una operación HID síncrona, tampoco podía recibir la respuesta. La corrección
 separa el lector y las esperas síncronas de ese grupo, conservando los límites
 de cola. Los doce casos de control/restricción pasan en Linux x64 y ARM64,
-incluido el cierre con ACK seguido inmediatamente por EOF. El primer Ready
-nativo añade evidencia del arranque, aún sin validar el recorrido completo.
+incluido el cierre con ACK seguido inmediatamente por EOF. No son medidas de
+latencia física.
 
 El [análisis independiente del audio en `884f0fd`](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41613299026)
 pasó en ambas arquitecturas: Opus decodificado con libopus y hápticos contrastados
