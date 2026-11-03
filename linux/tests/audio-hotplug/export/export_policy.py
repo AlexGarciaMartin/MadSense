@@ -16,6 +16,35 @@ from evidence import require
 PREFIX = "MadSense-audio-lease-"
 MARKER = "madsense.audio.lease"
 
+def one_shot_snapshot(raw):
+    """pw-dump may print removal arrays before its final non-monitor dump.
+
+    Accept only that documented prefix, never multiple live snapshots or a
+    truncated monitor stream. The complete monitor remains the transient gate.
+    """
+    from pipewire_defaults import validate_dump
+    require(isinstance(raw, bytes) and len(raw) <= 4*1024*1024, "Invalid snapshot byte bound")
+    text = raw.decode("utf-8"); decoder = json.JSONDecoder(); offset = 0; frames = []
+    while offset < len(text):
+        while offset < len(text) and text[offset].isspace(): offset += 1
+        if offset == len(text): break
+        frame, offset = decoder.raw_decode(text, offset)
+        validate_dump(frame); frames.append(frame)
+        require(len(frames) <= 4096, "Too many snapshot prefix arrays")
+    require(frames and frames[-1] and all(isinstance(row.get("type"), str)
+        and row["type"].startswith("PipeWire:Interface:") for row in frames[-1]),
+        "Missing complete final snapshot")
+    for frame in frames[:-1]:
+        require(frame and all((set(row) == {"id", "info"} and row["info"] is None)
+            or (set(row) == {"id", "props"} and row["props"] is None) for row in frame),
+            "Only removal arrays may precede the final snapshot")
+    return frames[-1]
+
+def snapshot_source(raw, normalized):
+    require(json.loads(normalized) == one_shot_snapshot(raw), "Normalized snapshot differs from raw pw-dump")
+    return dict(rawBytes=len(raw), rawSha256=hashlib.sha256(raw).hexdigest(),
+        normalizedSha256=hashlib.sha256(normalized).hexdigest())
+
 def validate_plan(plan, case_id):
     require(case_id in ("owned-automatic", "owned-explicit", "foreign-parent", "foreign-nonce"), "Unknown export case")
     validate_parent(plan["actualParent"]); validate_parent(plan["targetParent"])

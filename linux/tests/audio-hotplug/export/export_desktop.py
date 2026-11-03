@@ -5,10 +5,10 @@ from pathlib import Path
 import signal
 import time
 
-from export_policy import PREFIX, require, validate_node, alsa_node
+from export_policy import PREFIX, require, validate_node, alsa_node, one_shot_snapshot, snapshot_source
 from desktop import PrivateDesktop
 from evidence import compare
-from pipewire_defaults import capture
+from pipewire_defaults import check_peer
 
 class ExportDesktop(PrivateDesktop):
     def __init__(self, *args, plan, executable):
@@ -69,10 +69,21 @@ class ExportDesktop(PrivateDesktop):
             stoppedMonotonicNs=time.monotonic_ns())
         self.exporter = None; self.expected_export = False; self.save()
 
+    def capture_snapshot(self, label):
+        self.check_device(); check_peer(self, self.process)
+        require(self.manager.poll() is None, "Private WirePlumber exited")
+        _, raw = self.command(label+"-pw-dump", ["pw-dump", "--no-colors", "--remote", self.env["PIPEWIRE_REMOTE"]], timeout=15)
+        snapshot = one_shot_snapshot(raw)
+        normalized = (json.dumps(snapshot, indent=2)+"\n").encode()
+        (self.output / (label+".json")).write_bytes(normalized)
+        self.result.setdefault("snapshotSources", {})[label] = snapshot_source(raw, normalized)
+        self.save()
+        return snapshot
+
     def observe(self, label, attached):
         if not self.plan["matched"]: return super().observe(label, attached)
         self.check_monitors()
-        snapshot = capture(self, self.process, self.manager, label)
+        snapshot = self.capture_snapshot(label)
         value = compare(snapshot, self.controls)
         owned = []
         for row in snapshot:

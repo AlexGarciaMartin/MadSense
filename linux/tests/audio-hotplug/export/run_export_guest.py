@@ -14,7 +14,7 @@ from actor import AppActor
 from run_guest import save, verify_gates, verify_case
 from policy import predict_parents, monitor_evidence
 from evidence import compare, metadata_changes, preservation, require
-from export_policy import IgnoreRule, configuration, publication, validate_node, PREFIX, validate_plan, alsa_node
+from export_policy import IgnoreRule, configuration, publication, validate_node, PREFIX, validate_plan, alsa_node, snapshot_source
 from export_desktop import ExportDesktop
 
 CASES = ("owned-automatic", "owned-explicit", "foreign-parent", "foreign-nonce")
@@ -101,6 +101,12 @@ def audit_case(path, row, token, reference):
         and audio["exportPlan"] == plan and audio["accountProcessesAndFilesRemoved"]
         and not audio.get("cleanupErrors") and not audio.get("exportCleanupError")
         and audio["noPhysicalAccessGranted"] and audio["account"]["uid"] > 0, "Audio scope or cleanup mismatch")
+    sources = audio.get("snapshotSources", {})
+    require(sources and all(record["label"] in sources for record in audio["observations"]), "Snapshot raw attribution missing")
+    for label, recorded in sources.items():
+        require(label and all(c.isalnum() or c == "-" for c in label), "Invalid snapshot source label")
+        require(recorded == snapshot_source((path / "audio" / (label+"-pw-dump.stdout")).read_bytes(),
+            (path / "audio" / (label+".json")).read_bytes()), "Snapshot raw hash/size attribution differs")
     rule = json.loads((path / "rule/ignore-rule.json").read_text())
     content = configuration(plan["targetParent"], plan["ruleNonce"]).encode()
     require(rule["plan"] == plan and (path / "rule/ignore.rules").read_bytes() == content

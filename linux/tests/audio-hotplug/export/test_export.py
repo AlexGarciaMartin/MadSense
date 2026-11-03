@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from export_policy import configuration, publication, validate_node, validate_plan, IgnoreRule
+from export_policy import configuration, publication, validate_node, validate_plan, IgnoreRule, one_shot_snapshot, snapshot_source
 from stage_export import ROOT, DEVICE, HELPER, TARGET, OLD, NEW, transform, verify_overlay, digest
 from qemu_audio_hotplug import add_payload
 from run_export_guest import descriptor_evidence
@@ -32,6 +32,26 @@ def node(serial=10):
         params={"EnumFormat":[dict(format="S16LE",rate=48000,channels=4,position=["FL","FR","RL","RR"])]}))
 
 class Contracts(unittest.TestCase):
+    def test_one_shot_dump_accepts_only_tombstone_prefix_before_final_snapshot(self):
+        live = json.dumps([node()]).encode()
+        raw = b'[{"id":48,"info":null}]\n[{"id":49,"props":null}]\n'+live
+        self.assertEqual(one_shot_snapshot(raw),[node()])
+        self.assertEqual(one_shot_snapshot(live),[node()])
+        normalized = (json.dumps([node()],indent=2)+"\n").encode()
+        source = snapshot_source(raw,normalized)
+        self.assertEqual(source["rawBytes"],len(raw))
+        self.assertNotEqual(source,snapshot_source(live,normalized))
+        with self.assertRaisesRegex(RuntimeError,"differs from raw"):
+            snapshot_source(raw,json.dumps([node(99)]).encode())
+
+    def test_one_shot_dump_rejects_extra_live_frame_truncation_and_tombstones_only(self):
+        live = json.dumps([node()]).encode(); removed = b'[{"id":48,"info":null}]'
+        for raw in (live+live, live+removed, removed, removed+live[:-1], b'', b'[]',
+                    b'[{"id":48,"info":null,"unexpected":true}]'+live,
+                    b'[{"id":48,"info":null},{"id":48,"info":null}]'+live):
+            with self.subTest(raw=raw),self.assertRaises((RuntimeError,json.JSONDecodeError)):
+                one_shot_snapshot(raw)
+
     def test_atomic_rule_publication_does_not_overwrite_a_racing_target(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);rule=IgnoreRule(PLAN,root)

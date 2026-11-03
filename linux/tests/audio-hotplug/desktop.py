@@ -117,7 +117,7 @@ class PrivateDesktop(ConsumerSession):
         def initialized():
             nonlocal initialize_attempt
             initialize_attempt += 1
-            snapshot = capture(self, self.process, self.manager, f"initializing-{initialize_attempt:02}")
+            snapshot = self.capture_snapshot(f"initializing-{initialize_attempt:02}")
             try:
                 controls = control_nodes(snapshot, self.names)
                 value = compare(snapshot, controls)
@@ -147,9 +147,12 @@ class PrivateDesktop(ConsumerSession):
         require((self.output / "metadata-monitor.stdout").stat().st_size <= 1024*1024
                 and (self.output / "graph-monitor.stdout").stat().st_size <= 16*1024*1024, "Audio monitor evidence exceeded bound")
 
+    def capture_snapshot(self, label):
+        return capture(self, self.process, self.manager, label)
+
     def observe(self, label, attached):
         self.check_monitors()
-        snapshot = capture(self, self.process, self.manager, label)
+        snapshot = self.capture_snapshot(label)
         value = compare(snapshot, self.controls)
         if attached:
             card = select_device(snapshot, self.card, self.card_sysfs)

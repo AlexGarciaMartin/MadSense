@@ -82,6 +82,26 @@ the first phase deliberately leaves PCM delivery and gain preservation false.
 The already measured ACP gain solution is not silently assumed for a node that
 bypasses ACP profiles/routes.
 
+The export observer also retains each one-shot `pw-dump` stdout. PipeWire 1.0.5
+can emit removal arrays before its final snapshot even without `--monitor`:
+`registry_event_global_remove` prints tombstones, then `on_core_done` dumps the
+remaining objects and quits. The parser accepts only those exact removal
+prefixes followed by one complete snapshot. Extra live snapshots, truncated
+JSON and tombstones without a final snapshot remain errors. The independent
+audit recomputes the normalized snapshot from raw bytes and verifies both
+hashes and raw size. The separate full graph monitor still detects transients.
+Source: [pw-dump output callbacks](https://github.com/PipeWire/pipewire/blob/1.0.5/src/tools/pw-dump.c).
+
+The first native attempt, [41651813343](https://github.com/AlexGarciaMartin/MadSense/actions/runs/41651813343)
+at `4c80a9b`, passed the unchanged 10/9/10 functional and 2/4 installer/removal
+prerequisites. The first positive session reached application Ready, confirmed
+the exact interface nonce and both ignore properties, and created a client-owned
+node advertising S16LE/48000/FL/FR/RL/RR with priority 1 and the actual USB parent.
+Its observer then failed on the removal-prefix format above; no complete export
+case passed. Actor, audio-account and rule cleanup records were retained, and
+the owned VM stopped with the KVM ACL restored. This remains a failed experiment,
+not proof of the four-session lifetime/default contract or delivered PCM.
+
 PipeWire-Pulse maps `device.sysfs.path` to Pulse `sysfs.path`, which Proton's
 Winepulse code uses to find the real USB ancestor. This makes a later identity
 comparison possible; it does not prove compatibility with a particular Proton
