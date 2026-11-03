@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "researchedUtc": "2026-11-03",
+  "label": "GE-Proton with UMU and Valve Steam Linux Runtime; not official Valve Proton",
+  "geVersion": "GE-Proton11-11",
+  "geCommit": "c0c2ee35e6d4d3bff4d39c6246ac46636434feb8",
+  "umuVersion": "1.4.4",
+  "umuCommit": "cf3d1b107147480c447ffbfb3f789dc74335074c",
+  "runtimeBuild": "4.0.20261021.265997",
+  "runtimeAppId": "4183110",
+  "runtimePlatform": "steamrt4_platform_4.0.20261021.265997",
+  "geRoot": "GE-Proton11-11-x86_64",
+  "geSha512": "45721a7b625b2404d8896bb5e2a8b87fc9623a394873a6dd6b900c839681d5c01ec694ca00d003fc9c733c5f6c5648af8171985656f9fa47e20999fbebdbe235",
+  "downloads": [
+    {
+      "name": "GE-Proton11-11-x86_64.tar.gz",
+      "url": "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton11-11/GE-Proton11-11-x86_64.tar.gz",
+      "size": 564789552,
+      "sha256": "aa85986cada5709aa8bbfa8add7f3bfb925cbe15710c98995898d308ff2ca3c1",
+      "evidenceBasis": "GitHub release API SHA-256 and downloaded bytes"
+    },
+    {
+      "name": "GE-Proton11-11-x86_64.sha512sum",
+      "url": "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton11-11/GE-Proton11-11-x86_64.sha512sum",
+      "size": 159,
+      "sha256": "ef6b808f788ca07351e64740e8664bfdedb18e0c20072431525f13f7bfca0a9c",
+      "evidenceBasis": "GitHub release API SHA-256 and downloaded bytes"
+    },
+    {
+      "name": "umu-launcher-1.4.4-zipapp.tar",
+      "url": "https://github.com/Open-Wine-Components/umu-launcher/releases/download/1.4.4/umu-launcher-1.4.4-zipapp.tar",
+      "size": 430080,
+      "sha256": "eb590691841f7fad3fc3ad8fd5db4ccb87849fe7948e62b28ece7a4ee48cc851",
+      "evidenceBasis": "GitHub release API SHA-256 and downloaded bytes"
+    },
+    {
+      "name": "ge-source.tar.gz",
+      "url": "https://codeload.github.com/GloriousEggroll/proton-ge-custom/tar.gz/c0c2ee35e6d4d3bff4d39c6246ac46636434feb8",
+      "size": 123410459,
+      "sha256": "06b4ed454c8fc3907ebe5dcb25c0a0fbfc016d5324ecd4ec0e70c1eee8257b0a",
+      "evidenceBasis": "upstream HTTPS metadata, pinned first retrieval"
+    },
+    {
+      "name": "umu-source.tar.gz",
+      "url": "https://codeload.github.com/Open-Wine-Components/umu-launcher/tar.gz/cf3d1b107147480c447ffbfb3f789dc74335074c",
+      "size": 225482,
+      "sha256": "8dde20111a22728364cbf496238016749465bbb63fa6979df421b9df0a234515",
+      "evidenceBasis": "upstream HTTPS metadata, pinned first retrieval"
+    },
+    {
+      "name": "ge-tree.json",
+      "url": "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/git/trees/c0c2ee35e6d4d3bff4d39c6246ac46636434feb8?recursive=1",
+      "size": 1389845,
+      "sha256": "f8f26cc64de26820fd7eb80483c35c383b51199f874e79efa51adaf5df970677",
+      "evidenceBasis": "upstream HTTPS metadata, pinned first retrieval"
+    },
+    {
+      "name": "SteamLinuxRuntime_4.tar.xz",
+      "url": "https://repo.steampowered.com/steamrt4/images/4.0.20261021.265997/SteamLinuxRuntime_4.tar.xz",
+      "size": 175077288,
+      "sha256": "aa9dd1aab2173e65b631faae34b85e2c17fe323d941013154ddd2e1dce8a0910",
+      "evidenceBasis": "Valve HTTPS SHA256SUMS and downloaded bytes"
+    },
+    {
+      "name": "SHA256SUMS",
+      "url": "https://repo.steampowered.com/steamrt4/images/4.0.20261021.265997/SHA256SUMS",
+      "size": 321419,
+      "sha256": "8693018d570f5789269a4eb970c93a2b7539030b670599da4d59bfb415d81d62",
+      "evidenceBasis": "upstream HTTPS metadata, pinned first retrieval"
+    },
+    {
+      "name": "BUILD_ID.txt",
+      "url": "https://repo.steampowered.com/steamrt4/images/4.0.20261021.265997/BUILD_ID.txt",
+      "size": 20,
+      "sha256": "7ce1ae39698e0b910a8a71a9a94da88a96ca0d3bdb3d1a0f1d494738ca47dbc4",
+      "evidenceBasis": "upstream HTTPS metadata, pinned first retrieval"
+    },
+    {
+      "name": "runtime-sources.deb822.gz",
+      "url": "https://repo.steampowered.com/steamrt4/images/4.0.20261021.265997/com.valvesoftware.SteamRuntime.Sdk-amd64,i386-steamrt4-sources.deb822.gz",
+      "size": 292604,
+      "sha256": "a0af6a06d6bc96d7ce8e7c12d00bc2548691980dae34ab4665c5c66d9cf31eb7",
+      "evidenceBasis": "upstream HTTPS metadata, pinned first retrieval"
+    },
+    {
+      "name": "runtime-source-required.txt",
+      "url": "https://repo.steampowered.com/steamrt4/images/4.0.20261021.265997/com.valvesoftware.SteamRuntime.Platform-amd64,i386-steamrt4.source-required.txt",
+      "size": 4815,
+      "sha256": "0d5f76e70dbf198e273d5e9bbed759414581a5d0d8edf6a9fe06f2c8334a5e2d",
+      "evidenceBasis": "upstream HTTPS metadata, pinned first retrieval"
+    },
+    {
+      "name": "runtime-manifest.deb822.gz",
+      "url": "https://repo.steampowered.com/steamrt4/images/4.0.20261021.265997/com.valvesoftware.SteamRuntime.Platform-amd64,i386-steamrt4.manifest.deb822.gz",
+      "size": 77676,
+      "sha256": "64aad32f6eab4b52fa75458a69b5fcabfdc0b7a9266a2a0acd50aaa17bda9337",
+      "evidenceBasis": "upstream HTTPS metadata, pinned first retrieval"
+    }
+  ]
+}
