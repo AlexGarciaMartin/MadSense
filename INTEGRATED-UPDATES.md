@@ -1,6 +1,15 @@
-# Integrated update preview (not the public update channel)
+# Integrated updates: stable 0.4.9 and preview channel
 
-Branch: feature/in-app-updates. The website and stable release manifest remain on 0.4.7.
+The 0.4.9 release promotes the updater tested by the user over the real Internet
+preview channel. Stable builds have revision zero and use the existing website
+manifest, then verify the stable signed descriptor beside the official installer.
+Only nonzero-revision preview builds contact the separate preview feed. To leave
+preview, exit MadSense and install 0.4.9 over the same directory; settings and
+drivers remain. No JSON selection or channel preference reset is necessary.
+
+The notes below retain the preview procedure and its validation limits.
+
+Preview branch: feature/in-app-updates. The preview rollout kept stable on 0.4.7.
 Version 0.4.8.3 is the Internet bootstrap preview; 0.4.8.4 is its update target. Both install
 over the current user's MadSense installation, preserve preferences and use real
 driver checks. They are not the separate InstallerTestBuild product.

@@ -1,10 +1,16 @@
-# MadSense 0.4.7
+# MadSense 0.4.9
 
 Abre MadSense, enciende tu DualSense y abre el juego. La app espera al mando, conecta por Bluetooth y recupera la conexión automáticamente. Debe estar emparejado previamente en Windows. Esta versión controla un mando y es 100 % Bluetooth: por cable el juego usa el DualSense en nativo sin necesitar MadSense.
 
-**[Descargar el instalador de Windows](https://github.com/AlexGarciaMartin/MadSense/releases/download/v0.4.6/MadSense-0.4.6-Setup.exe)** · [Notas y SHA-256](https://github.com/AlexGarciaMartin/MadSense/releases/tag/v0.4.6)
+**[Descargar el instalador de Windows](https://github.com/AlexGarciaMartin/MadSense/releases/download/v0.4.9/MadSense-0.4.9-Setup.exe)** · [Notas y SHA-256](https://github.com/AlexGarciaMartin/MadSense/releases/tag/v0.4.9)
 
 **App e instalador en seis idiomas:** English · Español · Français · Deutsch · Italiano · Português Brasileiro. El instalador detecta el idioma de Windows y permite elegir otro. La app también permite cambiarlo desde el menú de la bandeja.
+
+## Novedades de 0.4.9
+
+**Actualiza desde MadSense.** Al detectar una nueva versión, pulsa **Actualizar**: la app descarga el paquete en su caché, verifica su firma e integridad, libera el mando, se cierra, instala y vuelve a abrirse conservando tus ajustes. No abre el navegador ni deja instaladores en Descargas. Confirma fuera de una partida; no se instala sin tu permiso.
+
+La versión 0.4.7 y anteriores necesitan instalar esta versión una vez para incorporar el nuevo actualizador. Si vienes de las pruebas 0.4.8.x, sal de la app e instala la 0.4.9 encima, sin desinstalar ni borrar preferencias o controladores. La versión estable deja de consultar el canal preview.
 
 ## Novedades de 0.4.7
 
