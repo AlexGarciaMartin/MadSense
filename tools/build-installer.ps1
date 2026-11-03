@@ -46,7 +46,8 @@ if (!$DotnetPath) {
 if (!$PublishDirectory) {
     if (!(Test-Path -LiteralPath $DotnetPath)) { throw 'Instala .NET SDK 10 o indica -DotnetPath.' }
     $PublishDirectory = Join-Path $buildRoot ('publish-' + [Guid]::NewGuid().ToString('N'))
-    $versionArgs = if ($PreviewVersion) { @("-p:Version=$PreviewVersion") } else { @() }
+    $versionArgs = @()
+    if ($PreviewVersion) { $versionArgs += "-p:Version=$PreviewVersion" }
     & $DotnetPath publish (Join-Path $root 'src\MadSense.csproj') -c Release -r win-x64 --self-contained true -o $PublishDirectory --nologo @versionArgs
     if ($LASTEXITCODE -ne 0) { throw 'La publicacion ha fallado; no se empaquetaran binarios anteriores.' }
 }
