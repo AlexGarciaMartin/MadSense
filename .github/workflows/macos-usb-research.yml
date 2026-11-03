@@ -1,0 +1,35 @@
+name: macOS native USB research
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel, macos-26, macos-26-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build read-only probe without restricted entitlements
+        run: |
+          mkdir -p .build/research dist/usb-research
+          sw_vers > dist/usb-research/host.txt
+          uname -m >> dist/usb-research/host.txt
+          swiftc --version >> dist/usb-research/host.txt
+          swiftc -swift-version 5 -O -framework IOKit -framework CoreAudio -framework GameController macos/research/usb_native_probe.swift -o .build/research/usb-native-probe 2> dist/usb-research/build.stderr
+          codesign --force --sign - .build/research/usb-native-probe
+          codesign --verify --strict .build/research/usb-native-probe
+      - name: Validate parser and record actual device inventory
+        run: |
+          .build/research/usb-native-probe --self-test > dist/usb-research/parser.stdout
+          .build/research/usb-native-probe > dist/usb-research/inventory.json 2> dist/usb-research/inventory.stderr
+          python3 -c 'import json; d=json.load(open("dist/usb-research/inventory.json")); assert d["observed_hardware_behavior"] is False; assert d["enumeration_complete"] is True; print("Physical DualSense present:", d["physical_dualsense_found"], "Property issues:", len(d["issues"]), "(inventory is not a hardware test)")'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-usb-${{ matrix.runner }}
+          path: dist/usb-research/
+          retention-days: 14
