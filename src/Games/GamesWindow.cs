@@ -17,7 +17,7 @@ internal sealed class GamesWindow : Form
     readonly CancellationTokenSource lifetime = new();
     readonly Dictionary<(string, float, FontStyle), Font> fonts = [];
     readonly BandPanel band = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
-    readonly MainWindow.RoundedButton refresh = new(), install = new() { Accent = true }, remove = new(), run = new(), page = new(), wiki = new();
+    readonly MainWindow.RoundedButton refresh = new(), folder = new(), install = new() { Accent = true }, remove = new(), run = new(), page = new(), wiki = new(), forget = new();
     readonly Label footer = new(), count = new(), empty = new(), section = new();
     readonly TextBox search = new();
     readonly EntryList entries = new();
@@ -25,7 +25,7 @@ internal sealed class GamesWindow : Form
     readonly Panel detailScroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
     readonly FlowLayoutPanel detail = new() { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
     readonly ProgressBar progress = new() { Dock = DockStyle.Fill, Visible = false, Style = ProgressBarStyle.Continuous };
-    readonly TableLayoutPanel actions = new() { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, Margin = Padding.Empty, Padding = new(0, 6, 0, 0) };
+    readonly TableLayoutPanel actions = new() { Dock = DockStyle.Fill, ColumnCount = 6, RowCount = 1, Margin = Padding.Empty, Padding = new(0, 6, 0, 0) };
     readonly Dictionary<string, WikiSupport?> support = new(StringComparer.Ordinal);
     readonly HashSet<string> pending = new(StringComparer.Ordinal);
     List<LibraryGame> games = [];
@@ -65,18 +65,19 @@ internal sealed class GamesWindow : Form
         // Section line, as in the main window: mono kicker with a slash.
         section.Dock = DockStyle.Fill; section.TextAlign = ContentAlignment.BottomLeft; section.ForeColor = Ink; section.Font = MakeFont("Consolas", 8, FontStyle.Bold); section.Padding = new(0, 0, 0, 5);
         root.Controls.Add(section, 0, 1);
-        // Toolbar: search field, count, refresh. Same 48 px row and button geometry as the main footer.
-        var toolbar = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
+        // Toolbar: search field, count, a folder of the user's own, refresh. Same 48 px row and button geometry as the main footer.
+        var toolbar = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = Padding.Empty };
         toolbar.RowStyles.Add(new(SizeType.Percent, 100));
-        toolbar.ColumnStyles.Add(new(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new(SizeType.Absolute, 150)); toolbar.ColumnStyles.Add(new(SizeType.Absolute, 144));
+        toolbar.ColumnStyles.Add(new(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new(SizeType.Absolute, 150)); toolbar.ColumnStyles.Add(new(SizeType.Absolute, 132)); toolbar.ColumnStyles.Add(new(SizeType.Absolute, 144));
         var searchPlate = new PlatePanel { Dock = DockStyle.Fill, Margin = new(0, 0, 12, 6), Padding = new(10, 0, 10, 0) };
         search.Anchor = AnchorStyles.Left | AnchorStyles.Right; search.BackColor = Paper; search.ForeColor = Ink; search.BorderStyle = BorderStyle.None; search.Font = MakeFont("Consolas", 11, FontStyle.Bold);
         search.TextChanged += (_, _) => Populate();
         searchPlate.Controls.Add(search);
         searchPlate.Layout += (_, _) => { var area = searchPlate.DisplayRectangle; search.SetBounds(area.X, area.Y + Math.Max(0, (area.Height - search.Height) / 2), area.Width, search.Height); };
         count.Dock = DockStyle.Fill; count.TextAlign = ContentAlignment.MiddleRight; count.Font = MakeFont("Consolas", 9, FontStyle.Bold); count.Margin = new(0, 0, 12, 6);
+        folder.Dock = DockStyle.Fill; folder.Margin = new(0, 0, 12, 0); folder.Click += async (_, _) => await AddFolderAsync();
         refresh.Dock = DockStyle.Fill; refresh.Margin = Padding.Empty; refresh.Click += async (_, _) => await ScanAsync();
-        toolbar.Controls.Add(searchPlate, 0, 0); toolbar.Controls.Add(count, 1, 0); toolbar.Controls.Add(refresh, 2, 0);
+        toolbar.Controls.Add(searchPlate, 0, 0); toolbar.Controls.Add(count, 1, 0); toolbar.Controls.Add(folder, 2, 0); toolbar.Controls.Add(refresh, 3, 0);
         root.Controls.Add(toolbar, 0, 2);
         // Plates: list on the left, detail on the right, both with the hard shadow of the buttons.
         var content = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
@@ -93,14 +94,15 @@ internal sealed class GamesWindow : Form
         detailPlate.Controls.Add(detailScroll);
         content.Controls.Add(listPlate, 0, 0); content.Controls.Add(detailPlate, 1, 0); root.Controls.Add(content, 0, 3);
         actions.RowStyles.Add(new(SizeType.Percent, 100));
-        for (int i = 0; i < 5; i++) actions.ColumnStyles.Add(new(SizeType.Percent, 20));
-        foreach (var (button, column) in new[] { (install, 0), (run, 1), (remove, 2), (page, 3), (wiki, 4) })
+        for (int i = 0; i < 6; i++) actions.ColumnStyles.Add(new(SizeType.Percent, 100f / 6));
+        foreach (var (button, column) in new[] { (install, 0), (run, 1), (remove, 2), (forget, 3), (page, 4), (wiki, 5) })
         {
-            button.Dock = DockStyle.Fill; button.Margin = new(column == 0 ? 0 : 6, 0, column == 4 ? 0 : 6, 0); button.Visible = false; actions.Controls.Add(button, column, 0);
+            button.Dock = DockStyle.Fill; button.Margin = new(column == 0 ? 0 : 6, 0, column == 5 ? 0 : 6, 0); button.Visible = false; actions.Controls.Add(button, column, 0);
         }
         install.Click += async (_, _) => await InstallAsync();
         remove.Click += (_, _) => Remove();
         run.Click += (_, _) => RunHelper();
+        forget.Click += async (_, _) => await ForgetFolderAsync();
         page.Click += (_, _) => { if (pageUri is { } uri) OpenUrl(uri); };
         wiki.Click += (_, _) => { if (wikiUri is { } uri) OpenUrl(uri); };
         root.Controls.Add(actions, 0, 4);
@@ -138,7 +140,7 @@ internal sealed class GamesWindow : Form
         Text = "MadSense · " + L.Text("Games.Title");
         band.Kicker = L.Text("Games.Kicker"); band.Headline = L.Text("Games.Heading"); band.Tagline = L.Text("Games.Tagline");
         section.Text = L.Text("Games.Section");
-        refresh.Text = L.Text("Games.Refresh");
+        refresh.Text = L.Text("Games.Refresh"); folder.Text = L.Text("Games.AddFolder"); forget.Text = L.Text("Games.ForgetFolder");
         search.PlaceholderText = L.Text("Games.Search"); search.AccessibleName = L.Text("Games.Search"); entries.AccessibleName = L.Text("Games.Title");
         install.Text = L.Text("Games.Install"); remove.Text = L.Text("Games.Remove"); run.Text = L.Text("Games.RunNow");
         page.Text = L.Text("Games.ModPage"); wiki.Text = L.Text("Games.WikiPage");
@@ -248,7 +250,7 @@ internal sealed class GamesWindow : Form
         detail.Controls.Clear(); detailScroll.AutoScrollPosition = Point.Empty;
         detail.ResumeLayout();
         pageUri = wikiUri = null; selectedMod = null;
-        foreach (var button in new[] { install, run, remove, page, wiki }) button.Visible = false;
+        foreach (var button in new[] { install, run, remove, forget, page, wiki }) button.Visible = false;
     }
 
     Control Add(Control control) { detail.Controls.Add(control); FitDetail(); return control; }
@@ -317,6 +319,7 @@ internal sealed class GamesWindow : Form
         }
         else Body(L.Text(entry.Pending ? "Games.LoadingWiki" : service.Wiki.Blocked ? "Games.WikiBlocked" : "Games.NoWikiData"));
         if (standing.Status == GameStatus.Native) Body(L.Text(standing.Mods.Count > 0 ? "Games.NativeModHint" : "Games.NativeHint"), muted: false);
+        if (service.IsCustomFolder(game.Source)) { Body(L.Text("Games.CustomFolderHint", game.Source)); forget.Visible = true; }
         foreach (var mod in standing.Mods)
         {
             var installed = service.Installer.Find(mod.Id, game.Key);
@@ -351,6 +354,28 @@ internal sealed class GamesWindow : Form
     }
 
     // ── actions ───────────────────────────────────────────────────────────────────────────────
+    /// <summary>Lets the user point at a folder where games live; it is remembered and read with every refresh.</summary>
+    async Task AddFolderAsync()
+    {
+        if (scanning) return;
+        string path;
+        using (var dialog = new FolderBrowserDialog { Description = L.Text("Games.AddFolderTitle"), UseDescriptionForTitle = true, ShowNewFolderButton = false })
+        {
+            if (dialog.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(dialog.SelectedPath)) return;
+            path = dialog.SelectedPath;
+        }
+        if (!service.AddFolder(path)) { footer.Text = L.Text("Games.FolderKnown", path); return; }
+        footer.Text = L.Text("Games.FolderAdded", path);
+        await ScanAsync();
+    }
+
+    async Task ForgetFolderAsync()
+    {
+        if (scanning || entries.SelectedItem is not Entry entry || !service.RemoveFolder(entry.Game.Source)) return;
+        footer.Text = L.Text("Games.FolderForgotten", entry.Game.Source);
+        await ScanAsync();
+    }
+
     async Task InstallAsync()
     {
         if (installing || entries.SelectedItem is not Entry entry || selectedMod is not { } mod) return;

@@ -11,6 +11,8 @@ sealed class GamesService : IDisposable
 {
     readonly object gate = new();
     readonly Lazy<PcGamingWikiClient> wiki;
+    readonly string foldersPath;
+    List<string>? folders;
     IReadOnlyList<LibraryGame> library = [];
     Task<IReadOnlyList<LibraryGame>>? scan;
 
@@ -18,6 +20,7 @@ sealed class GamesService : IDisposable
     {
         DataRoot = dataRoot ?? DefaultDataRoot;
         wiki = new(() => new PcGamingWikiClient(Path.Combine(DataRoot, "cache", "pcgw.json")));
+        foldersPath = Path.Combine(DataRoot, "games-folders.json");
         Installer = new ModInstaller(Path.Combine(DataRoot, "mods"));
         Runner = new ModRunner(Installer, () => Library);
     }
@@ -35,6 +38,51 @@ sealed class GamesService : IDisposable
     public DateTimeOffset? Scanned { get; private set; }
     public event Action? LibraryChanged;
 
+    /// <summary>Folders the user added by hand; read with every scan, kept in a small JSON file.</summary>
+    public IReadOnlyList<string> CustomFolders { get { lock (gate) return Folders().ToList(); } }
+
+    public bool IsCustomFolder(string path) { lock (gate) return Folders().Any(f => Same(f, path)); }
+
+    /// <summary>Remembers <paramref name="path"/>; false when it was already there.</summary>
+    public bool AddFolder(string path)
+    {
+        var full = Path.GetFullPath(path).TrimEnd('\\');
+        lock (gate)
+        {
+            var list = Folders();
+            if (list.Any(f => Same(f, full))) return false;
+            list.Add(full); SaveFolders(list);
+        }
+        return true;
+    }
+
+    public bool RemoveFolder(string path)
+    {
+        lock (gate)
+        {
+            var list = Folders();
+            int removed = list.RemoveAll(f => Same(f, path));
+            if (removed > 0) SaveFolders(list);
+            return removed > 0;
+        }
+    }
+
+    static bool Same(string a, string b) => string.Equals(a.TrimEnd('\\'), b.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+
+    List<string> Folders()
+    {
+        if (folders is not null) return folders;
+        try { folders = File.Exists(foldersPath) ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(File.ReadAllText(foldersPath)) ?? [] : []; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { folders = []; }
+        return folders;
+    }
+
+    void SaveFolders(List<string> list)
+    {
+        try { Directory.CreateDirectory(DataRoot); File.WriteAllText(foldersPath, System.Text.Json.JsonSerializer.Serialize(list)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
     /// <summary>Reads every launcher's records; concurrent callers share one scan.</summary>
     public Task<IReadOnlyList<LibraryGame>> ScanAsync(CancellationToken cancellationToken = default)
     {
@@ -43,7 +91,7 @@ sealed class GamesService : IDisposable
             if (scan is { IsCompleted: false }) return scan;
             scan = Task.Run(() =>
             {
-                var games = GameLibrary.Scan(cancellationToken);
+                var games = GameLibrary.Scan(cancellationToken, CustomFolders);
                 lock (gate) { library = games; Scanned = DateTimeOffset.Now; }
                 LibraryChanged?.Invoke();
                 return games;

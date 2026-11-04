@@ -22,7 +22,7 @@ static class GameLibrary
     static readonly string[] SteamUtilities = ["228980", "1812620", "250820", "1070560", "431960", "993090"];
     static readonly string[] Publishers = ["Electronic Arts", "Rockstar Games", "Blizzard Entertainment", "Riot Games", "Bethesda", "Ubisoft", "CD PROJEKT", "Square Enix"];
 
-    public static IReadOnlyList<LibraryGame> Scan(CancellationToken cancellationToken = default)
+    public static IReadOnlyList<LibraryGame> Scan(CancellationToken cancellationToken = default, IReadOnlyList<string>? folders = null)
     {
         var games = new List<LibraryGame>();
         var warnings = new List<string>();
@@ -39,7 +39,7 @@ static class GameLibrary
         Try("Ubisoft", Ubisoft);
         Try("Xbox", Xbox);
         Try("Uninstall", () => Uninstall(games));
-        Try("Folders", () => Folders(games));
+        Try("Folders", () => Folders(FolderRoots(games, folders ?? []), games));
         Warnings = warnings;
         return games
             .Where(g => Directory.Exists(g.InstallDir))
@@ -150,18 +150,51 @@ static class GameLibrary
     // ── plain folders: games that no launcher recorded (offline installers, itch, repacks) ──────
     static readonly string[] FolderNames = ["Games", "Juegos", "Jogos", "Spiele", "Jeux", "Giochi", "Gry", "GOG Games"];
     static readonly string[] Containers = ["Epic Games", "GOG Games", "Ubisoft", "Ubisoft Game Launcher", "Rockstar Games", "EA Games", "Origin Games", "Battle.net", "Riot Games", "Amazon Games", "itch"];
-    static readonly string[] SkipFolders = ["Steam", "SteamLibrary", "steamapps", "XboxGames", "WindowsApps", "_CommonRedist", "_Redist", "Redist", "Engine", "DirectX", "Support", "dotnet", "vcredist", "Tools", "Saves"];
+    static readonly string[] SkipFolders = ["Steam", "SteamLibrary", "steamapps", "XboxGames", "WindowsApps", "Launcher", "_CommonRedist", "_Redist", "Redist", "Engine", "DirectX", "Support", "dotnet", "vcredist", "Tools", "Saves"];
     static readonly string[] UtilityExes = ["unins", "setup", "install", "redist", "vc_", "dxsetup", "dxweb", "crash", "report", "sfv", "unrar", "7z", "dotnet", "python", "java", "cef", "subprocess", "eac", "anticheat", "battleye", "uploader", "handler", "updater", "helper"];
 
-    /// <summary>Folders worth a look: a games folder at the root of each fixed drive, and one under the profile.</summary>
-    static IEnumerable<string> FolderRoots()
+    static readonly string[] SystemFolders = ["Windows", "Program Files", "Program Files (x86)", "ProgramData", "AppData", "$Recycle.Bin", "System Volume Information", "Recovery", "PerfLogs", "Intermediate", "Saved"];
+    static readonly EnumerationOptions Listing = new() { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.Hidden | FileAttributes.System | FileAttributes.ReparsePoint };
+
+    /// <summary>
+    /// Folders worth a look, cheapest first: the ones the user added; a games folder at the root
+    /// of each fixed drive and one level below it (D:\Alex\Juegos); the profile's Games; and, since
+    /// people keep games next to the ones a launcher already put there, the parent and grandparent
+    /// of every known non-Steam game, never a drive root or a system folder.
+    /// </summary>
+    static IEnumerable<string> FolderRoots(IReadOnlyList<LibraryGame> known, IEnumerable<string> extra) =>
+        FolderRoots(known, extra, DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady).Select(d => d.RootDirectory.FullName));
+
+    internal static IEnumerable<string> FolderRoots(IReadOnlyList<LibraryGame> known, IEnumerable<string> extra, IEnumerable<string> driveRoots)
     {
-        foreach (var drive in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady))
-            foreach (var name in FolderNames) yield return Path.Combine(drive.RootDirectory.FullName, name);
+        foreach (var folder in extra) yield return folder;
+        foreach (var drive in driveRoots)
+        {
+            foreach (var name in FolderNames) yield return Path.Combine(drive, name);
+            List<string> tops;
+            try { tops = Directory.EnumerateDirectories(drive, "*", Listing).ToList(); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { continue; }
+            foreach (var top in tops)
+                if (!SystemFolders.Contains(Path.GetFileName(top), StringComparer.OrdinalIgnoreCase))
+                    foreach (var name in FolderNames) yield return Path.Combine(top, name);
+        }
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Games");
+        foreach (var game in known)
+        {
+            if (game.Source is "Steam" or "Xbox") continue;
+            var parent = Path.GetDirectoryName(game.InstallDir.TrimEnd('\\'));
+            for (int level = 0; level < 2 && parent is not null && !IsDriveRoot(parent) && !IsSystemPath(parent); level++)
+            {
+                yield return parent;
+                parent = Path.GetDirectoryName(parent);
+            }
+        }
     }
 
-    static IEnumerable<LibraryGame> Folders(List<LibraryGame> known) => Folders(FolderRoots(), known);
+    static bool IsDriveRoot(string path) => string.Equals(Path.GetPathRoot(path)?.TrimEnd('\\'), path.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+
+    static bool IsSystemPath(string path) => path.Split('\\', StringSplitOptions.RemoveEmptyEntries).Any(s => SystemFolders.Contains(s, StringComparer.OrdinalIgnoreCase));
+
 
     /// <summary>
     /// Every direct subfolder of a games folder that holds a real executable within four levels is
@@ -171,7 +204,7 @@ static class GameLibrary
     /// </summary>
     internal static IEnumerable<LibraryGame> Folders(IEnumerable<string> roots, IReadOnlyList<LibraryGame> known)
     {
-        var options = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.Hidden | FileAttributes.System | FileAttributes.ReparsePoint };
+        var options = Listing;
         foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (!Directory.Exists(root)) continue;
