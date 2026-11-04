@@ -494,6 +494,10 @@ public class DualSenseDeviceDisposeTests
         Assert.That(hid.ReadEntered.Task.Wait(TimeSpan.FromSeconds(2)), Is.True);
         device.Dispose();
 
+        // MadSense: the read thread unblocks on Dispose but may still be a few scheduler ticks away
+        // from returning; this is a bounded wait, not an instant check (the check raced ~1 in 3 runs).
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (!hid.ReadReturned && DateTime.UtcNow < deadline) Thread.Sleep(10);
         Assert.That(hid.ReadReturned, Is.True);
     }
 }
