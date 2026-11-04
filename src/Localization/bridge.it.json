@@ -1,4 +1,6 @@
 {
+  "Bridge.Charging": "DualSense · Bluetooth · In carica",
+  "Bridge.Charged": "DualSense · Bluetooth · Carica completa",
   "Bridge.ConnectionDetails": "{0}{1}\n{2}",
   "Bridge.InvalidMode": "Modalità non valida.",
   "Bridge.SaveModeFailed": "Impossibile salvare la modalità: {0}",

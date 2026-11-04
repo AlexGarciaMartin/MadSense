@@ -21,10 +21,15 @@ function Assert([bool]$Condition,[string]$Message) { if(!$Condition){throw $Mess
 function Invoke-TestSetup([string]$Scenario,[string]$Target,[string]$Label) {
     $log=Join-Path $qa ($Label+'.log')
     $arguments=@('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOLAUNCH=1','/RESTARTEXITCODE=3010',('/LANG='+$Language),
-        ('/TESTSCENARIO='+$Scenario),('/DIR="'+$Target+'"'),('/LOG="'+$log+'"'))
+        ('/TESTSCENARIO='+$Scenario),('/DIR="'+$Target+'"'),('/LOG="'+$log+'"'),
+        ('/UPDATESTATUS="'+$log+'.status"'))
     $p=Start-Process -FilePath $Installer -ArgumentList $arguments -WindowStyle Hidden -PassThru
     if(!$p.WaitForExit(120000)){throw "El instalador TEST no termina: $Label (PID $($p.Id)); no se fuerza el cierre."}
     $p.Refresh()
+    $statusFile=$log+'.status'
+    if ($p.ExitCode -eq 0) { Assert (([IO.File]::ReadAllText($statusFile)).Trim() -eq 'ready') 'Integrated updater did not receive ready status.' }
+    if ($p.ExitCode -eq 3010) { Assert (([IO.File]::ReadAllText($statusFile)).Trim() -eq 'reboot') 'Integrated updater did not receive reboot status.' }
+    if ($Scenario -eq 'register-failure') { Assert (([IO.File]::ReadAllText($statusFile)).Trim() -eq 'failed') 'Integrated updater missed registration failure.' }
     Assert ((Get-Content -LiteralPath $log -Raw) -match ('Installer language: '+$Language)) 'Setup did not select the requested language.'
     $results.Add([pscustomobject]@{Case=$Label;ExitCode=$p.ExitCode;Log=[IO.Path]::GetFileName($log)})
     return $p.ExitCode

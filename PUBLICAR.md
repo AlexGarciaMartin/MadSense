@@ -1,6 +1,6 @@
 # Preparar y publicar el instalador de MadSense
 
-El repositorio es [AlexGarciaMartin/MadSense](https://github.com/AlexGarciaMartin/MadSense), GPL-3.0. La distribución actual es el instalador `MadSense-0.4.6-Setup.exe` de la release `v0.4.6`; `v0.4` conserva el ZIP histórico. **Compilar no publica una release ni modifica la descarga de la web**: esos pasos se realizan por separado.
+El repositorio es [AlexGarciaMartin/MadSense](https://github.com/AlexGarciaMartin/MadSense), GPL-3.0. La distribución actual es el instalador `MadSense-0.4.9-Setup.exe` de la release `v0.4.9`; `v0.4` conserva el ZIP histórico. **Compilar no publica una release ni modifica la descarga de la web**: esos pasos se realizan por separado.
 
 ## Preparar el artefacto
 
@@ -63,7 +63,9 @@ El manifiesto debe mantener una versión estable de tres números, sin prefijo `
 - `downloadUrl`: `https://github.com/AlexGarciaMartin/MadSense/releases/download/vX.Y.Z/MadSense-X.Y.Z-Setup.exe`
 - `releaseUrl`: `https://github.com/AlexGarciaMartin/MadSense/releases/tag/vX.Y.Z`
 
-Conserva también tamaño, SHA-256 y datos del artefacto exacto en el manifiesto. El aviso solo abre la descarga cuando el usuario pulsa; no instala nada por su cuenta. Los usuarios de `0.4.4` o anteriores deben instalar una vez la versión nueva para incorporar esta comprobación.
+Conserva también tamaño, SHA-256 y datos del artefacto exacto en el manifiesto. Desde 0.4.9, pulsar Actualizar descarga y verifica el paquete firmado dentro de MadSense y aplica la actualización tras confirmar y liberar el mando. Las versiones anteriores necesitan una instalación manual para incorporar este flujo.
+
+Publica junto al EXE su descriptor firmado `MadSense-X.Y.Z-Setup.exe.update.json`, generado con `tools/sign-update.ps1 -Installer <EXE> -Version X.Y.Z -Channel stable`. No publiques el manifiesto de la web hasta comprobar tanto el EXE como este descriptor. La clave privada CNG no se incluye en los binarios ni en Git. El descriptor vincula versión estable, URL canónica, tamaño y SHA-256; si falta o no es válido, la app rechaza la actualización.
 
 ## Licencias y atribución
 

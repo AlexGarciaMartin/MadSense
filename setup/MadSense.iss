@@ -288,7 +288,7 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var ResultFile: String;
+var ResultFile, UpdateStatusPath, UpdateStatus: String;
 begin
   if CurStep = ssPostInstall then begin
     ResultFile := ExpandConstant('{tmp}\register-result.ini');
@@ -298,6 +298,14 @@ begin
       Log('INSTALLATION INCOMPLETE: ' + RegistrationError);
     end;
     if RegistrationPending then Log('HidHide registration deferred until requested restart; application rechecks on startup.');
+    UpdateStatusPath := ExpandConstant('{param:UPDATESTATUS|}');
+    if UpdateStatusPath <> '' then begin
+      UpdateStatus := 'ready';
+      if DriversRestart then UpdateStatus := 'reboot';
+      if RegistrationFailed then UpdateStatus := 'failed';
+      if not SaveStringToFile(UpdateStatusPath, UpdateStatus, False) then
+        Log('Unable to write integrated update status.');
+    end;
   end;
 end;
 

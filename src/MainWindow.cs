@@ -15,7 +15,7 @@ sealed class MainWindow : Form
     static readonly Color Hot = Color.FromArgb(249, 84, 40);
     static readonly Color Muted = Color.FromArgb(99, 96, 85);
     static readonly string DisplayVersion = typeof(MainWindow).Assembly.GetName().Version is { } version
-        ? $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}" : "0.4";
+        ? version.Revision > 0 ? version.ToString(4) : $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}" : "0.4";
     const int WM_DEVICECHANGE = 0x0219, DBT_DEVNODES_CHANGED = 0x0007;
     const int LowBatteryPercent = 15;
     readonly Channel<Action<Bridge>> commands = Channel.CreateUnbounded<Action<Bridge>>(new() { SingleReader = true });
@@ -52,6 +52,7 @@ sealed class MainWindow : Form
     AppUpdate? availableUpdate;
     Icon? updateTrayIcon;
     int updateCheckRunning;
+    bool installingUpdate;
     string updateCheckLabel = "Ui.CheckUpdates";
     bool paused, quitting, hasHiddenTip, allowVisible, lowBatteryNotified;
     float phase;
@@ -301,7 +302,7 @@ sealed class MainWindow : Form
         if (modeHint.Text != hint) { modeHint.Text = hint; FitLabel(modeHint, 10, 8.5f, true); }
         activity.Text = displayedMessage.Render();
         activity.AccessibleDescription = displayedMessage.Message.Render();
-        var battery = hero.Connected && hero.Signals is { Battery: >= 0 } sig ? L.Text("Ui.TrayBattery", sig.Battery) : "";
+        var battery = hero.Connected && hero.Signals is { } sig ? BatteryPresentation.Tray(sig.Battery, sig.Charging) : "";
         tray.Text = Truncate(availableUpdate is { } update
             ? L.Text("Ui.UpdateAvailable", update.Version)
             : L.Text(hero.Connected ? "Ui.TrayReady" : paused ? "Ui.TrayPaused" : "Ui.TrayWaiting") + battery, 63);
@@ -324,7 +325,10 @@ sealed class MainWindow : Form
         Post(RefreshUpdateUi);
         try
         {
-            var result = await updateChecker.CheckAsync(typeof(MainWindow).Assembly.GetName().Version!, updateToken).ConfigureAwait(false);
+            var current = typeof(MainWindow).Assembly.GetName().Version!;
+            var result = current.Revision > 0
+                ? await PreviewUpdateChannel.CheckAsync(current, updateToken).ConfigureAwait(false)
+                : await updateChecker.CheckAsync(current, updateToken).ConfigureAwait(false);
             LogFiles.Append("updates.log", $"{DateTimeOffset.Now:O} {(manual ? "Manual" : "Automatic")}: {result.Status} {result.Update?.Version}\n");
             Post(() =>
             {
@@ -365,16 +369,37 @@ sealed class MainWindow : Form
         tray.Icon = availableUpdate is not null ? updateTrayIcon : Icon;
     }
 
-    void OpenUpdateDownload()
+    async void OpenUpdateDownload()
     {
-        if (availableUpdate is not { } update || quitting) return;
+        if (availableUpdate is null || quitting || previewOnly) return;
+        await InstallUpdateAsync();
+    }
+
+    async Task InstallUpdateAsync()
+    {
+        if (installingUpdate || quitting || previewOnly) return;
+        if (MessageBox.Show(this, L.Text("Ui.UpdateConfirm"), "MadSense",
+            MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
+        installingUpdate = true;
+        downloadUpdateItem.Enabled = false;
         try
         {
-            // The installed application continues running. Only the user starts the installer.
-            if (!previewOnly) Process.Start(new ProcessStartInfo(update.DownloadUri.AbsoluteUri) { UseShellExecute = true });
-            ShowActivity(L.Message("Ui.UpdateDownloadOpened"));
+            ShowActivity(L.Message("Ui.UpdateDownloading", 0));
+            var progress = new Progress<int>(percent => { if (!quitting) ShowActivity(L.Message("Ui.UpdateDownloading", percent)); });
+            var offer = availableUpdate;
+            var directory = await Task.Run(() => IntegratedUpdate.StageAsync(offer, null, progress, updateToken));
+            await IntegratedUpdate.LaunchAsync(directory, updateToken);
+            await QuitAsync();
         }
-        catch { ShowActivity(L.Message("Ui.UpdateOpenFailed")); }
+        catch (OperationCanceledException) when (quitting) { }
+        catch (Exception error)
+        {
+            LogFiles.Append("updates.log", $"{DateTimeOffset.Now:O} Update failed: {error}\n");
+            ShowActivity(L.Message("Ui.UpdateFailed"));
+            if (!quitting) MessageBox.Show(this, L.Text("Ui.UpdateFailed") + "\n" + error.Message,
+                "MadSense", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally { installingUpdate = false; if (!quitting) downloadUpdateItem.Enabled = true; }
     }
 
     internal void SetPreviewUpdate(AppUpdate? update)
@@ -502,8 +527,11 @@ sealed class MainWindow : Form
                     // The speaker only exists for the DualSense persona; an Xbox pad has none.
                     foreach (var pair in speakerButtons) { pair.Value.Selected = pair.Key == speakerLevel; pair.Value.Enabled = mode != "Xbox"; pair.Value.Invalidate(); }
                     foreach (var pair in speakerItems) { pair.Value.Checked = pair.Key == speakerLevel; pair.Value.Enabled = mode != "Xbox"; }
-                    displayedMessage = message;
-                    RefreshStatusText();
+                    if (!installingUpdate)
+                    {
+                        displayedMessage = message;
+                        RefreshStatusText();
+                    }
                     if (notifyLowBattery) tray.ShowBalloonTip(6000, L.Text("Ui.LowBatteryTitle"), L.Text("Ui.LowBatteryBody", signals.Battery), ToolTipIcon.Warning);
                 });
                 // Sleep until a command, a device event or the bridge's own schedule needs us.
@@ -602,7 +630,7 @@ sealed class MainWindow : Form
             update = value;
             download.Text = value is null ? "" : L.Text("Ui.UpdateBadge", value.Version);
             download.AccessibleName = value is null ? "" : L.Text("Ui.UpdateAvailable", value.Version);
-            download.AccessibleDescription = L.Text("Ui.UpdateDownloadOpened");
+            download.AccessibleDescription = L.Text("Ui.UpdateConfirm");
             tip.SetToolTip(download, download.AccessibleName + "\n" + L.Text("Ui.Version", DisplayVersion));
             PositionBadge();
             Invalidate();
