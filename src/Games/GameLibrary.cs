@@ -14,7 +14,7 @@ sealed record LibraryGame(string Key, string Name, string Source, string? SteamA
 /// Reads the installed games every launcher on this PC keeps a record of: Steam (manifests), Epic
 /// (item manifests), GOG Galaxy, Ubisoft Connect (registry), Xbox / Microsoft Store (XboxGames
 /// folders) and the Windows uninstall list for the launchers that write nothing else (EA, Rockstar,
-/// Battle.net, Riot, Bethesda). Each source is read in isolation: one unreadable launcher never
+/// Battle.net, Riot, Bethesda), plus the plain games folders no launcher wrote (see Folders). Each source is read in isolation: one unreadable launcher never
 /// hides the others. The approach follows the open-source Zerk Sense 5 library scanner (MIT).
 /// </summary>
 static class GameLibrary
@@ -39,6 +39,7 @@ static class GameLibrary
         Try("Ubisoft", Ubisoft);
         Try("Xbox", Xbox);
         Try("Uninstall", () => Uninstall(games));
+        Try("Folders", () => Folders(games));
         Warnings = warnings;
         return games
             .Where(g => Directory.Exists(g.InstallDir))
@@ -144,6 +145,94 @@ static class GameLibrary
                 yield return new LibraryGame("dir:" + dir.TrimEnd('\\').ToLowerInvariant(), name, publisher, null, dir, null);
             }
         }
+    }
+
+    // ── plain folders: games that no launcher recorded (offline installers, itch, repacks) ──────
+    static readonly string[] FolderNames = ["Games", "Juegos", "Jogos", "Spiele", "Jeux", "Giochi", "Gry", "GOG Games"];
+    static readonly string[] Containers = ["Epic Games", "GOG Games", "Ubisoft", "Ubisoft Game Launcher", "Rockstar Games", "EA Games", "Origin Games", "Battle.net", "Riot Games", "Amazon Games", "itch"];
+    static readonly string[] SkipFolders = ["Steam", "SteamLibrary", "steamapps", "XboxGames", "WindowsApps", "_CommonRedist", "_Redist", "Redist", "Engine", "DirectX", "Support", "dotnet", "vcredist", "Tools", "Saves"];
+    static readonly string[] UtilityExes = ["unins", "setup", "install", "redist", "vc_", "dxsetup", "dxweb", "crash", "report", "sfv", "unrar", "7z", "dotnet", "python", "java", "cef", "subprocess", "eac", "anticheat", "battleye", "uploader", "handler", "updater", "helper"];
+
+    /// <summary>Folders worth a look: a games folder at the root of each fixed drive, and one under the profile.</summary>
+    static IEnumerable<string> FolderRoots()
+    {
+        foreach (var drive in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady))
+            foreach (var name in FolderNames) yield return Path.Combine(drive.RootDirectory.FullName, name);
+        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Games");
+    }
+
+    static IEnumerable<LibraryGame> Folders(List<LibraryGame> known) => Folders(FolderRoots(), known);
+
+    /// <summary>
+    /// Every direct subfolder of a games folder that holds a real executable within four levels is
+    /// a game; a launcher's own folder (Epic Games, GOG Games…) or one that already contains a known
+    /// game is looked into one level deeper instead. Only directory listings are read, bounded per
+    /// candidate, so a drive full of games costs a few milliseconds and no file is opened.
+    /// </summary>
+    internal static IEnumerable<LibraryGame> Folders(IEnumerable<string> roots, IReadOnlyList<LibraryGame> known)
+    {
+        var options = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.Hidden | FileAttributes.System | FileAttributes.ReparsePoint };
+        foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!Directory.Exists(root)) continue;
+            foreach (var folder in Directory.EnumerateDirectories(root, "*", options))
+            {
+                if (SkipFolders.Contains(Path.GetFileName(folder), StringComparer.OrdinalIgnoreCase)) continue;
+                bool container = Containers.Contains(Path.GetFileName(folder), StringComparer.OrdinalIgnoreCase) || known.Any(g => Covers(folder, g.InstallDir) && !Covers(g.InstallDir, folder));
+                IEnumerable<string> candidates = container ? Directory.EnumerateDirectories(folder, "*", options) : [folder];
+                foreach (var candidate in candidates)
+                {
+                    if (known.Any(g => Covers(g.InstallDir, candidate) || Covers(candidate, g.InstallDir))) continue;
+                    var exe = BestExecutable(candidate, options);
+                    if (exe is null) continue;
+                    yield return new LibraryGame("dir:" + candidate.TrimEnd('\\').ToLowerInvariant(), CleanName(Path.GetFileName(candidate)), root, null, candidate, exe);
+                }
+            }
+        }
+    }
+
+    static bool Covers(string parent, string path)
+    {
+        var top = parent.TrimEnd('\\');
+        return path.TrimEnd('\\').Equals(top, StringComparison.OrdinalIgnoreCase) || path.StartsWith(top + "\\", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Breadth-first, four levels, at most 160 folders: the largest executable that is not a tool.</summary>
+    static string? BestExecutable(string folder, EnumerationOptions options)
+    {
+        var queue = new Queue<(string Dir, int Depth)>();
+        queue.Enqueue((folder, 0));
+        string? best = null; long bestSize = -1; int visited = 0;
+        while (queue.Count > 0 && visited < 160)
+        {
+            var (dir, depth) = queue.Dequeue();
+            visited++;
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(dir, "*.exe", options))
+                {
+                    var stem = Path.GetFileNameWithoutExtension(file).ToLowerInvariant();
+                    if (UtilityExes.Any(stem.Contains)) continue;
+                    long size = new FileInfo(file).Length;
+                    if (size > bestSize) { bestSize = size; best = file; }
+                }
+                if (depth >= 4) continue;
+                foreach (var sub in Directory.EnumerateDirectories(dir, "*", options))
+                    if (!SkipFolders.Contains(Path.GetFileName(sub), StringComparer.OrdinalIgnoreCase)) queue.Enqueue((sub, depth + 1));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+        return best;
+    }
+
+    /// <summary>The folder name as a title: no bracketed tags, version suffix or underscores.</summary>
+    internal static string CleanName(string folder)
+    {
+        var name = folder.Replace('_', ' ');
+        name = System.Text.RegularExpressions.Regex.Replace(name, @"\s*[\[\(][^\]\)]*[\]\)]", "");
+        name = System.Text.RegularExpressions.Regex.Replace(name, @"[\s.]+v?\d+(\.\d+)+[a-z]?$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        name = System.Text.RegularExpressions.Regex.Replace(name, @"\s{2,}", " ").Trim(' ', '-', '.');
+        return name.Length == 0 ? folder : name;
     }
 
     static string? Text(JsonElement element, string name) => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

@@ -98,6 +98,7 @@ public class GamesCatalogTests
             Assert.Multiple(() =>
             {
                 Assert.That(record.Exe, Is.EqualTo("WF2_DSX.exe"));
+                Assert.That(record.GameDir, Is.EqualTo(game.InstallDir), "the runner follows the game from the record alone");
                 Assert.That(File.Exists(Path.Combine(record.Root, "WF2_DSX.exe")), Is.True);
                 Assert.That(installer.IsInstalled("fake-helper", game.Key), Is.True);
                 Assert.That(record.Sha256, Is.EqualTo(digest));

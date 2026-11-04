@@ -17,6 +17,8 @@ sealed class InstalledMod
     [JsonPropertyName("root")] public string Root { get; set; } = "";
     [JsonPropertyName("files")] public List<string> Files { get; set; } = [];
     [JsonPropertyName("exe")] public string? Exe { get; set; }
+    /// <summary>The game folder at install time, so the runner can follow the game without a library scan.</summary>
+    [JsonPropertyName("gameDir")] public string? GameDir { get; set; }
 }
 
 sealed record InstallProgress(string Stage, long Done, long Total);
@@ -35,7 +37,7 @@ sealed class ModInstaller
     static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     readonly string modsRoot;
     readonly string registryPath;
-    readonly HttpClient http;
+    HttpClient? http;
     readonly object gate = new();
     List<InstalledMod> installed = [];
 
@@ -43,12 +45,36 @@ sealed class ModInstaller
     {
         this.modsRoot = modsRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MadSense", "mods");
         registryPath = Path.Combine(this.modsRoot, "installed.json");
-        this.http = http ?? new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = true, MaxAutomaticRedirections = 5 }) { Timeout = TimeSpan.FromMinutes(10) };
-        this.http.DefaultRequestHeaders.UserAgent.ParseAdd("MadSense/0.5 (+https://madsense.pro; mod-install)");
+        this.http = http;
         Load();
     }
 
     public string ModsRoot => modsRoot;
+
+    /// <summary>Raised after the registry changes (install, removal).</summary>
+    public event Action? Changed;
+
+    /// <summary>One small file read: whether a helper is recorded under <paramref name="modsRoot"/>.</summary>
+    public static bool AnyHelperInstalled(string modsRoot)
+    {
+        var path = Path.Combine(modsRoot, "installed.json");
+        try { return File.Exists(path) && (JsonSerializer.Deserialize<List<InstalledMod>>(File.ReadAllText(path), Json)?.Any(m => m.Exe != null) ?? false); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return false; }
+    }
+
+    /// <summary>Created on the first download, with the install user agent; tests hand in their own.</summary>
+    HttpClient Http
+    {
+        get
+        {
+            if (http is null)
+            {
+                http = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = true, MaxAutomaticRedirections = 5 }) { Timeout = TimeSpan.FromMinutes(10) };
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("MadSense/0.5 (+https://madsense.pro; mod-install)");
+            }
+            return http;
+        }
+    }
 
     public IReadOnlyList<InstalledMod> Installed { get { lock (gate) return installed.ToList(); } }
 
@@ -83,6 +109,7 @@ sealed class ModInstaller
                 installed.Add(record);
                 Save();
             }
+            Changed?.Invoke();
             progress?.Report(new InstallProgress("done", 1, 1));
             return record;
         }
@@ -130,11 +157,12 @@ sealed class ModInstaller
             try { if (Directory.Exists(record.Root)) Directory.Delete(record.Root, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
         lock (gate) { installed.Remove(record); Save(); }
+        Changed?.Invoke();
     }
 
     async Task<string> DownloadAsync(ModPackage package, string target, IProgress<InstallProgress>? progress, CancellationToken cancellationToken)
     {
-        using var response = await http.GetAsync(package.Url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var response = await Http.GetAsync(package.Url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException(L.Text("Games.DownloadFailed", (int)response.StatusCode));
         var expected = response.Content.Headers.ContentLength ?? package.Size;
         if (expected > MaximumPackageBytes) throw new InvalidOperationException(L.Text("Games.PackageTooLarge"));
@@ -201,7 +229,7 @@ sealed class ModInstaller
     static InstalledMod Record(ModEntry mod, LibraryGame game, string root, List<string> files, string sha256, string? exe) => new()
     {
         Id = mod.Id, GameKey = game.Key, Version = mod.Package!.Version, Sha256 = sha256, Installed = DateTimeOffset.Now,
-        Root = root, Files = files, Exe = exe,
+        Root = root, Files = files, Exe = exe, GameDir = game.InstallDir,
     };
 
     static string CopyFile(string source, string root, string name)

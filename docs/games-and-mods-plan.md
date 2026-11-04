@@ -19,7 +19,7 @@ El detalle muestra las seis funciones (hápticos, gatillos, altavoz, barra de lu
 
 ## Biblioteca de juegos
 
-`GameLibrary` lee Steam (manifiestos `appmanifest_*.acf`, todas las bibliotecas de `libraryfolders.vdf`), Epic (`%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests\*.item`), GOG Galaxy (registro `GOG.com\Games`), Ubisoft Connect (registro `Ubisoft\Launcher\Installs`), Xbox (`<unidad>:\XboxGames\*\Content\MicrosoftGame.config`) y la lista de desinstalación de Windows para los editores que no dejan otro rastro (EA, Rockstar, Blizzard, Riot, Bethesda…). Cada fuente se lee aislada; una ilegible no esconde las demás. Enfoque tomado del escáner de Zerk Sense 5 (MIT).
+`GameLibrary` lee Steam (manifiestos `appmanifest_*.acf`, todas las bibliotecas de `libraryfolders.vdf`), Epic (`%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests\*.item`), GOG Galaxy (registro `GOG.com\Games`), Ubisoft Connect (registro `Ubisoft\Launcher\Installs`), Xbox (`<unidad>:\XboxGames\*\Content\MicrosoftGame.config`) y la lista de desinstalación de Windows para los editores que no dejan otro rastro (EA, Rockstar, Blizzard, Riot, Bethesda…). Después mira las carpetas sueltas: `Games`, `Juegos`, `Jogos`, `Spiele`, `Jeux`, `Giochi`, `Gry` o `GOG Games` en la raíz de cada disco fijo y `Games` en el perfil; cada subcarpeta con un ejecutable real (no desinstalador, redist ni crash handler) hasta cuatro niveles es un juego, con el nombre de la carpeta limpio de etiquetas y versión. Solo lee listados de directorio, acotados a 160 carpetas por candidato, y nunca cuenta dos veces lo que un launcher ya registró. Cada fuente se lee aislada; una ilegible no esconde las demás. Enfoque tomado del escáner de Zerk Sense 5 (MIT).
 
 ## Receptor de mods (protocolo DSX)
 

@@ -29,13 +29,12 @@ sealed class MainWindow : Form
     readonly ToolStripMenuItem autostart;
     readonly ToolStripMenuItem openItem = new(), pauseItem = new(), speakerMenu = new(), languageMenu = new(), quitItem = new();
     readonly ToolStripMenuItem checkUpdatesItem = new(), downloadUpdateItem = new();
-    readonly ToolStripMenuItem gamesItem = new();
+    readonly ToolStripMenuItem gamesItem = new(), logsItem = new();
     readonly RoundedButton gamesButton = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 10, 0) };
     Games.GamesWindow? gamesWindow;
     readonly Dictionary<string, ToolStripMenuItem> languageItems = new();
     readonly HeaderPanel header = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
     readonly Label section = CreateSection(), speakerSection = CreateSection();
-    readonly RoundedButton details = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 10, 0) };
     readonly HeroPanel hero = new() { Dock = DockStyle.Fill };
     readonly RoundedButton pause = new() { Accent = true, Width = 144, Height = 40 };
     readonly Label modeHint = new() { Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
@@ -145,20 +144,20 @@ sealed class MainWindow : Form
         for (int i = 0; i < 3; i++) speaker.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 3));
         AddSpeaker("Alto", 0); AddSpeaker("Bajo", 1); AddSpeaker("Off", 2);
         layout.Controls.Add(speaker, 0, 5);
-        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
         activity.Font = new Font(Font.FontFamily, 8);
         footer.Controls.Add(activity, 0, 0);
-        details.Click += (_, _) => { if (previewOnly) return; try { Process.Start(new ProcessStartInfo("explorer.exe", AppContext.BaseDirectory) { UseShellExecute = true }); } catch (Exception e) { ShowActivity(UiMessage.FromException(e)); } };
         gamesButton.Click += (_, _) => OpenGames();
         footer.Controls.Add(gamesButton, 1, 0);
-        footer.Controls.Add(details, 2, 0);
         pause.Dock = DockStyle.Fill; pause.Margin = Padding.Empty;
         pause.Click += (_, _) => TogglePause();
-        footer.Controls.Add(pause, 3, 0);
+        footer.Controls.Add(pause, 2, 0);
         layout.Controls.Add(footer, 0, 6);
         Controls.Add(layout);
         header.DownloadRequested += (_, _) => OpenUpdateDownload();
+        // Only a helper already installed justifies the games service before the screen opens: one small file read decides.
+        if (!previewOnly && MadSense.Games.GamesService.HelpersInstalled()) _ = Games;
 
         var menu = new ContextMenuStrip();
         openItem.Click += (_, _) => RestoreWindow(); menu.Items.Add(openItem);
@@ -188,6 +187,8 @@ sealed class MainWindow : Form
         menu.Items.Add(autostart);
         menu.Items.Add(new ToolStripSeparator());
         downloadUpdateItem.Click += (_, _) => OpenUpdateDownload();
+        logsItem.Click += (_, _) => { if (previewOnly) return; try { Process.Start(new ProcessStartInfo("explorer.exe", AppContext.BaseDirectory) { UseShellExecute = true }); } catch (Exception e) { ShowActivity(UiMessage.FromException(e)); } };
+        menu.Items.Add(logsItem);
         menu.Items.Add(downloadUpdateItem);
         checkUpdatesItem.Click += async (_, _) => await CheckForUpdatesAsync(manual: true);
         menu.Items.Add(checkUpdatesItem);
@@ -274,7 +275,7 @@ sealed class MainWindow : Form
     {
         var culture = CultureInfo.GetCultureInfo(L.CurrentLanguage);
         section.Text = L.Text("Ui.ModeSection"); speakerSection.Text = L.Text("Ui.SpeakerSection");
-        details.Text = L.Text("Ui.Logs"); details.AccessibleDescription = L.Text("Ui.LogsDescription");
+        logsItem.Text = L.Text("Ui.Logs"); logsItem.ToolTipText = L.Text("Ui.LogsDescription");
         gamesButton.Text = gamesItem.Text = L.Text("Games.Title");
         pause.Text = L.Text(paused ? "Ui.Resume" : "Ui.Pause");
         modeButtons["Auto"].Text = L.Text("Ui.NativeMode"); modeButtons["Xbox"].Text = L.Text("Ui.XboxMode");

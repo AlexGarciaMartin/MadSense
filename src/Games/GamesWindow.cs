@@ -32,10 +32,17 @@ internal sealed class GamesWindow : Form
     CancellationTokenSource? lookups;
     bool scanning, installing, disposedResources, rebuilding;
     string? selectedKey;
+    string listSignature = "", shownSignature = "";
     ModEntry? selectedMod;
     Uri? pageUri, wikiUri;
 
-    sealed record Entry(LibraryGame Game, GameStanding Standing, bool Pending) { public override string ToString() => Game.Name; }
+    sealed class Entry(LibraryGame game, GameStanding standing, bool pending)
+    {
+        public LibraryGame Game { get; } = game;
+        public GameStanding Standing { get; set; } = standing;
+        public bool Pending { get; set; } = pending;
+        public override string ToString() => Game.Name;
+    }
 
     public GamesWindow(GamesService service)
     {
@@ -178,30 +185,59 @@ internal sealed class GamesWindow : Form
     {
         if (IsDisposed || Disposing || disposedResources) return;
         var previous = (entries.SelectedItem as Entry)?.Game.Key ?? selectedKey;
-        var rows = games.Select(g => new Entry(g, service.Standing(g, support.GetValueOrDefault(g.Key)), pending.Contains(g.Key)))
-            .Where(r => r.Game.Name.Contains(search.Text.Trim(), StringComparison.CurrentCultureIgnoreCase))
+        var all = games.Select(g => new Entry(g, service.Standing(g, support.GetValueOrDefault(g.Key)), pending.Contains(g.Key))).ToList();
+        var filter = search.Text.Trim();
+        var rows = all.Where(r => r.Game.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase))
             .OrderBy(r => r.Standing.Status switch { GameStatus.ModInstalled => 0, GameStatus.ModAvailable => 1, GameStatus.Native => 2, GameStatus.ModManual => 3, _ => 4 })
             .ThenBy(r => r.Game.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-        rebuilding = true;
-        entries.BeginUpdate(); entries.Items.Clear(); foreach (var row in rows) entries.Items.Add(row); entries.EndUpdate();
         count.Text = L.Text("Games.GameCount", games.Count);
-        var all = games.Select(g => service.Standing(g, support.GetValueOrDefault(g.Key))).ToList();
-        band.Badge = L.Text("Games.Badge", all.Count(s => s.Status == GameStatus.Native), all.Count(s => s.Mods.Count > 0));
+        band.Badge = L.Text("Games.Badge", all.Count(r => r.Standing.Status == GameStatus.Native), all.Count(r => r.Standing.Mods.Count > 0));
         band.Invalidate();
         empty.Text = L.Text(games.Count == 0 ? "Games.NoGames" : "Games.NoMatches"); empty.Visible = rows.Count == 0;
         footer.Text = scanning ? L.Text("Games.Scanning") : pending.Count > 0 ? L.Text("Games.Consulting", pending.Count) : L.Text("Games.Footer", ModCatalog.Version);
-        var index = rows.FindIndex(r => r.Game.Key == previous);
-        if (rows.Count > 0) entries.SelectedIndex = index < 0 ? 0 : index;
+        // The list is rebuilt only when a row appears, leaves or changes state. Otherwise the rows
+        // behind it are refreshed in place and repainted, so the reader keeps their place while the
+        // wiki answers trickle in.
+        var signature = string.Join("\n", rows.Select(r => r.Game.Key + "|" + r.Standing.Status + "|" + r.Pending)) + "\n" + L.CurrentLanguage;
+        rebuilding = true;
+        if (signature != listSignature)
+        {
+            listSignature = signature;
+            int top = entries.TopIndex;
+            entries.BeginUpdate();
+            entries.Items.Clear();
+            foreach (var row in rows) entries.Items.Add(row);
+            var index = rows.FindIndex(r => r.Game.Key == previous);
+            if (rows.Count > 0) entries.SelectedIndex = index < 0 ? 0 : index;
+            if (top > 0 && top < rows.Count) entries.TopIndex = top;
+            entries.EndUpdate();
+        }
+        else
+        {
+            for (int i = 0; i < rows.Count; i++) if (entries.Items[i] is Entry item) { item.Standing = rows[i].Standing; item.Pending = rows[i].Pending; }
+            entries.Invalidate();
+        }
         rebuilding = false;
-        if (rows.Count > 0) Selected(force: true); else { selectedKey = null; ResetDetail(); Kicker(L.Text("Games.EmptyTitle")); Body(L.Text("Games.EmptyDescription")); }
+        if (rows.Count > 0) Selected(); else { selectedKey = null; shownSignature = ""; ResetDetail(); Kicker(L.Text("Games.EmptyTitle")); Body(L.Text("Games.EmptyDescription")); }
     }
 
-    void Selected(bool force = false)
+    /// <summary>
+    /// Shows the selected game, but only when what there is to show has changed: the same game with
+    /// the same data is left alone, and the same game with new data keeps its scroll position.
+    /// </summary>
+    void Selected()
     {
         if (rebuilding || entries.SelectedItem is not Entry entry) return;
-        if (!force && entry.Game.Key == selectedKey && !installing) return;
-        selectedKey = entry.Game.Key;
+        var standing = entry.Standing;
+        var signature = string.Join("|", entry.Game.Key, standing.Status, entry.Pending, standing.Wiki?.Fetched.Ticks, installing, L.CurrentLanguage,
+            string.Join(",", standing.Installed.Select(m => m.Id + ":" + service.Installer.Find(m.Id, entry.Game.Key)?.Version)),
+            string.Join(",", standing.Mods.Select(m => service.Runner.IsRunning(m.Id, entry.Game.Key))));
+        if (signature == shownSignature) return;
+        bool sameGame = entry.Game.Key == selectedKey;
+        var scroll = detailScroll.AutoScrollPosition;
+        selectedKey = entry.Game.Key; shownSignature = signature;
         ShowGame(entry);
+        if (sameGame) detailScroll.AutoScrollPosition = new Point(-scroll.X, -scroll.Y);
     }
 
     // ── detail pane pieces ────────────────────────────────────────────────────────────────────

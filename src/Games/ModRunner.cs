@@ -7,10 +7,11 @@ namespace MadSense.Games;
 
 /// <summary>
 /// Starts a mod's helper program when its game runs and stops it when the game quits, so a mod
-/// installed from the catalog needs no clicks per session. Every two seconds it looks at the
-/// processes that own a window, finds the ones living inside an installed game's folder, and
-/// matches them against the installed helpers. Nothing is launched twice and nothing outlives
-/// its game; MadSense's own exit stops every helper it started.
+/// installed from the catalog needs no clicks per session. The watch runs only while a helper is
+/// installed: every two seconds it takes one process snapshot and asks the path of each process
+/// it has not seen before, so a quiet desktop costs no handle at all and a game is matched the
+/// tick it appears. Nothing is launched twice and nothing outlives its game; MadSense's own exit
+/// stops every helper it started.
 /// </summary>
 sealed class ModRunner : IDisposable
 {
@@ -19,12 +20,15 @@ sealed class ModRunner : IDisposable
     [DllImport("kernel32.dll")] static extern bool CloseHandle(nint handle);
 
     sealed record Running(string ModId, string GameKey, Process Helper, int GamePid);
+    sealed record Watched(InstalledMod Mod, string GameDir);
 
     readonly ModInstaller installer;
     readonly Func<IReadOnlyList<LibraryGame>> library;
     readonly System.Threading.Timer timer;
+    readonly bool watch;
     readonly object gate = new();
     readonly List<Running> running = [];
+    HashSet<int> seen = [];
     int busy;
 
     public event Action<string, string>? HelperStarted;
@@ -35,8 +39,14 @@ sealed class ModRunner : IDisposable
     {
         this.installer = installer;
         this.library = library;
-        timer = new System.Threading.Timer(_ => Tick(), null, watch ? 2000 : Timeout.Infinite, 2000);
+        this.watch = watch;
+        timer = new System.Threading.Timer(_ => Tick(), null, Timeout.Infinite, Timeout.Infinite);
+        installer.Changed += Arm;
+        Arm();
     }
+
+    /// <summary>True while the watch ticks: some helper is installed.</summary>
+    public bool Watching { get; private set; }
 
     /// <summary>Helpers MadSense started that are still alive (mod id, game key).</summary>
     public IReadOnlyList<(string ModId, string GameKey)> Active
@@ -56,6 +66,15 @@ sealed class ModRunner : IDisposable
         if (entry != null) Kill(entry);
     }
 
+    /// <summary>Ticks only while a helper is installed; a fresh arm looks at every process once.</summary>
+    void Arm()
+    {
+        bool any = watch && installer.Installed.Any(m => m.Exe != null);
+        Watching = any;
+        if (!any) seen = [];
+        try { timer.Change(any ? 2000 : Timeout.Infinite, any ? 2000 : Timeout.Infinite); } catch (ObjectDisposedException) { }
+    }
+
     void Tick()
     {
         if (Interlocked.Exchange(ref busy, 1) == 1) return;
@@ -70,26 +89,30 @@ sealed class ModRunner : IDisposable
             }
             foreach (var entry in finished) Kill(entry);
             // Games that just appeared with a helper installed and not yet running.
-            var installed = installer.Installed.Where(m => m.Exe != null).ToList();
-            if (installed.Count == 0) return;
-            var games = library();
+            var watched = new List<Watched>();
+            IReadOnlyList<LibraryGame>? games = null;
+            foreach (var mod in installer.Installed.Where(m => m.Exe != null))
+            {
+                var dir = mod.GameDir ?? (games ??= library()).FirstOrDefault(g => g.Key == mod.GameKey)?.InstallDir;
+                if (dir != null) watched.Add(new Watched(mod, dir.TrimEnd('\\') + "\\"));
+            }
+            if (watched.Count == 0) { seen = []; return; }
+            var current = new HashSet<int>();
             foreach (var process in Process.GetProcesses())
             {
                 using (process)
                 {
-                    int pid;
-                    try { if (process.Id == Environment.ProcessId || process.MainWindowHandle == 0) continue; pid = process.Id; }
-                    catch (Exception e) when (e is InvalidOperationException or Win32Exception) { continue; }
+                    int pid = process.Id;
+                    current.Add(pid);
+                    if (pid == Environment.ProcessId || seen.Contains(pid)) continue;
                     var exe = PathOf(pid);
                     if (exe == null) continue;
-                    foreach (var game in games)
-                    {
-                        if (!game.Contains(exe)) continue;
-                        foreach (var mod in installed.Where(m => m.GameKey == game.Key))
-                            if (!IsRunning(mod.Id, game.Key)) Launch(mod.Id, game.Key, pid);
-                    }
+                    foreach (var entry in watched)
+                        if (exe.StartsWith(entry.GameDir, StringComparison.OrdinalIgnoreCase) && !IsRunning(entry.Mod.Id, entry.Mod.GameKey))
+                            Launch(entry.Mod.Id, entry.Mod.GameKey, pid);
                 }
             }
+            seen = current;
         }
         catch (Exception e) when (e is InvalidOperationException or Win32Exception or IOException) { }
         finally { Volatile.Write(ref busy, 0); }
@@ -148,6 +171,7 @@ sealed class ModRunner : IDisposable
 
     public void Dispose()
     {
+        installer.Changed -= Arm;
         timer.Dispose();
         List<Running> all;
         lock (gate) { all = running.ToList(); running.Clear(); }
