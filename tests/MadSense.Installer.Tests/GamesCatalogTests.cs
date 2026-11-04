@@ -11,6 +11,23 @@ public class GamesCatalogTests
 {
     static LibraryGame Game(string name, string? steam = null, string? dir = null) => new("test:" + name, name, "Test", steam, dir ?? Path.GetTempPath(), null);
 
+    [TestCase("3240220")]
+    [TestCase(null)]
+    public void LegacyGtaModIsNotOfferedForEnhanced(string? steam)
+    {
+        Assert.That(ModCatalog.ForGame(Game("Grand Theft Auto V Enhanced", steam)).Select(m => m.Id), Does.Not.Contain("gta5-adaptive-triggers"));
+        Assert.That(ModCatalog.ForGame(Game("Grand Theft Auto V Legacy", "271590")).Select(m => m.Id), Does.Contain("gta5-adaptive-triggers"));
+    }
+
+    [Test]
+    public void PreparationIsSpecificToTheSelectedGame()
+    {
+        var mod = ModCatalog.ById("racing-dsx")!;
+        Assert.That(mod.Preparation(Game("DiRT Rally 2.0", "690790"), "es"), Does.Contain("5300").And.Not.Contain("Forza"));
+        Assert.That(mod.Preparation(Game("Forza Horizon 5", "1551360"), "en"), Does.Contain("Data Out").And.Not.Contain("hardware_settings"));
+        Assert.That(ModCatalog.ById("dr2ds")!.Available, Is.False);
+    }
+
     [Test]
     public void EmbeddedCatalogParsesAndEveryInstallableEntryPinsAGitHubRelease()
     {
@@ -39,7 +56,7 @@ public class GamesCatalogTests
         var wreckfest = ModCatalog.ForGame(Game("Wreckfest 2", "1203190"));
         Assert.That(wreckfest.Select(m => m.Id), Does.Contain("wf2-dsx"));
         Assert.That(ModCatalog.ForGame(Game("Wreckfest 2", "999999")), Is.Empty, "a Steam game is matched by its AppID, never by name");
-        Assert.That(ModCatalog.ForGame(Game("DiRT Rally 2.0 (Epic)")).Select(m => m.Id), Is.EquivalentTo(new[] { "racing-dsx", "dr2ds" }));
+        Assert.That(ModCatalog.ForGame(Game("DiRT Rally 2.0 (Epic)")).Select(m => m.Id), Is.EquivalentTo(new[] { "racing-dsx" }));
         Assert.That(ModCatalog.ForGame(Game("Chernobylite Complete Edition", "1016800")), Is.Empty);
     }
 

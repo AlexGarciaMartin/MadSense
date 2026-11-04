@@ -10,6 +10,7 @@ public class GamesWindowTests
 {
     const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
     string root = "";
+    bool dr2dsAvailable;
     GamesService service = null!;
     GamesWindow window = null!;
     static T Get<T>(object target, string field) => (T)target.GetType().GetField(field, Private)!.GetValue(target)!;
@@ -19,6 +20,8 @@ public class GamesWindowTests
     [SetUp]
     public void SetUp()
     {
+        dr2dsAvailable = ModCatalog.ById("dr2ds")!.Available;
+        ModCatalog.ById("dr2ds")!.Available = true;
         root = Path.Combine(Path.GetTempPath(), "madsense-ui-tests-" + Guid.NewGuid().ToString("N"));
         service = new GamesService(root, watchHelpers: false);
         window = new GamesWindow(service);
@@ -37,6 +40,7 @@ public class GamesWindowTests
     public void TearDown()
     {
         window.Dispose(); service.Dispose();
+        ModCatalog.ById("dr2ds")!.Available = dr2dsAvailable;
         if (Directory.Exists(root)) Directory.Delete(root, true);
     }
 
@@ -123,4 +127,31 @@ public class GamesWindowTests
         button.Selected = false;
         Assert.That(invalidations, Is.GreaterThan(afterSelection), "removing the green fill needs a repaint too");
     }
+    [Test]
+    public void NativeWithModsStartsWithNativeAndDoesNotAppendModInstructions()
+    {
+        Get<Dictionary<string, WikiSupport?>>(window, "support")["wreckfest"] = new WikiSupport { Fetched = DateTimeOffset.Now, Fields = new() { ["dualsense haptics support"] = "true" } };
+        Get<TextBox>(window, "search").Text = "Wreckfest";
+        Assert.That(Get<ModEntry?>(window, "selectedMod"), Is.Null);
+        Assert.That(Get<FlowLayoutPanel>(window, "detail").Controls.OfType<Label>().Any(l => l.Text.Contains("6969") || l.Text.Contains("UDP")), Is.False);
+        Get<Dictionary<string, bool>>(window, "modViews")["wreckfest"] = true;
+        Call("RedrawDetail");
+        Assert.That(Get<ModEntry>(window, "selectedMod").Id, Is.EqualTo("wf2-dsx"));
+        Assert.That(Get<FlowLayoutPanel>(window, "detail").Controls.Cast<Control>().Any(c => c.GetType().Name == "LampRows"), Is.False);
+    }
+
+    [Test]
+    public void ListeningAloneNeverClaimsThatAModWorks()
+    {
+        Get<TextBox>(window, "search").Text = "Wreckfest";
+        Get<Dictionary<string, int>>(window, "guideSteps")["wreckfest:wf2-dsx"] = 2;
+        Call("RedrawDetail");
+        window.SetDiagnostics(new ModDiagnostics(true, true, false, false, 0, 0));
+        Assert.That(Get<Label>(window, "diagnosticText").Text, Is.EqualTo(L.Text("Games.Flow.Waiting")));
+        window.SetDiagnostics(new ModDiagnostics(true, true, false, true, 2, 0));
+        Assert.That(Get<Label>(window, "diagnosticText").Text, Is.EqualTo(L.Text("Games.Flow.Receiving")));
+        window.SetDiagnostics(new ModDiagnostics(false, true, false, true, 2, 0));
+        Assert.That(Get<Label>(window, "diagnosticText").Text, Is.EqualTo(L.Text("Games.Flow.Connect")));
+    }
+
 }

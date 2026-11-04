@@ -24,7 +24,8 @@ sealed class GamesService : IDisposable
         foldersPath = Path.Combine(DataRoot, "games-folders.json");
         preferences = new ModPreferences(Path.Combine(DataRoot, "mod-preferences.json"));
         Installer = new ModInstaller(Path.Combine(DataRoot, "mods"));
-        Runner = new ModRunner(Installer, () => Library, watch: watchHelpers, autoStartEnabled: preferences.IsAutoStartEnabled);
+        Runner = new ModRunner(Installer, () => Library, watch: watchHelpers, autoStartEnabled: (mod, game) =>
+            ModCatalog.ById(mod)?.Available == true && preferences.IsSetupComplete(mod, game) && preferences.IsAutoStartEnabled(mod, game));
     }
 
     public static string DefaultDataRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MadSense");
@@ -47,7 +48,11 @@ sealed class GamesService : IDisposable
         Runner.RefreshPreferences();
     }
     public bool IsSetupComplete(string modId, string gameKey) => preferences.IsSetupComplete(modId, gameKey);
-    public void SetSetupComplete(string modId, string gameKey, bool complete) => preferences.SetSetupComplete(modId, gameKey, complete);
+    public void SetSetupComplete(string modId, string gameKey, bool complete)
+    {
+        preferences.SetSetupComplete(modId, gameKey, complete);
+        Runner.RefreshPreferences();
+    }
 
     /// <summary>Folders the user added by hand; read with every scan, kept in a small JSON file.</summary>
     public IReadOnlyList<string> CustomFolders { get { lock (gate) return Folders().ToList(); } }
@@ -114,7 +119,7 @@ sealed class GamesService : IDisposable
     /// <summary>A game's current standing for the list and the detail pane.</summary>
     public GameStanding Standing(LibraryGame game, WikiSupport? wiki)
     {
-        var mods = ModCatalog.ForGame(game);
+        var mods = ModCatalog.Mods.Where(m => (m.Available && m.Matches(game)) || Installer.IsInstalled(m.Id, game.Key)).OrderBy(m => m.Kind).ToList();
         var installed = mods.Where(m => Installer.IsInstalled(m.Id, game.Key)).ToList();
         if (installed.Count > 0) return new GameStanding(GameStatus.ModInstalled, wiki, mods, installed);
         // A game that drives the pad itself needs no mod, but one that goes further is still worth listing.

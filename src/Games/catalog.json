@@ -9,14 +9,40 @@
       "author": "SYSTEMATI0N",
       "license": "MIT",
       "page": "https://github.com/SYSTEMATI0N/WF2_DSX",
-      "games": [ { "name": "Wreckfest 2", "steam": [ "1203190" ], "match": [ "wreckfest 2" ] } ],
-      "features": [ "triggers", "lightbar" ],
+      "games": [
+        {
+          "name": "Wreckfest 2",
+          "steam": [
+            "1203190"
+          ],
+          "match": [
+            "wreckfest 2"
+          ]
+        }
+      ],
+      "features": [
+        "triggers",
+        "lightbar"
+      ],
       "kind": "helper",
-      "package": { "version": "v1.0.0", "url": "https://github.com/SYSTEMATI0N/WF2_DSX/releases/download/v1.0.0/WF2_DSX-v1.0.0.zip", "size": 29776610, "sha256": "905dd3d067256f58a0380cf3f84f01cda1f6fb5e5c55d550605a841958940602", "type": "zip" },
-      "run": { "exe": "WF2_DSX.exe", "window": "minimized" },
+      "package": {
+        "version": "v1.0.0",
+        "url": "https://github.com/SYSTEMATI0N/WF2_DSX/releases/download/v1.0.0/WF2_DSX-v1.0.0.zip",
+        "size": 29776610,
+        "sha256": "905dd3d067256f58a0380cf3f84f01cda1f6fb5e5c55d550605a841958940602",
+        "type": "zip"
+      },
+      "run": {
+        "exe": "WF2_DSX.exe",
+        "window": "minimized"
+      },
       "notes": {
         "es": "Frenada, ABS, bloqueo y patinaje de ruedas en los gatillos; la barra de luz sigue las revoluciones. Activa la telemetría del juego por sí solo: la primera vez, si Wreckfest 2 ya estaba abierto, reinícialo.",
         "en": "Braking, ABS, wheel lock and spin on the triggers; the lightbar follows the revs. Enables the game's telemetry by itself: the first time, if Wreckfest 2 was already open, restart it."
+      },
+      "setup": {
+        "es": "Cierra Wreckfest 2 si está abierto. El programa del mod prepara la conexión al arrancar; después abre el juego.",
+        "en": "Close Wreckfest 2 if it is open. The mod program sets up the connection when it starts; then open the game."
       }
     },
     {
@@ -26,19 +52,98 @@
       "license": "GPL-3.0",
       "page": "https://github.com/cosmii02/RacingDSX",
       "games": [
-        { "name": "Forza Horizon 4", "steam": [ "1293830" ], "match": [ "forza horizon 4" ] },
-        { "name": "Forza Horizon 5", "steam": [ "1551360" ], "match": [ "forza horizon 5" ] },
-        { "name": "Forza Motorsport", "steam": [ "2440510" ], "match": [ "forza motorsport" ] },
-        { "name": "DiRT Rally", "steam": [ "310560" ], "match": [ "dirt rally" ] },
-        { "name": "DiRT Rally 2.0", "steam": [ "690790" ], "match": [ "dirt rally 2" ] }
+        {
+          "name": "Forza Horizon 4",
+          "steam": [
+            "1293830"
+          ],
+          "match": [
+            "forza horizon 4"
+          ],
+          "setup": {
+            "es": "En los ajustes del juego, activa Salida de datos y usa IP 127.0.0.1 y puerto 5300. Guarda los cambios.\nPara Forza Horizon 4, consulta además el paso de conexión local en PÁGINA DEL MOD.",
+            "en": "In the game settings, enable Data Out and use IP 127.0.0.1 and port 5300. Save your changes.\nFor Forza Horizon 4, also follow the local connection step on MOD PAGE."
+          }
+        },
+        {
+          "name": "Forza Horizon 5",
+          "steam": [
+            "1551360"
+          ],
+          "match": [
+            "forza horizon 5"
+          ],
+          "setup": {
+            "es": "En los ajustes del juego, activa Salida de datos y usa IP 127.0.0.1 y puerto 5300. Guarda los cambios.\nPara Forza Horizon 4, consulta además el paso de conexión local en PÁGINA DEL MOD.",
+            "en": "In the game settings, enable Data Out and use IP 127.0.0.1 and port 5300. Save your changes.\nFor Forza Horizon 4, also follow the local connection step on MOD PAGE."
+          }
+        },
+        {
+          "name": "Forza Motorsport",
+          "steam": [
+            "2440510"
+          ],
+          "match": [
+            "forza motorsport"
+          ],
+          "setup": {
+            "es": "En los ajustes del juego, activa Salida de datos y usa IP 127.0.0.1 y puerto 5300. Guarda los cambios.\nPara Forza Horizon 4, consulta además el paso de conexión local en PÁGINA DEL MOD.",
+            "en": "In the game settings, enable Data Out and use IP 127.0.0.1 and port 5300. Save your changes.\nFor Forza Horizon 4, also follow the local connection step on MOD PAGE."
+          }
+        },
+        {
+          "name": "DiRT Rally",
+          "steam": [
+            "310560"
+          ],
+          "match": [
+            "dirt rally"
+          ],
+          "setup": {
+            "es": "Cierra el juego. En Documentos → My Games → DiRT Rally → hardwaresettings, abre hardware_settings_config.xml.\nEn la línea udp: enabled=\"true\", extradata=\"3\", ip=\"127.0.0.1\", port=\"5300\", delay=\"1\". Guarda el archivo.\nPÁGINA DEL MOD muestra el ejemplo completo.",
+            "en": "Close the game. In Documents → My Games → DiRT Rally → hardwaresettings, open hardware_settings_config.xml.\nIn the udp entry: enabled=\"true\", extradata=\"3\", ip=\"127.0.0.1\", port=\"5300\", delay=\"1\". Save the file.\nMOD PAGE has the full example."
+          }
+        },
+        {
+          "name": "DiRT Rally 2.0",
+          "steam": [
+            "690790"
+          ],
+          "match": [
+            "dirt rally 2"
+          ],
+          "setup": {
+            "es": "Cierra el juego. En Documentos → My Games → DiRT Rally 2.0 → hardwaresettings, abre hardware_settings_config.xml.\nEn la línea udp: enabled=\"true\", extradata=\"3\", ip=\"127.0.0.1\", port=\"5300\", delay=\"1\". Guarda el archivo.\nPÁGINA DEL MOD muestra el ejemplo completo.",
+            "en": "Close the game. In Documents → My Games → DiRT Rally 2.0 → hardwaresettings, open hardware_settings_config.xml.\nIn the udp entry: enabled=\"true\", extradata=\"3\", ip=\"127.0.0.1\", port=\"5300\", delay=\"1\". Save the file.\nMOD PAGE has the full example."
+          }
+        }
       ],
-      "features": [ "triggers", "lightbar" ],
+      "features": [
+        "triggers",
+        "lightbar"
+      ],
       "kind": "helper",
-      "package": { "version": "V0.6.6", "url": "https://github.com/cosmii02/RacingDSX/releases/download/V0.6.6/RacingDSX.zip", "size": 1543007, "sha256": null, "type": "zip" },
-      "run": { "exe": "RacingDSX.exe", "window": "minimized" },
+      "package": {
+        "version": "V0.6.6",
+        "url": "https://github.com/cosmii02/RacingDSX/releases/download/V0.6.6/RacingDSX.zip",
+        "size": 1543007,
+        "sha256": null,
+        "type": "zip"
+      },
+      "run": {
+        "exe": "RacingDSX.exe",
+        "window": "minimized"
+      },
       "notes": {
         "es": "Lee la telemetría del juego y la convierte en resistencia y vibración de gatillos. Hay que activar la salida de datos en el juego: en Forza, Ajustes → HUD y juego → Salida de datos ON, IP 127.0.0.1 y el puerto que muestre RacingDSX; en DiRT, el archivo hardware_settings_config.xml. El proyecto está archivado por su autor (última versión diciembre de 2024).",
         "en": "Reads the game's telemetry and turns it into trigger resistance and vibration. The game's data output must be enabled: in Forza, Settings → HUD and Gameplay → Data Out ON, IP 127.0.0.1 and the port RacingDSX shows; in DiRT, the hardware_settings_config.xml file. The project is archived by its author (last release December 2024)."
+      },
+      "requires": [
+        "dotnet8-desktop"
+      ],
+      "beforeInstall": {
+        "es": "Requiere Microsoft .NET 8 y configurar el envío de datos del juego manualmente. El autor ya no mantiene este mod.",
+        "en": "Requires Microsoft .NET 8 and manual game data-output setup. Its author no longer maintains this mod."
       }
     },
     {
@@ -47,15 +152,37 @@
       "author": "firelight322",
       "license": null,
       "page": "https://github.com/firelight322/dr2ds",
-      "games": [ { "name": "DiRT Rally 2.0", "steam": [ "690790" ], "match": [ "dirt rally 2" ] } ],
-      "features": [ "triggers" ],
+      "games": [
+        {
+          "name": "DiRT Rally 2.0",
+          "steam": [
+            "690790"
+          ],
+          "match": [
+            "dirt rally 2"
+          ]
+        }
+      ],
+      "features": [
+        "triggers"
+      ],
       "kind": "helper",
-      "package": { "version": "beta.hotfix1", "url": "https://github.com/firelight322/dr2ds/releases/download/beta.hotfix1/dr2ds.exe", "size": 1085952, "sha256": null, "type": "exe" },
-      "run": { "exe": "dr2ds.exe", "window": "minimized" },
+      "package": {
+        "version": "beta.hotfix1",
+        "url": "https://github.com/firelight322/dr2ds/releases/download/beta.hotfix1/dr2ds.exe",
+        "size": 1085952,
+        "sha256": null,
+        "type": "exe"
+      },
+      "run": {
+        "exe": "dr2ds.exe",
+        "window": "minimized"
+      },
       "notes": {
-        "es": "Curvas de freno y acelerador en los gatillos, con efectos extra si activas los paquetes UDP de DiRT Rally 2.0 (hardware_settings_config.xml, línea <udp …>). Crea dr2ds.ini al lado del exe y lo recarga en caliente.",
-        "en": "Brake and throttle curves on the triggers, with extra effects if you enable DiRT Rally 2.0's UDP packets (hardware_settings_config.xml, the <udp …> line). Creates dr2ds.ini next to the exe and hot-reloads it."
-      }
+        "es": "Este programa controla el mando directamente; no hemos verificado que funcione junto a MadSense. Se ha retirado del catálogo y MadSense ya no lo iniciará. Puedes desinstalar esta copia.",
+        "en": "This program controls the controller directly; operation alongside MadSense is unverified. It has been withdrawn from the catalog and MadSense will no longer start it. You can uninstall this copy."
+      },
+      "available": false
     },
     {
       "id": "race-element",
@@ -64,19 +191,73 @@
       "license": "GPL-3.0",
       "page": "https://github.com/RiddleTime/Race-Element",
       "games": [
-        { "name": "Assetto Corsa Competizione", "steam": [ "805550" ], "match": [ "assetto corsa competizione" ] },
-        { "name": "Assetto Corsa", "steam": [ "244210" ], "match": [ "assetto corsa" ] },
-        { "name": "Assetto Corsa EVO", "steam": [ "3058630" ], "match": [ "assetto corsa evo" ] },
-        { "name": "RaceRoom Racing Experience", "steam": [ "211500" ], "match": [ "raceroom" ] }
+        {
+          "name": "Assetto Corsa Competizione",
+          "steam": [
+            "805550"
+          ],
+          "match": [
+            "assetto corsa competizione"
+          ]
+        },
+        {
+          "name": "Assetto Corsa",
+          "steam": [
+            "244210"
+          ],
+          "match": [
+            "assetto corsa"
+          ]
+        },
+        {
+          "name": "Assetto Corsa EVO",
+          "steam": [
+            "3058630"
+          ],
+          "match": [
+            "assetto corsa evo"
+          ]
+        },
+        {
+          "name": "RaceRoom Racing Experience",
+          "steam": [
+            "211500"
+          ],
+          "match": [
+            "raceroom"
+          ]
+        }
       ],
-      "features": [ "triggers", "lightbar" ],
+      "features": [
+        "triggers",
+        "lightbar"
+      ],
       "kind": "helper",
-      "package": { "version": "2.8.0.0", "url": "https://github.com/RiddleTime/Race-Element/releases/download/2.8.0.0/RaceElement.exe", "size": 57622256, "sha256": "c92781c09d30269c08af3207e24deb0e6e7df67c901e71ddc61ce48d2fd515e5", "type": "exe" },
-      "run": { "exe": "RaceElement.exe", "window": "normal" },
-      "requires": [ "dotnet10-desktop" ],
+      "package": {
+        "version": "2.8.0.0",
+        "url": "https://github.com/RiddleTime/Race-Element/releases/download/2.8.0.0/RaceElement.exe",
+        "size": 57622256,
+        "sha256": "c92781c09d30269c08af3207e24deb0e6e7df67c901e71ddc61ce48d2fd515e5",
+        "type": "exe"
+      },
+      "run": {
+        "exe": "RaceElement.exe",
+        "window": "normal"
+      },
+      "requires": [
+        "dotnet10-desktop"
+      ],
       "notes": {
         "es": "Suite de simracing con integración DSX: activa la opción DSX en su configuración y los gatillos reaccionan a ABS, TC y bloqueo de ruedas. Es una aplicación completa con su propia ventana; necesita el runtime de escritorio .NET 10 de Microsoft.",
         "en": "Sim-racing suite with a DSX integration: enable the DSX option in its settings and the triggers react to ABS, TC and wheel lock. A full application with its own window; it needs Microsoft's .NET 10 Desktop Runtime."
+      },
+      "setup": {
+        "es": "Abre Race Element, activa la integración de gatillos en sus ajustes (el autor la llama «DSX») y conserva la dirección local y el puerto 6969. Consulta PÁGINA DEL MOD si necesitas localizar la opción.",
+        "en": "Open Race Element, enable its trigger integration (named “DSX” by its author), and keep the local address and port 6969. See MOD PAGE for help finding this option."
+      },
+      "beforeInstall": {
+        "es": "Requiere ajustes en una aplicación externa y Microsoft .NET 10 Desktop Runtime. No es una instalación de un solo clic.",
+        "en": "Requires setup in an external application and Microsoft .NET 10 Desktop Runtime. This is not a one-click setup."
       }
     },
     {
@@ -85,13 +266,36 @@
       "author": "faddix",
       "license": "MIT",
       "page": "https://github.com/faddix/BeamNG_DualSense",
-      "games": [ { "name": "BeamNG.drive", "steam": [ "284160" ], "match": [ "beamng" ] } ],
-      "features": [ "triggers", "lightbar" ],
+      "games": [
+        {
+          "name": "BeamNG.drive",
+          "steam": [
+            "284160"
+          ],
+          "match": [
+            "beamng"
+          ]
+        }
+      ],
+      "features": [
+        "triggers",
+        "lightbar"
+      ],
       "kind": "beamng",
-      "package": { "version": "V3.0", "url": "https://github.com/faddix/BeamNG_DualSense/releases/download/V3.0/BNG_DSX.zip", "size": 507292, "sha256": "bb66df188db7379a1479692bb55b5b15246672771e04c1ec023dcb4160c5c09c", "type": "zip" },
+      "package": {
+        "version": "V3.0",
+        "url": "https://github.com/faddix/BeamNG_DualSense/releases/download/V3.0/BNG_DSX.zip",
+        "size": 507292,
+        "sha256": "bb66df188db7379a1479692bb55b5b15246672771e04c1ec023dcb4160c5c09c",
+        "type": "zip"
+      },
       "notes": {
         "es": "Mod del propio juego: se copia a la carpeta mods de tu perfil de BeamNG.drive y el juego lo carga al arrancar (reinícialo si estaba abierto). Marchas en los LED y freno, ABS y motor en los gatillos.",
         "en": "A mod of the game itself: copied into the mods folder of your BeamNG.drive profile and loaded when the game starts (restart it if it was open). Gear indicators on the LEDs; brake, ABS and engine on the triggers."
+      },
+      "setup": {
+        "es": "En el gestor de mods de BeamNG.drive, comprueba que el mod está activado y que no hay otra copia. Reinicia el juego si estaba abierto.",
+        "en": "In the BeamNG.drive mod manager, make sure the mod is enabled and there is no duplicate. Restart the game if it was open."
       }
     },
     {
@@ -100,13 +304,37 @@
       "author": "WujekFoliarz",
       "license": null,
       "page": "https://github.com/WujekFoliarz/Dying-Light-1-DUALSENSE-MOD",
-      "games": [ { "name": "Dying Light", "steam": [ "239140" ], "match": [ "dying light" ] } ],
-      "features": [ "triggers", "haptics", "lightbar" ],
+      "games": [
+        {
+          "name": "Dying Light",
+          "steam": [
+            "239140"
+          ],
+          "match": [
+            "dying light"
+          ]
+        }
+      ],
+      "features": [
+        "triggers",
+        "haptics",
+        "lightbar"
+      ],
       "kind": "gamefolder",
-      "package": { "version": "4.0", "url": "https://github.com/WujekFoliarz/Dying-Light-1-DUALSENSE-MOD/releases/download/4.0/Release.zip", "size": 30655808, "sha256": "906763429d4d42d4573cd46f7ddfb05e79967aa53a48f1b4ca9af002f19aa281", "type": "zip" },
+      "package": {
+        "version": "4.0",
+        "url": "https://github.com/WujekFoliarz/Dying-Light-1-DUALSENSE-MOD/releases/download/4.0/Release.zip",
+        "size": 30655808,
+        "sha256": "906763429d4d42d4573cd46f7ddfb05e79967aa53a48f1b4ca9af002f19aa281",
+        "type": "zip"
+      },
       "notes": {
         "es": "Se copia dentro de la carpeta del juego, junto a DyingLightGame.exe, y añade gatillos adaptativos, hápticos y luz al mando. Desactiva Steam Input para Dying Light en las propiedades del juego en Steam.",
         "en": "Copied into the game folder next to DyingLightGame.exe; adds adaptive triggers, haptics and lightbar. Disable Steam Input for Dying Light in the game's Steam properties."
+      },
+      "setup": {
+        "es": "En Steam: Propiedades de Dying Light → Mando → Desactivar Steam Input. Si el juego estaba abierto, ciérralo antes de continuar.",
+        "en": "In Steam: Dying Light Properties → Controller → Disable Steam Input. Close the game before continuing if it was open."
       }
     },
     {
@@ -115,12 +343,28 @@
       "author": "comunidad Nexus",
       "license": null,
       "page": "https://www.nexusmods.com/cyberpunk2077/mods/4156",
-      "games": [ { "name": "Cyberpunk 2077", "steam": [ "1091500" ], "match": [ "cyberpunk 2077" ] } ],
-      "features": [ "triggers" ],
+      "games": [
+        {
+          "name": "Cyberpunk 2077",
+          "steam": [
+            "1091500"
+          ],
+          "match": [
+            "cyberpunk 2077"
+          ]
+        }
+      ],
+      "features": [
+        "triggers"
+      ],
       "kind": "manual",
       "notes": {
-        "es": "Mod alojado en Nexus Mods: la descarga exige iniciar sesión en Nexus, así que MadSense no puede instalarlo por ti. Instálalo siguiendo su página; en lugar de DSX, deja MadSense abierto.",
-        "en": "Hosted on Nexus Mods: downloading requires a Nexus login, so MadSense cannot install it for you. Install it as its page describes; instead of DSX, keep MadSense open."
+        "es": "Mod alojado en Nexus Mods: la descarga exige iniciar sesión en Nexus, así que MadSense no puede instalarlo por ti. Instálalo siguiendo su página; deja MadSense abierto.",
+        "en": "Hosted on Nexus Mods: downloading requires a Nexus login, so MadSense cannot install it for you. Install it as its page describes; keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
       }
     },
     {
@@ -129,12 +373,29 @@
       "author": "comunidad Nexus",
       "license": null,
       "page": "https://www.nexusmods.com/reddeadredemption2/mods/9297",
-      "games": [ { "name": "Red Dead Redemption 2", "steam": [ "1174180" ], "match": [ "red dead redemption 2" ] } ],
-      "features": [ "triggers", "lightbar" ],
+      "games": [
+        {
+          "name": "Red Dead Redemption 2",
+          "steam": [
+            "1174180"
+          ],
+          "match": [
+            "red dead redemption 2"
+          ]
+        }
+      ],
+      "features": [
+        "triggers",
+        "lightbar"
+      ],
       "kind": "manual",
       "notes": {
-        "es": "Mod alojado en Nexus Mods (requiere ScriptHook RDR2): la descarga exige iniciar sesión en Nexus. Instálalo siguiendo su página y deja MadSense abierto en lugar de DSX.",
-        "en": "Hosted on Nexus Mods (needs ScriptHook RDR2): downloading requires a Nexus login. Install it as its page describes and keep MadSense open instead of DSX."
+        "es": "Mod alojado en Nexus Mods (requiere ScriptHook RDR2): la descarga exige iniciar sesión en Nexus. Instálalo siguiendo su página y deja MadSense abierto.",
+        "en": "Hosted on Nexus Mods (needs ScriptHook RDR2): downloading requires a Nexus login. Install it as its page describes and keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
       }
     },
     {
@@ -143,10 +404,29 @@
       "author": "comunidad Nexus",
       "license": null,
       "page": "https://www.nexusmods.com/control/mods/108",
-      "games": [ { "name": "Control Ultimate Edition", "steam": [ "870780" ], "match": [ "control ultimate" ] } ],
-      "features": [ "triggers" ],
+      "games": [
+        {
+          "name": "Control Ultimate Edition",
+          "steam": [
+            "870780"
+          ],
+          "match": [
+            "control ultimate"
+          ]
+        }
+      ],
+      "features": [
+        "triggers"
+      ],
       "kind": "manual",
-      "notes": { "es": "Mod alojado en Nexus Mods: la descarga exige iniciar sesión. Instálalo desde su página y deja MadSense abierto en lugar de DSX.", "en": "Hosted on Nexus Mods: downloading requires a login. Install it from its page and keep MadSense open instead of DSX." }
+      "notes": {
+        "es": "Mod alojado en Nexus Mods: la descarga exige iniciar sesión. Instálalo desde su página y deja MadSense abierto.",
+        "en": "Hosted on Nexus Mods: downloading requires a login. Install it from its page and keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      }
     },
     {
       "id": "god-of-war-dualsense",
@@ -154,10 +434,29 @@
       "author": "comunidad Nexus",
       "license": null,
       "page": "https://www.nexusmods.com/godofwar/mods/145",
-      "games": [ { "name": "God of War", "steam": [ "1593500" ], "match": [ "god of war" ] } ],
-      "features": [ "triggers" ],
+      "games": [
+        {
+          "name": "God of War",
+          "steam": [
+            "1593500"
+          ],
+          "match": [
+            "god of war"
+          ]
+        }
+      ],
+      "features": [
+        "triggers"
+      ],
       "kind": "manual",
-      "notes": { "es": "Mod alojado en Nexus Mods: la descarga exige iniciar sesión. Instálalo desde su página y deja MadSense abierto en lugar de DSX.", "en": "Hosted on Nexus Mods: downloading requires a login. Install it from its page and keep MadSense open instead of DSX." }
+      "notes": {
+        "es": "Mod alojado en Nexus Mods: la descarga exige iniciar sesión. Instálalo desde su página y deja MadSense abierto.",
+        "en": "Hosted on Nexus Mods: downloading requires a login. Install it from its page and keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      }
     },
     {
       "id": "tomb-raider-2013-dualsense",
@@ -165,10 +464,29 @@
       "author": "comunidad Nexus",
       "license": null,
       "page": "https://www.nexusmods.com/tombraider2013/mods/125",
-      "games": [ { "name": "Tomb Raider (2013)", "steam": [ "203160" ], "match": [ "tomb raider game of the year" ] } ],
-      "features": [ "triggers" ],
+      "games": [
+        {
+          "name": "Tomb Raider (2013)",
+          "steam": [
+            "203160"
+          ],
+          "match": [
+            "tomb raider game of the year"
+          ]
+        }
+      ],
+      "features": [
+        "triggers"
+      ],
       "kind": "manual",
-      "notes": { "es": "Mod alojado en Nexus Mods: la descarga exige iniciar sesión. Instálalo desde su página y deja MadSense abierto en lugar de DSX.", "en": "Hosted on Nexus Mods: downloading requires a login. Install it from its page and keep MadSense open instead of DSX." }
+      "notes": {
+        "es": "Mod alojado en Nexus Mods: la descarga exige iniciar sesión. Instálalo desde su página y deja MadSense abierto.",
+        "en": "Hosted on Nexus Mods: downloading requires a login. Install it from its page and keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      }
     },
     {
       "id": "sottr-dualsense",
@@ -176,10 +494,29 @@
       "author": "comunidad Nexus",
       "license": null,
       "page": "https://www.nexusmods.com/shadowofthetombraider/mods/491",
-      "games": [ { "name": "Shadow of the Tomb Raider", "steam": [ "750920" ], "match": [ "shadow of the tomb raider" ] } ],
-      "features": [ "triggers" ],
+      "games": [
+        {
+          "name": "Shadow of the Tomb Raider",
+          "steam": [
+            "750920"
+          ],
+          "match": [
+            "shadow of the tomb raider"
+          ]
+        }
+      ],
+      "features": [
+        "triggers"
+      ],
       "kind": "manual",
-      "notes": { "es": "Mod alojado en Nexus Mods: la descarga exige iniciar sesión. Instálalo desde su página y deja MadSense abierto en lugar de DSX.", "en": "Hosted on Nexus Mods: downloading requires a login. Install it from its page and keep MadSense open instead of DSX." }
+      "notes": {
+        "es": "Mod alojado en Nexus Mods: la descarga exige iniciar sesión. Instálalo desde su página y deja MadSense abierto.",
+        "en": "Hosted on Nexus Mods: downloading requires a login. Install it from its page and keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      }
     },
     {
       "id": "skyrim-se-adaptive-triggers",
@@ -187,10 +524,29 @@
       "author": "comunidad Nexus",
       "license": null,
       "page": "https://www.nexusmods.com/skyrimspecialedition/mods/66165",
-      "games": [ { "name": "The Elder Scrolls V: Skyrim Special Edition", "steam": [ "489830" ], "match": [ "skyrim special edition" ] } ],
-      "features": [ "triggers" ],
+      "games": [
+        {
+          "name": "The Elder Scrolls V: Skyrim Special Edition",
+          "steam": [
+            "489830"
+          ],
+          "match": [
+            "skyrim special edition"
+          ]
+        }
+      ],
+      "features": [
+        "triggers"
+      ],
       "kind": "manual",
-      "notes": { "es": "Mod alojado en Nexus Mods (plugin SKSE): la descarga exige iniciar sesión. Efectos por arma. Instálalo desde su página y deja MadSense abierto en lugar de DSX.", "en": "Hosted on Nexus Mods (SKSE plugin): downloading requires a login. Per-weapon effects. Install it from its page and keep MadSense open instead of DSX." }
+      "notes": {
+        "es": "Mod alojado en Nexus Mods (plugin SKSE): la descarga exige iniciar sesión. Efectos por arma. Instálalo desde su página y deja MadSense abierto.",
+        "en": "Hosted on Nexus Mods (SKSE plugin): downloading requires a login. Per-weapon effects. Install it from its page and keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      }
     },
     {
       "id": "gta5-adaptive-triggers",
@@ -198,10 +554,36 @@
       "author": "zelmer69",
       "license": "GPL-3.0",
       "page": "https://github.com/zelmer69/dualsense4GTA5",
-      "games": [ { "name": "Grand Theft Auto V", "steam": [ "271590", "3240220" ], "match": [ "grand theft auto v" ] } ],
-      "features": [ "triggers" ],
+      "games": [
+        {
+          "name": "Grand Theft Auto V",
+          "steam": [
+            "271590"
+          ],
+          "match": [
+            "grand theft auto v"
+          ],
+          "exclude": [
+            "enhanced"
+          ]
+        }
+      ],
+      "features": [
+        "triggers"
+      ],
       "kind": "manual",
-      "notes": { "es": "Script para GTA V que necesita ScriptHookV y ScriptHookVDotNet instalados antes; el archivo es un .rar. Sigue su página y deja MadSense abierto en lugar de DSX.", "en": "GTA V script that needs ScriptHookV and ScriptHookVDotNet installed first; the archive is a .rar. Follow its page and keep MadSense open instead of DSX." }
+      "notes": {
+        "es": "Este mod antiguo ya no tiene soporte de su autor y puede no funcionar. Solo para GTA V Legacy en modo historia; no lo uses en GTA Online. Requiere ScriptHookV, ScriptHookVDotNet y NativeUI. Sigue la guía del autor; no está verificado con MadSense.",
+        "en": "This old mod is no longer supported by its author and may not work. GTA V Legacy story mode only; do not use in GTA Online. Requires ScriptHookV, ScriptHookVDotNet and NativeUI. Follow its author’s guide; not verified with MadSense."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      },
+      "beforeInstall": {
+        "es": "Solo GTA V Legacy en modo Historia. El autor ya no mantiene el mod. No lo uses en GTA Online ni en Enhanced.",
+        "en": "GTA V Legacy Story Mode only. The author no longer maintains this mod. Do not use it in GTA Online or Enhanced."
+      }
     },
     {
       "id": "ets2-dualsense-at",
@@ -209,10 +591,29 @@
       "author": "josealissonbr",
       "license": null,
       "page": "https://www.nexusmods.com/eurotrucksimulator2/mods/189",
-      "games": [ { "name": "Euro Truck Simulator 2", "steam": [ "227300" ], "match": [ "euro truck simulator 2" ] } ],
-      "features": [ "triggers" ],
+      "games": [
+        {
+          "name": "Euro Truck Simulator 2",
+          "steam": [
+            "227300"
+          ],
+          "match": [
+            "euro truck simulator 2"
+          ]
+        }
+      ],
+      "features": [
+        "triggers"
+      ],
       "kind": "manual",
-      "notes": { "es": "Basado en la aplicación DualSenseAT, sin mantenimiento desde 2022. La descarga está en Nexus Mods e implica iniciar sesión. Deja MadSense abierto en lugar de DSX.", "en": "Based on the DualSenseAT app, unmaintained since 2022. The download is on Nexus Mods and requires a login. Keep MadSense open instead of DSX." }
+      "notes": {
+        "es": "Basado en la aplicación DualSenseAT, sin mantenimiento desde 2022. La descarga está en Nexus Mods e implica iniciar sesión. Deja MadSense abierto.",
+        "en": "Based on the DualSenseAT app, unmaintained since 2022. The download is on Nexus Mods and requires a login. Keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      }
     },
     {
       "id": "gtasense",
@@ -221,12 +622,38 @@
       "license": "Zlib",
       "page": "https://github.com/theGENreel/GTASense",
       "games": [
-        { "name": "Grand Theft Auto: San Andreas", "steam": [ "12120" ], "match": [ "san andreas" ] },
-        { "name": "Grand Theft Auto: Vice City", "steam": [ "12110" ], "match": [ "vice city" ] }
+        {
+          "name": "Grand Theft Auto: San Andreas",
+          "steam": [
+            "12120"
+          ],
+          "match": [
+            "san andreas"
+          ]
+        },
+        {
+          "name": "Grand Theft Auto: Vice City",
+          "steam": [
+            "12110"
+          ],
+          "match": [
+            "vice city"
+          ]
+        }
       ],
-      "features": [ "triggers", "lightbar" ],
+      "features": [
+        "triggers",
+        "lightbar"
+      ],
       "kind": "manual",
-      "notes": { "es": "Plugin .asi: necesita el Ultimate ASI Loader en la carpeta del juego y copiar el .asi y el .ini a la subcarpeta scripts. Sigue su página y deja MadSense abierto en lugar de DSX.", "en": ".asi plugin: needs the Ultimate ASI Loader in the game folder and the .asi and .ini copied into the scripts subfolder. Follow its page and keep MadSense open instead of DSX." }
+      "notes": {
+        "es": "Plugin .asi: necesita el Ultimate ASI Loader en la carpeta del juego y copiar el .asi y el .ini a la subcarpeta scripts. Sigue su página y deja MadSense abierto.",
+        "en": ".asi plugin: needs the Ultimate ASI Loader in the game folder and the .asi and .ini copied into the scripts subfolder. Follow its page and keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      }
     },
     {
       "id": "art-of-rally-dsx",
@@ -234,10 +661,29 @@
       "author": "Theaninova",
       "license": "MIT",
       "page": "https://github.com/Theaninova/ArtOfRallyDSX",
-      "games": [ { "name": "art of rally", "steam": [ "550320" ], "match": [ "art of rally" ] } ],
-      "features": [ "triggers" ],
+      "games": [
+        {
+          "name": "art of rally",
+          "steam": [
+            "550320"
+          ],
+          "match": [
+            "art of rally"
+          ]
+        }
+      ],
+      "features": [
+        "triggers"
+      ],
       "kind": "manual",
-      "notes": { "es": "Mod para el cargador MelonLoader: instala primero MelonLoader en el juego y luego el mod según su guía. Deja MadSense abierto en lugar de DSX.", "en": "A MelonLoader mod: install MelonLoader into the game first, then the mod as its guide says. Keep MadSense open instead of DSX." }
+      "notes": {
+        "es": "Mod para el cargador MelonLoader: instala primero MelonLoader en el juego y luego el mod según su guía. Deja MadSense abierto.",
+        "en": "A MelonLoader mod: install MelonLoader into the game first, then the mod as its guide says. Keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      }
     },
     {
       "id": "mgsv-gz-dualsense",
@@ -245,10 +691,30 @@
       "author": "WujekFoliarz",
       "license": null,
       "page": "https://github.com/WujekFoliarz/MGSV-Ground-Zeros-DualSenseMOD",
-      "games": [ { "name": "METAL GEAR SOLID V: GROUND ZEROES", "steam": [ "311340" ], "match": [ "ground zeroes" ] } ],
-      "features": [ "triggers", "haptics" ],
+      "games": [
+        {
+          "name": "METAL GEAR SOLID V: GROUND ZEROES",
+          "steam": [
+            "311340"
+          ],
+          "match": [
+            "ground zeroes"
+          ]
+        }
+      ],
+      "features": [
+        "triggers",
+        "haptics"
+      ],
       "kind": "manual",
-      "notes": { "es": "Se copia en la carpeta del juego, pero exige el controlador ViGEmBus (ya descontinuado). Sigue su página.", "en": "Copied into the game folder, but it requires the ViGEmBus driver (discontinued). Follow its page." }
+      "notes": {
+        "es": "Se copia en la carpeta del juego, pero exige el controlador ViGEmBus (ya descontinuado). Sigue su página.",
+        "en": "Copied into the game folder, but it requires the ViGEmBus driver (discontinued). Follow its page."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      }
     },
     {
       "id": "dualsense-at-hub",
@@ -257,13 +723,47 @@
       "license": null,
       "page": "https://github.com/josealissonbr/DualSenseAT",
       "games": [
-        { "name": "DEATH STRANDING", "steam": [ "1190460", "1850570" ], "match": [ "death stranding" ] },
-        { "name": "Resident Evil 4 (2005)", "steam": [ "254700" ], "match": [ "resident evil 4 (2005)" ] },
-        { "name": "Resident Evil 5", "steam": [ "21690" ], "match": [ "resident evil 5" ] }
+        {
+          "name": "DEATH STRANDING",
+          "steam": [
+            "1190460",
+            "1850570"
+          ],
+          "match": [
+            "death stranding"
+          ]
+        },
+        {
+          "name": "Resident Evil 4 (2005)",
+          "steam": [
+            "254700"
+          ],
+          "match": [
+            "resident evil 4 (2005)"
+          ]
+        },
+        {
+          "name": "Resident Evil 5",
+          "steam": [
+            "21690"
+          ],
+          "match": [
+            "resident evil 5"
+          ]
+        }
       ],
-      "features": [ "triggers" ],
+      "features": [
+        "triggers"
+      ],
       "kind": "manual",
-      "notes": { "es": "Aplicación-hub con perfiles para varios juegos, archivada por su autor en 2022 y distribuida como instalador. Sigue su página y deja MadSense abierto en lugar de DSX.", "en": "Hub application with profiles for several games, archived by its author in 2022 and shipped as an installer. Follow its page and keep MadSense open instead of DSX." }
+      "notes": {
+        "es": "Aplicación-hub con perfiles para varios juegos, archivada por su autor en 2022 y distribuida como instalador. Sigue su página y deja MadSense abierto.",
+        "en": "Hub application with profiles for several games, archived by its author in 2022 and shipped as an installer. Follow its page and keep MadSense open."
+      },
+      "setup": {
+        "es": "Comprueba que has completado los requisitos y la instalación de PÁGINA DEL MOD para tu edición del juego. MadSense no revisa esta instalación externa.",
+        "en": "Check that you completed the prerequisites and installation on MOD PAGE for your game edition. MadSense does not inspect this external installation."
+      }
     }
   ]
 }

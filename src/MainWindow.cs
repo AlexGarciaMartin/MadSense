@@ -860,8 +860,8 @@ sealed class MainWindow : Form
                 float y = 45 + i * 22;
                 g.DrawLine(streak, w * .65f + i * 5, y, w * .9f + i * 5, y - 15);
             }
-            float cw = Math.Min(Math.Clamp(w * .34f, 220, 290), Math.Max(90, baseY * 1.4f));
-            var tilted = g.Save(); g.TranslateTransform(w * .76f, baseY * .51f); g.RotateTransform(-11);
+            float cw = Math.Min(Math.Clamp(w * .34f, 220, 290), Math.Max(60, (baseY - 30) / .82f));
+            var tilted = g.Save(); g.TranslateTransform(w * .76f, baseY * .49f); g.RotateTransform(-11);
             DrawController(g, new RectangleF(-cw / 2, -cw * .3f, cw, cw * .6f), Connected);
             g.Restore(tilted);
             // Sharp speech-label, distinct state text even without color perception.

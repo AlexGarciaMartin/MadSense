@@ -72,6 +72,7 @@ internal static class Program
         {
             [dirt.Key] = new WikiSupport { Title = dirt.Name, Page = "DiRT Rally 2.0", Fetched = DateTimeOffset.UtcNow,
                 Fields = new() { ["playstation controllers"] = "true", ["dualsense haptics support"] = "false", ["dualsense adaptive trigger support"] = "false" } },
+            [beam.Key] = new WikiSupport { Title = beam.Name, Page = "PREVIEW", Fetched = DateTimeOffset.UtcNow, Fields = new() { ["dualsense haptics support"] = "true" } },
             [native.Key] = new WikiSupport { Title = native.Name, Page = "PREVIEW", Fetched = DateTimeOffset.UtcNow,
                 Fields = new() { ["dualsense haptics support"] = "true", ["dualsense adaptive trigger support"] = "true", ["light bar support"] = "true", ["playstation speaker"] = "false" } },
         };

@@ -22,6 +22,8 @@ sealed class ModGame
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("steam")] public string[] Steam { get; set; } = [];
     [JsonPropertyName("match")] public string[] Match { get; set; } = [];
+    [JsonPropertyName("exclude")] public string[] Exclude { get; set; } = [];
+    [JsonPropertyName("setup")] public Dictionary<string, string> Setup { get; set; } = new();
 }
 
 sealed class ModPackage
@@ -54,6 +56,18 @@ sealed class ModEntry
     [JsonPropertyName("run")] public ModRun? Run { get; set; }
     [JsonPropertyName("requires")] public string[] Requires { get; set; } = [];
     [JsonPropertyName("notes")] public Dictionary<string, string> Notes { get; set; } = new();
+    [JsonPropertyName("setup")] public Dictionary<string, string> Setup { get; set; } = new();
+    [JsonPropertyName("beforeInstall")] public Dictionary<string, string> BeforeInstall { get; set; } = new();
+    [JsonPropertyName("available")] public bool Available { get; set; } = true;
+
+    static string Localized(Dictionary<string, string> values, string language) => values.GetValueOrDefault(language) ?? values.GetValueOrDefault("en") ?? values.Values.FirstOrDefault() ?? "";
+    public string Preparation(LibraryGame game, string language)
+    {
+        var match = Games.Where(g => game.SteamAppId is { } id ? g.Steam.Contains(id) : g.Match.Any(m => PcGamingWikiClient.Normalize(game.Name).Contains(PcGamingWikiClient.Normalize(m))))
+            .OrderByDescending(g => g.Name.Length).FirstOrDefault();
+        return Localized(match?.Setup.Count > 0 ? match.Setup : Setup, language);
+    }
+    public string InstallNotice(string language) => Localized(BeforeInstall, language);
 
     [JsonIgnore] public ModKind Kind => KindName.ToLowerInvariant() switch { "helper" => ModKind.Helper, "gamefolder" => ModKind.GameFolder, "beamng" => ModKind.BeamNG, _ => ModKind.Manual };
     [JsonIgnore] public bool Installable => Kind != ModKind.Manual && Package is { Url.Length: > 0 } && Uri.TryCreate(Package.Url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase);
@@ -67,6 +81,7 @@ sealed class ModEntry
         var normalized = PcGamingWikiClient.Normalize(game.Name);
         foreach (var entry in Games)
         {
+            if (entry.Exclude.Any(x => normalized.Contains(PcGamingWikiClient.Normalize(x)))) continue;
             if (game.SteamAppId is { } id && entry.Steam.Contains(id)) return true;
             if (game.SteamAppId is null && entry.Match.Any(m => normalized.Contains(PcGamingWikiClient.Normalize(m)))) return true;
         }
@@ -95,7 +110,7 @@ static class ModCatalog
     public static IReadOnlyList<ModEntry> Mods => document.Value.Mods;
     public static string Version => document.Value.CatalogVersion;
 
-    public static IReadOnlyList<ModEntry> ForGame(LibraryGame game) => Mods.Where(m => m.Matches(game)).OrderBy(m => m.Kind).ToList();
+    public static IReadOnlyList<ModEntry> ForGame(LibraryGame game) => Mods.Where(m => m.Available && m.Matches(game)).OrderBy(m => m.Kind).ToList();
 
     public static ModEntry? ById(string id) => Mods.FirstOrDefault(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase));
 

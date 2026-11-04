@@ -33,6 +33,9 @@ internal sealed class GamesWindow : Form
     readonly Label notice = new() { AutoSize = true, ForeColor = Paper, Dock = DockStyle.Fill, Margin = new(0, 3, 8, 3), UseMnemonic = false };
     readonly MainWindow.RoundedButton dismiss = new(), cancel = new();
     readonly Dictionary<string, string> chosenMods = [];
+    readonly Dictionary<string, bool> modViews = [];
+    readonly Dictionary<string, int> guideSteps = [];
+    readonly HashSet<string> expandedDetails = [];
     string activeFilter = "All";
     CancellationTokenSource? installation;
     UiMessage? noticeMessage;
@@ -364,85 +367,128 @@ internal sealed class GamesWindow : Form
         _ => Paper,
     };
 
+    void RedrawDetail() { shownSignature = ""; Selected(); detailScroll.AutoScrollPosition = Point.Empty; }
+
+    void DetailAction(string key, Action click)
+    {
+        int height = (int)Math.Round(38 * DeviceDpi / 96f);
+        var button = new MainWindow.RoundedButton { Text = L.Text(key).ToUpper(L.Culture), Height = height,
+            MinimumSize = new(0, height), Margin = new(0, (int)(4 * DeviceDpi / 96f), 0, (int)(8 * DeviceDpi / 96f)), Enabled = !installing };
+        button.Click += (_, _) => click(); Add(button);
+    }
+
     void ShowGame(Entry entry)
     {
-        ResetDetail();
-        detail.SuspendLayout();
+        ResetDetail(); detail.SuspendLayout();
         var game = entry.Game; var standing = entry.Standing; var info = standing.Wiki;
-        Kicker(game.Source + (game.SteamAppId is { } id ? "  /  STEAM " + id : ""), Muted);
-        Headline(game.Name);
-        Badge(StatusText(standing, entry.Pending), StatusColor(standing.Status));
-        if (standing.Mods.Count > 0 && info is not null)
+        bool native = info?.NativeDualSense == true;
+        bool mods = standing.Mods.Count > 0;
+        bool showMod = mods && (!native || modViews.GetValueOrDefault(game.Key));
+        bool details = expandedDetails.Contains(game.Key);
+        Kicker(game.Source, Muted); Headline(game.Name);
+        if (showMod)
         {
-            var native = new[] { ("haptics", info.Haptics), ("triggers", info.Triggers), ("speaker", info.Speaker), ("lightbar", info.Lightbar), ("gyro", info.Motion), ("prompts", info.Prompts) }
-                .Where(f => f.Item2 is WikiValue.Yes or WikiValue.Limited).Select(f => L.Text("Games.Feature." + f.Item1) + (f.Item2 == WikiValue.Limited ? " (" + L.Text("Games.Value.Limited") + ")" : ""));
-            Body(L.Text("Games.NativeSummary") + " · " + (native.Any() ? string.Join(" · ", native) : L.Text("Games.NativeDetails")));
-        }
-        if (standing.Mods.Count > 0)
-        {
+            if (native) DetailAction("Games.Flow.NativeView", () => { modViews[game.Key] = false; RedrawDetail(); });
             selectedMod = standing.Mods.FirstOrDefault(m => m.Id == chosenMods.GetValueOrDefault(game.Key)) ?? standing.Mods[0];
             if (standing.Mods.Count > 1)
             {
                 Kicker(L.Text("Games.SelectMod"));
-                var selector = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, BackColor = Paper, ForeColor = Ink, Font = MakeFont("Segoe UI", 10), AccessibleName = L.Text("Games.SelectMod"), Margin = new(0, 0, 0, 10) };
+                var selector = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, BackColor = Paper, ForeColor = Ink,
+                    Font = MakeFont("Segoe UI", 10), AccessibleName = L.Text("Games.SelectMod"), Margin = new(0, 0, 0, 10), Enabled = !installing };
                 selector.Items.AddRange(standing.Mods.Select(m => m.Name).ToArray());
                 selector.SelectedIndex = standing.Mods.ToList().IndexOf(selectedMod);
-                selector.SelectedIndexChanged += (_, _) => { chosenMods[game.Key] = standing.Mods[selector.SelectedIndex].Id; BeginInvoke(() => { shownSignature = ""; Selected(); }); };
+                selector.SelectedIndexChanged += (_, _) => { chosenMods[game.Key] = standing.Mods[selector.SelectedIndex].Id; BeginInvoke(RedrawDetail); };
                 Add(selector);
             }
             var mod = selectedMod;
+            pageUri = mod.PageUri;
             var installed = service.Installer.Find(mod.Id, game.Key);
-            pageUri = mod.PageUri; page.Visible = true;
-            Kicker(L.Text("Games.ModHeader", mod.Name));
-            Body(L.Text("Games.ModFeatures", string.Join(" · ", mod.Features.Select(f => L.Text("Games.Feature." + f)))), muted: false);
-            if (info?.NativeDualSense == true) Body(L.Text("Games.ModPriority"));
-            if (installed is not null)
-                Badge(L.Text(service.IsSetupComplete(mod.Id, game.Key) ? "Games.SetupReady" : "Games.SetupPending"), service.IsSetupComplete(mod.Id, game.Key) ? Acid : Paper);
-            Kicker(L.Text("Games.Setup"));
-            if (!mod.Installable) Body("1. " + L.Text("Games.ManualStep"), muted: false);
-            Body((mod.Installable ? "1. " : "2. ") + mod.Note(L.CurrentLanguage), muted: false);
-            if (mod.Requires.Length > 0) Body(L.Text("Games.SetupRequirements", string.Join(", ", mod.Requires)));
-            Body((mod.Installable ? "2. " : "3. ") + L.Text("Games.StartStep"));
-            Body((mod.Installable ? "3. " : "4. ") + L.Text("Games.CheckStep"));
-            if (installed is not null)
+            if (!mod.Available)
             {
-                AddToggle("Games.SetupConfirm", service.IsSetupComplete(mod.Id, game.Key), value => service.SetSetupComplete(mod.Id, game.Key, value));
-                if (installed.Exe is not null)
+                Body(mod.Note(L.CurrentLanguage), muted: false);
+                remove.Visible = installed is not null && !installing;
+                page.Visible = true;
+                detail.ResumeLayout(true);
+                return;
+            }
+            string guideKey = game.Key + ":" + mod.Id;
+            int step = guideSteps.GetValueOrDefault(guideKey, installed is null ? 0 : service.IsSetupComplete(mod.Id, game.Key) ? 2 : 1);
+            Badge(L.Text("Games.ModFeatures", string.Join(" · ", mod.Features.Select(f => L.Text("Games.Feature." + f)))), Paper);
+            Kicker((step + 1) + " / 3  ·  " + L.Text(step == 0 ? "Games.Flow.Install" : step == 1 ? "Games.Setup" : "Games.Flow.Play"));
+            if (step == 0)
+            {
+                Body(L.Text(mod.Installable ? "Games.Flow.InstallIntro" : "Games.Flow.Manual"), muted: false);
+                if (mod.InstallNotice(L.CurrentLanguage) is { Length: > 0 } notice) Body(notice, muted: false);
+                install.Visible = mod.Installable && installed is null && !installing;
+                if (!mod.Installable) { pageUri = mod.PageUri; page.Visible = true; }
+                if (installed is not null || !mod.Installable)
+                    DetailAction(installed is null ? "Games.Flow.ManualDone" : "Games.Flow.Next", () => { guideSteps[guideKey] = 1; RedrawDetail(); });
+            }
+            else if (step == 1)
+            {
+                var preparation = mod.Preparation(game, L.CurrentLanguage);
+                Body(preparation.Length > 0 ? preparation : L.Text("Games.Flow.Manual"), muted: false);
+                page.Visible = true;
+                DetailAction("Games.Flow.Next", () => {
+                    if (installed is not null)
+                    {
+                        try { service.SetSetupComplete(mod.Id, game.Key, true); }
+                        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Notify(L.Message("Games.SettingsFailed", e.Message)); return; }
+                    }
+                    guideSteps[guideKey] = 2; RecheckRequested?.Invoke(); RedrawDetail();
+                });
+            }
+            else
+            {
+                Body(L.Text(mod.Kind == ModKind.Helper ? "Games.Flow.HelperLaunch" : "Games.Flow.GameLaunch"), muted: false);
+                if (installed?.Exe is not null)
                 {
                     AddToggle("Games.AutoStart", service.IsAutoStartEnabled(mod.Id, game.Key), value => service.SetAutoStartEnabled(mod.Id, game.Key, value));
-                    if (service.Runner.Failure(mod.Id, game.Key) is { } failure) Body(L.Text("Games.HelperFailed", mod.Name) + " " + failure, muted: false);
-                    Body(L.Text(service.Runner.IsRunning(mod.Id, game.Key) ? "Games.HelperRunning" : !service.IsAutoStartEnabled(mod.Id, game.Key) ? "Games.HelperDisabled" : service.Runner.StoppedForSession(mod.Id, game.Key) ? "Games.HelperStoppedSession" : "Games.HelperIdle"));
+                    if (service.Runner.Failure(mod.Id, game.Key) is not null) Body(L.Text("Games.HelperFailed", mod.Name), muted: false);
+                    run.Visible = !installing;
+                    run.Text = L.Text(service.Runner.IsRunning(mod.Id, game.Key) ? "Games.StopNow" : "Games.RunNow").ToUpper(L.Culture);
                 }
+                if (!mod.Installable) Body(L.Text("Games.Flow.Unverified"));
+                diagnosticText = Body("", muted: false); RefreshDiagnostics();
+                Body(L.Text("Games.Flow.TryEffects"));
             }
-            Kicker(L.Text("Games.Diagnostic"));
-            diagnosticText = Body("", muted: false); RefreshDiagnostics();
-            var recheck = new MainWindow.RoundedButton { Text = L.Text("Games.Recheck").ToUpper(L.Culture), Height = 34, Margin = new(0, 0, 0, 10) };
-            recheck.Click += (_, _) => RecheckRequested?.Invoke(); Add(recheck);
-            Body(L.Text("Games.DiagScope"));
-            Body(L.Text("Games.ModBy", mod.Author, mod.License ?? L.Text("Games.NoLicense"), string.Join(", ", mod.Features.Select(f => L.Text("Games.Feature." + f)))));
-            if (installed is not null) Body(L.Text("Games.InstalledDetail", installed.Version, installed.Installed.ToString("d", L.Culture), installed.Root));
-            else if (mod.Installable) Body(L.Text(mod.Kind switch { ModKind.Helper => "Games.InstallHelperHint", ModKind.GameFolder => "Games.InstallGameFolderHint", _ => "Games.InstallBeamNgHint" }, service.Installer.ModsRoot));
-            else Body(L.Text("Games.ManualHint"));
-            install.Visible = installed is null && mod.Installable && !installing;
-            remove.Visible = installed is not null && !installing;
-            run.Visible = installed?.Exe is not null && !installing;
-            run.Text = L.Text(service.Runner.IsRunning(mod.Id, game.Key) ? "Games.StopNow" : "Games.RunNow").ToUpper(L.Culture);
+            if (step > 0) DetailAction("Games.Flow.Back", () => { guideSteps[guideKey] = step - 1; RedrawDetail(); });
+            DetailAction(details ? "Games.Flow.HideDetails" : "Games.Flow.Details", () => { if (!expandedDetails.Add(game.Key)) expandedDetails.Remove(game.Key); RedrawDetail(); });
+            if (details)
+            {
+                Kicker(mod.Name);
+                Body(mod.Note(L.CurrentLanguage));
+                Body(L.Text("Games.ModBy", mod.Author, mod.License ?? L.Text("Games.NoLicense"), string.Join(", ", mod.Features.Select(f => L.Text("Games.Feature." + f)))));
+                pageUri = mod.PageUri; page.Visible = true;
+                remove.Visible = installed is not null && !installing;
+                if (native) Body(L.Text("Games.ModPriority"));
+            }
         }
-        Kicker(L.Text("Games.NativeSummary"));
-        if (info is not null)
+        else
         {
-            Lamps([
-                (L.Text("Games.Feature.haptics"), info.Haptics), (L.Text("Games.Feature.triggers"), info.Triggers), (L.Text("Games.Feature.speaker"), info.Speaker),
-                (L.Text("Games.Feature.lightbar"), info.Lightbar), (L.Text("Games.Feature.gyro"), info.Motion), (L.Text("Games.Feature.prompts"), info.Prompts)]);
-            if (info.ConnectionModes.Length > 0 && !info.ConnectionModes.Equals("unknown", StringComparison.OrdinalIgnoreCase)) Body(L.Text("Games.ConnectionModes", info.ConnectionModes));
-            if (info.Note("dualsense adaptive trigger support") is { } note) Body(Trim(note));
-            Body(L.Text("Games.WikiAttribution"));
-            wikiUri = info.Source; wiki.Visible = true;
+            Badge(native ? L.Text(standing.Installed.Count == 0 ? "Games.Flow.Native" : "Games.NativeSummary") : StatusText(standing, entry.Pending), native ? Acid : Paper);
+            if (native)
+            {
+                Body(L.Text(standing.Installed.Count == 0 ? "Games.Flow.NativePlay" : "Games.StartStep"), muted: false);
+                if (game.SteamAppId is not null) Body(L.Text("Games.Flow.Steam"));
+                if (standing.Installed.Count > 0) Body(L.Text("Games.Flow.InstalledWarning"));
+            }
+            if (info is not null)
+            {
+                (string Label, WikiValue Value)[] features = [(L.Text("Games.Feature.haptics"), info.Haptics), (L.Text("Games.Feature.triggers"), info.Triggers),
+                    (L.Text("Games.Feature.speaker"), info.Speaker), (L.Text("Games.Feature.lightbar"), info.Lightbar),
+                    (L.Text("Games.Feature.gyro"), info.Motion), (L.Text("Games.Feature.prompts"), info.Prompts)];
+                Lamps(native && !details ? features.Where(f => f.Value is WikiValue.Yes or WikiValue.Limited).ToArray() : features);
+            }
+            else Body(L.Text(entry.Pending ? "Games.LoadingWiki" : "Games.NoWikiData"));
+            if (mods) DetailAction("Games.Flow.ModView", () => { modViews[game.Key] = true; RedrawDetail(); });
+            DetailAction(details ? "Games.Flow.HideDetails" : "Games.Flow.Details", () => { if (!expandedDetails.Add(game.Key)) expandedDetails.Remove(game.Key); RedrawDetail(); });
+            if (details && info is not null)
+            {
+                Body(L.Text("Games.WikiAttribution")); wikiUri = info.Source; wiki.Visible = true;
+            }
         }
-        else Body(L.Text(entry.Pending ? "Games.LoadingWiki" : service.Wiki.Blocked ? "Games.WikiBlocked" : "Games.NoWikiData"));
-        if (info?.NativeDualSense == true) Body(L.Text(standing.Mods.Count > 0 ? "Games.NativeModHint" : "Games.NativeHint"), muted: false);
-        if (service.IsCustomFolder(game.Source)) { Body(L.Text("Games.CustomFolderHint", game.Source)); forget.Visible = !installing; }
-        if (standing.Mods.Count == 0 && standing.Status != GameStatus.Native) Body(L.Text("Games.NoModKnown"));
+        if (details && service.IsCustomFolder(game.Source)) forget.Visible = !installing;
         detail.ResumeLayout(true);
     }
 
@@ -460,12 +506,16 @@ internal sealed class GamesWindow : Form
     void RefreshDiagnostics()
     {
         if (diagnosticText is null || diagnosticText.IsDisposed) return;
-        if (diagnostics is not { } d) { diagnosticText.Text = L.Text("Games.DiagnosticUnavailable"); return; }
-        diagnosticText.Text = string.Join("\n",
-            L.Text("Games.DiagPad", L.Text(d.ControllerConnected ? "Games.DiagConnected" : "Games.DiagDisconnected")),
-            L.Text("Games.DiagReceiver", L.Text(d.Listening ? "Games.DiagListening" : "Games.DiagOffline")),
-            L.Text("Games.DiagData", L.Text(d.Receiving ? "Games.DiagReceiving" : "Games.DiagWaiting")))
-            + (d.PortBusy ? "\n" + L.Text("Games.DiagBusy") : "");
+        var key = diagnostics switch
+        {
+            null => "Games.Flow.Connect",
+            { ControllerConnected: false } => "Games.Flow.Connect",
+            { PortBusy: true } => "Games.Flow.Busy",
+            { Listening: false } => "Games.Flow.Offline",
+            { Receiving: true } => "Games.Flow.Receiving",
+            _ => "Games.Flow.Waiting"
+        };
+        diagnosticText.Text = L.Text(key);
     }
 
     static string Trim(string wikitext)
@@ -511,6 +561,7 @@ internal sealed class GamesWindow : Form
         {
             service.SetSetupComplete(mod.Id, entry.Game.Key, false);
             await service.Installer.InstallAsync(mod, entry.Game, reporter, installation.Token);
+            guideSteps[entry.Game.Key + ":" + mod.Id] = 1;
             Notify(L.Message("Games.Installed", mod.Name));
         }
         catch (OperationCanceledException) { Notify(L.Message("Games.Cancelled")); }
@@ -529,6 +580,7 @@ internal sealed class GamesWindow : Form
         {
             service.Runner.Stop(mod.Id, entry.Game.Key);
             service.Installer.Uninstall(mod.Id, entry.Game.Key);
+            guideSteps.Remove(entry.Game.Key + ":" + mod.Id);
             Notify(L.Message("Games.Removed", mod.Name));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { Notify(L.Message("Games.RemoveFailed", mod.Name, e.Message)); }

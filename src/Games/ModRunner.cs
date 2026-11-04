@@ -176,7 +176,7 @@ sealed class ModRunner : IDisposable
             if (IsRunning(modId, gameKey)) return true;
             var record = installer.Find(modId, gameKey);
             var mod = ModCatalog.ById(modId);
-            if (record?.Exe is null || mod is null) return false;
+            if (record?.Exe is null || mod is null || !mod.Available) return false;
             var exe = Path.Combine(record.Root, record.Exe);
             var start = new ProcessStartInfo(exe, mod.Run?.Args ?? "")
             {
