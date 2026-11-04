@@ -5,8 +5,9 @@ namespace MadSense.Games;
 
 /// <summary>
 /// The games screen: every installed game, what it does with the DualSense on its own, and the
-/// community mod MadSense can install with one click when it does not. Same paper, ink, orange
-/// and acid as the main window; reads only, until the user presses Install.
+/// community mod MadSense can install with one click when it does not. Built from the main
+/// window's own pieces: the ink band with the orange plate, mono kickers, Impact headlines, slanted
+/// badges, lamp rows and the hard-shadow buttons. Reads only, until the user presses Install.
 /// </summary>
 internal sealed class GamesWindow : Form
 {
@@ -15,15 +16,16 @@ internal sealed class GamesWindow : Form
     readonly GamesService service;
     readonly CancellationTokenSource lifetime = new();
     readonly Dictionary<(string, float, FontStyle), Font> fonts = [];
+    readonly BandPanel band = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
     readonly MainWindow.RoundedButton refresh = new(), install = new() { Accent = true }, remove = new(), run = new(), page = new(), wiki = new();
-    readonly Label heading = new(), subtitle = new(), footer = new(), count = new(), empty = new(), badge = new();
+    readonly Label footer = new(), count = new(), empty = new(), section = new();
     readonly TextBox search = new();
     readonly EntryList entries = new();
+    readonly PlatePanel listPlate = new(), detailPlate = new();
     readonly Panel detailScroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
     readonly FlowLayoutPanel detail = new() { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-    readonly Panel listHost = new() { Dock = DockStyle.Fill };
     readonly ProgressBar progress = new() { Dock = DockStyle.Fill, Visible = false, Style = ProgressBarStyle.Continuous };
-    readonly TableLayoutPanel actions = new() { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, Margin = Padding.Empty };
+    readonly TableLayoutPanel actions = new() { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, Margin = Padding.Empty, Padding = new(0, 6, 0, 0) };
     readonly Dictionary<string, WikiSupport?> support = new(StringComparer.Ordinal);
     readonly HashSet<string> pending = new(StringComparer.Ordinal);
     List<LibraryGame> games = [];
@@ -41,64 +43,73 @@ internal sealed class GamesWindow : Form
         SuspendLayout();
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96, 96);
-        ClientSize = new(1100, 740); MinimumSize = new(900, 660);
+        ClientSize = new(1100, 760); MinimumSize = new(920, 680);
         StartPosition = FormStartPosition.CenterParent;
         BackColor = Paper; ForeColor = Ink; Font = MakeFont("Segoe UI", 10);
-        Icon = MainWindow.Logo.CreateIcon(); Padding = new(28, 20, 28, 20);
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1, Margin = Padding.Empty };
-        root.RowStyles.Add(new(SizeType.Absolute, 112)); root.RowStyles.Add(new(SizeType.Absolute, 56));
-        root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 34));
-        // Header: title, count badge, one-line explanation.
-        var top = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Margin = Padding.Empty };
-        top.ColumnStyles.Add(new(SizeType.Percent, 100)); top.ColumnStyles.Add(new(SizeType.Absolute, 190));
-        top.RowStyles.Add(new(SizeType.Percent, 62)); top.RowStyles.Add(new(SizeType.Percent, 38));
-        heading.Dock = DockStyle.Fill; heading.Font = MakeFont("Impact", 30); heading.TextAlign = ContentAlignment.MiddleLeft;
-        badge.Dock = DockStyle.Fill; badge.BackColor = Acid; badge.ForeColor = Ink; badge.TextAlign = ContentAlignment.MiddleCenter;
-        badge.Font = MakeFont("Consolas", 11, FontStyle.Bold); badge.Margin = new(0, 16, 0, 10);
-        subtitle.Dock = DockStyle.Fill; subtitle.ForeColor = Muted; subtitle.Font = MakeFont("Segoe UI", 10.5f);
-        top.Controls.Add(heading, 0, 0); top.Controls.Add(badge, 1, 0); top.Controls.Add(subtitle, 0, 1); top.SetColumnSpan(subtitle, 2);
-        root.Controls.Add(top, 0, 0);
-        // Search and refresh.
-        var filters = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty, Padding = new(0, 4, 0, 10) };
-        filters.ColumnStyles.Add(new(SizeType.Percent, 100)); filters.ColumnStyles.Add(new(SizeType.Absolute, 150)); filters.ColumnStyles.Add(new(SizeType.Absolute, 150));
-        search.Anchor = AnchorStyles.Left | AnchorStyles.Right; search.BackColor = Paper; search.ForeColor = Ink; search.BorderStyle = BorderStyle.FixedSingle; search.Font = MakeFont("Segoe UI", 11);
+        Icon = MainWindow.Logo.CreateIcon(); Padding = new(24, 12, 24, 16);
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 6, ColumnCount = 1, Margin = Padding.Empty };
+        root.RowStyles.Add(new(SizeType.Absolute, 176));
+        root.RowStyles.Add(new(SizeType.Absolute, 30));
+        root.RowStyles.Add(new(SizeType.Absolute, 48));
+        root.RowStyles.Add(new(SizeType.Percent, 100));
+        root.RowStyles.Add(new(SizeType.Absolute, 54));
+        root.RowStyles.Add(new(SizeType.Absolute, 30));
+        root.Controls.Add(band, 0, 0);
+        // Section line, as in the main window: mono kicker with a slash.
+        section.Dock = DockStyle.Fill; section.TextAlign = ContentAlignment.BottomLeft; section.ForeColor = Ink; section.Font = MakeFont("Consolas", 8, FontStyle.Bold); section.Padding = new(0, 0, 0, 5);
+        root.Controls.Add(section, 0, 1);
+        // Toolbar: search field, count, refresh. Same 48 px row and button geometry as the main footer.
+        var toolbar = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
+        toolbar.RowStyles.Add(new(SizeType.Percent, 100));
+        toolbar.ColumnStyles.Add(new(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new(SizeType.Absolute, 150)); toolbar.ColumnStyles.Add(new(SizeType.Absolute, 144));
+        var searchPlate = new PlatePanel { Dock = DockStyle.Fill, Margin = new(0, 0, 12, 6), Padding = new(10, 0, 10, 0) };
+        search.Anchor = AnchorStyles.Left | AnchorStyles.Right; search.BackColor = Paper; search.ForeColor = Ink; search.BorderStyle = BorderStyle.None; search.Font = MakeFont("Consolas", 11, FontStyle.Bold);
         search.TextChanged += (_, _) => Populate();
-        count.Dock = DockStyle.Fill; count.TextAlign = ContentAlignment.MiddleRight; count.Font = MakeFont("Consolas", 9, FontStyle.Bold); count.Margin = new(0, 0, 12, 0);
-        refresh.Dock = DockStyle.Fill; refresh.Margin = new(0, 0, 0, 6); refresh.Click += async (_, _) => await ScanAsync();
-        filters.Controls.Add(search, 0, 0); filters.Controls.Add(count, 1, 0); filters.Controls.Add(refresh, 2, 0); root.Controls.Add(filters, 0, 1);
-        // List on the left, detail on the right.
+        searchPlate.Controls.Add(search);
+        searchPlate.Layout += (_, _) => { var area = searchPlate.DisplayRectangle; search.SetBounds(area.X, area.Y + Math.Max(0, (area.Height - search.Height) / 2), area.Width, search.Height); };
+        count.Dock = DockStyle.Fill; count.TextAlign = ContentAlignment.MiddleRight; count.Font = MakeFont("Consolas", 9, FontStyle.Bold); count.Margin = new(0, 0, 12, 6);
+        refresh.Dock = DockStyle.Fill; refresh.Margin = Padding.Empty; refresh.Click += async (_, _) => await ScanAsync();
+        toolbar.Controls.Add(searchPlate, 0, 0); toolbar.Controls.Add(count, 1, 0); toolbar.Controls.Add(refresh, 2, 0);
+        root.Controls.Add(toolbar, 0, 2);
+        // Plates: list on the left, detail on the right, both with the hard shadow of the buttons.
         var content = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+        content.RowStyles.Add(new(SizeType.Percent, 100));
         content.ColumnStyles.Add(new(SizeType.Percent, 42)); content.ColumnStyles.Add(new(SizeType.Percent, 58));
-        listHost.Padding = new(1); listHost.Margin = new(0, 0, 20, 0); listHost.BackColor = Ink;
+        listPlate.Dock = DockStyle.Fill; listPlate.Margin = new(0, 6, 18, 4);
         entries.Dock = DockStyle.Fill; entries.BackColor = Paper; entries.ForeColor = Ink; entries.BorderStyle = BorderStyle.None;
         entries.SelectedIndexChanged += (_, _) => Selected();
-        entries.ItemHeight = (int)Math.Round(84 * DeviceDpi / 96f);
+        entries.ItemHeight = (int)Math.Round(78 * DeviceDpi / 96f);
         empty.Dock = DockStyle.Fill; empty.BackColor = Paper; empty.ForeColor = Muted; empty.TextAlign = ContentAlignment.MiddleCenter; empty.Padding = new(24);
-        listHost.Controls.Add(entries); listHost.Controls.Add(empty);
-        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Margin = Padding.Empty };
-        right.RowStyles.Add(new(SizeType.Percent, 100)); right.RowStyles.Add(new(SizeType.Absolute, 14)); right.RowStyles.Add(new(SizeType.Absolute, 52));
+        listPlate.Controls.Add(entries); listPlate.Controls.Add(empty);
+        detailPlate.Dock = DockStyle.Fill; detailPlate.Margin = new(0, 6, 0, 4); detailPlate.Padding = new(18, 14, 18, 10);
         detailScroll.Controls.Add(detail); detailScroll.SizeChanged += (_, _) => FitDetail();
+        detailPlate.Controls.Add(detailScroll);
+        content.Controls.Add(listPlate, 0, 0); content.Controls.Add(detailPlate, 1, 0); root.Controls.Add(content, 0, 3);
+        actions.RowStyles.Add(new(SizeType.Percent, 100));
         for (int i = 0; i < 5; i++) actions.ColumnStyles.Add(new(SizeType.Percent, 20));
         foreach (var (button, column) in new[] { (install, 0), (run, 1), (remove, 2), (page, 3), (wiki, 4) })
         {
-            button.Dock = DockStyle.Fill; button.Margin = new(column == 0 ? 0 : 6, 8, column == 4 ? 0 : 6, 0); button.Visible = false; actions.Controls.Add(button, column, 0);
+            button.Dock = DockStyle.Fill; button.Margin = new(column == 0 ? 0 : 6, 0, column == 4 ? 0 : 6, 0); button.Visible = false; actions.Controls.Add(button, column, 0);
         }
         install.Click += async (_, _) => await InstallAsync();
         remove.Click += (_, _) => Remove();
         run.Click += (_, _) => RunHelper();
         page.Click += (_, _) => { if (pageUri is { } uri) OpenUrl(uri); };
         wiki.Click += (_, _) => { if (wikiUri is { } uri) OpenUrl(uri); };
-        progress.Margin = new(0, 4, 0, 0);
-        right.Controls.Add(detailScroll, 0, 0); right.Controls.Add(progress, 0, 1); right.Controls.Add(actions, 0, 2);
-        content.Controls.Add(listHost, 0, 0); content.Controls.Add(right, 1, 0); root.Controls.Add(content, 0, 2);
-        footer.Dock = DockStyle.Fill; footer.TextAlign = ContentAlignment.BottomLeft; footer.ForeColor = Muted; footer.Font = MakeFont("Segoe UI", 8.5f); footer.AutoEllipsis = true;
-        root.Controls.Add(footer, 0, 3);
+        root.Controls.Add(actions, 0, 4);
+        var bottom = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+        bottom.RowStyles.Add(new(SizeType.Percent, 100));
+        bottom.ColumnStyles.Add(new(SizeType.Percent, 100)); bottom.ColumnStyles.Add(new(SizeType.Absolute, 220));
+        footer.Dock = DockStyle.Fill; footer.TextAlign = ContentAlignment.MiddleLeft; footer.ForeColor = Muted; footer.Font = MakeFont("Segoe UI", 8); footer.AutoEllipsis = true;
+        progress.Margin = new(12, 10, 0, 10);
+        bottom.Controls.Add(footer, 0, 0); bottom.Controls.Add(progress, 1, 0);
+        root.Controls.Add(bottom, 0, 5);
         Controls.Add(root);
         ApplyText();
         service.LibraryChanged += LibraryChanged;
         service.Runner.HelperStarted += (_, _) => Post(Populate);
         service.Runner.HelperStopped += (_, _) => Post(Populate);
-        Shown += async (_, _) => await ScanAsync();
+        Shown += async (_, _) => { ActiveControl = entries; await ScanAsync(); };
         L.Changed += LanguageChanged;
         FormClosed += (_, _) => { if (!disposedResources) { lifetime.Cancel(); lookups?.Cancel(); } };
         ResumeLayout(true);
@@ -117,8 +128,10 @@ internal sealed class GamesWindow : Form
 
     void ApplyText()
     {
-        Text = "MadSense · " + L.Text("Games.Title"); heading.Text = L.Text("Games.Heading").ToUpper(L.Culture);
-        subtitle.Text = L.Text("Games.Subtitle"); refresh.Text = L.Text("Games.Refresh");
+        Text = "MadSense · " + L.Text("Games.Title");
+        band.Kicker = L.Text("Games.Kicker"); band.Headline = L.Text("Games.Heading"); band.Tagline = L.Text("Games.Tagline");
+        section.Text = L.Text("Games.Section");
+        refresh.Text = L.Text("Games.Refresh");
         search.PlaceholderText = L.Text("Games.Search"); search.AccessibleName = L.Text("Games.Search"); entries.AccessibleName = L.Text("Games.Title");
         install.Text = L.Text("Games.Install"); remove.Text = L.Text("Games.Remove"); run.Text = L.Text("Games.RunNow");
         page.Text = L.Text("Games.ModPage"); wiki.Text = L.Text("Games.WikiPage");
@@ -172,13 +185,15 @@ internal sealed class GamesWindow : Form
         rebuilding = true;
         entries.BeginUpdate(); entries.Items.Clear(); foreach (var row in rows) entries.Items.Add(row); entries.EndUpdate();
         count.Text = L.Text("Games.GameCount", games.Count);
-        badge.Text = L.Text("Games.Badge", rows.Count(r => r.Standing.Status is GameStatus.Native), rows.Count(r => r.Standing.Status is GameStatus.ModAvailable or GameStatus.ModInstalled));
+        var all = games.Select(g => service.Standing(g, support.GetValueOrDefault(g.Key))).ToList();
+        band.Badge = L.Text("Games.Badge", all.Count(s => s.Status == GameStatus.Native), all.Count(s => s.Status is GameStatus.ModAvailable or GameStatus.ModInstalled));
+        band.Invalidate();
         empty.Text = L.Text(games.Count == 0 ? "Games.NoGames" : "Games.NoMatches"); empty.Visible = rows.Count == 0;
         footer.Text = scanning ? L.Text("Games.Scanning") : pending.Count > 0 ? L.Text("Games.Consulting", pending.Count) : L.Text("Games.Footer", ModCatalog.Version);
         var index = rows.FindIndex(r => r.Game.Key == previous);
         if (rows.Count > 0) entries.SelectedIndex = index < 0 ? 0 : index;
         rebuilding = false;
-        if (rows.Count > 0) Selected(force: true); else { selectedKey = null; ResetDetail(); Block(L.Text("Games.EmptyTitle"), 24, true); Block(L.Text("Games.EmptyDescription")); }
+        if (rows.Count > 0) Selected(force: true); else { selectedKey = null; ResetDetail(); Kicker(L.Text("Games.EmptyTitle")); Body(L.Text("Games.EmptyDescription")); }
     }
 
     void Selected(bool force = false)
@@ -189,6 +204,7 @@ internal sealed class GamesWindow : Form
         ShowGame(entry);
     }
 
+    // ── detail pane pieces ────────────────────────────────────────────────────────────────────
     void ResetDetail()
     {
         detail.SuspendLayout();
@@ -199,23 +215,32 @@ internal sealed class GamesWindow : Form
         foreach (var button in new[] { install, run, remove, page, wiki }) button.Visible = false;
     }
 
-    Label Block(string text, float size = 10, bool title = false, bool band = false, Color? color = null)
-    {
-        var label = new Label
-        {
-            AutoSize = true, Text = text, ForeColor = color ?? (title ? Ink : Muted), Font = MakeFont(title ? "Impact" : band ? "Consolas" : "Segoe UI", size, band ? FontStyle.Bold : FontStyle.Regular),
-            Margin = new(0, 0, 0, title ? 14 : band ? 14 : 10), Padding = band ? new(12, 8, 12, 8) : Padding.Empty, BackColor = band ? (color is null ? Acid : Paper) : Paper, UseMnemonic = false,
-        };
-        if (band && color is not null) { label.BackColor = color.Value; label.ForeColor = color == Hot ? Paper : Ink; }
-        detail.Controls.Add(label); FitDetail();
-        return label;
-    }
+    Control Add(Control control) { detail.Controls.Add(control); FitDetail(); return control; }
+
+    /// <summary>Mono uppercase line, the kicker of the main window.</summary>
+    Label Kicker(string text, Color? color = null) => (Label)Add(new Label { AutoSize = true, Text = text.ToUpper(L.Culture), ForeColor = color ?? Ink, Font = MakeFont("Consolas", 8.5f, FontStyle.Bold), Margin = new(0, 2, 0, 6), UseMnemonic = false });
+
+    /// <summary>Body copy in the strip's own voice.</summary>
+    Label Body(string text, bool muted = true) => (Label)Add(new Label { AutoSize = true, Text = text, ForeColor = muted ? Muted : Ink, Font = MakeFont("Segoe UI", 9.75f), Margin = new(0, 0, 0, 10), UseMnemonic = false });
+
+    /// <summary>The game's name as the hero prints its headline: Impact, fitted to the pane.</summary>
+    void Headline(string text) => Add(new FittedTitle { Text = text, Height = (int)(44 * DeviceDpi / 96f), Margin = new(0, 0, 0, 6) });
+
+    /// <summary>The slanted badge of the hero, in acid, orange or paper.</summary>
+    void Badge(string text, Color fill) => Add(new SlantBadge { Text = text, Fill = fill, Height = (int)(30 * DeviceDpi / 96f), Margin = new(0, 2, 0, 12) });
+
+    /// <summary>The lamp rows of the LINK strip, one per DualSense feature.</summary>
+    void Lamps(IReadOnlyList<(string Label, WikiValue Value)> items) => Add(new LampRows { Items = items, Height = (int)(items.Count * 22 * DeviceDpi / 96f), Margin = new(0, 2, 0, 10) });
 
     void FitDetail()
     {
         int width = Math.Max(120, detailScroll.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 4);
         detail.Width = width;
-        foreach (Control label in detail.Controls) label.MaximumSize = new(width, 0);
+        foreach (Control control in detail.Controls)
+        {
+            if (control is Label label) label.MaximumSize = new(width, 0);
+            else control.Width = width;
+        }
     }
 
     static string StatusText(GameStatus status, bool pending) => L.Text(status switch
@@ -240,35 +265,34 @@ internal sealed class GamesWindow : Form
     {
         ResetDetail();
         var game = entry.Game; var standing = entry.Standing; var info = standing.Wiki;
-        Block((game.Source + (game.SteamAppId is { } id ? " / " + id : "")).ToUpper(L.Culture), 9);
-        Block(game.Name, 25, true);
-        Block(StatusText(standing.Status, entry.Pending), 11, band: true, color: StatusColor(standing.Status));
-        // What the game itself does with the pad, from the wiki.
+        Kicker(game.Source + (game.SteamAppId is { } id ? "  /  STEAM " + id : ""), Muted);
+        Headline(game.Name);
+        Badge(StatusText(standing.Status, entry.Pending), StatusColor(standing.Status));
         if (info is not null)
         {
-            foreach (var (field, key) in new[] { ("haptics", info.Haptics), ("triggers", info.Triggers), ("speaker", info.Speaker), ("lightbar", info.Lightbar), ("gyro", info.Motion), ("prompts", info.Prompts) })
-                Block(L.Text("Games.Feature." + field) + "  /  " + L.Text("Games.Value." + key), 10, color: key == WikiValue.Yes ? Ink : Muted);
-            if (info.ConnectionModes.Length > 0) Block(L.Text("Games.ConnectionModes", info.ConnectionModes), 9);
-            if (info.Note("dualsense adaptive trigger support") is { } note) Block(Trim(note), 9);
-            Block(L.Text("Games.WikiAttribution"), 9);
+            Lamps([
+                (L.Text("Games.Feature.haptics"), info.Haptics), (L.Text("Games.Feature.triggers"), info.Triggers), (L.Text("Games.Feature.speaker"), info.Speaker),
+                (L.Text("Games.Feature.lightbar"), info.Lightbar), (L.Text("Games.Feature.gyro"), info.Motion), (L.Text("Games.Feature.prompts"), info.Prompts)]);
+            if (info.ConnectionModes.Length > 0) Body(L.Text("Games.ConnectionModes", info.ConnectionModes));
+            if (info.Note("dualsense adaptive trigger support") is { } note) Body(Trim(note));
+            Body(L.Text("Games.WikiAttribution"));
             wikiUri = info.Source; wiki.Visible = true;
         }
-        else Block(L.Text(entry.Pending ? "Games.LoadingWiki" : service.Wiki.Blocked ? "Games.WikiBlocked" : "Games.NoWikiData"));
-        if (standing.Status == GameStatus.Native) Block(L.Text("Games.NativeHint"));
-        // Community mods for this game.
+        else Body(L.Text(entry.Pending ? "Games.LoadingWiki" : service.Wiki.Blocked ? "Games.WikiBlocked" : "Games.NoWikiData"));
+        if (standing.Status == GameStatus.Native) Body(L.Text("Games.NativeHint"), muted: false);
         foreach (var mod in standing.Mods)
         {
             var installed = service.Installer.Find(mod.Id, game.Key);
-            Block(L.Text(installed is null ? "Games.ModHeader" : "Games.ModHeaderInstalled", mod.Name), 11, band: true, color: installed is null && mod.Installable ? Hot : installed is null ? Paper : Acid);
-            Block(L.Text("Games.ModBy", mod.Author, mod.License ?? L.Text("Games.NoLicense"), string.Join(", ", mod.Features.Select(f => L.Text("Games.Feature." + f)))), 9);
-            Block(mod.Note(L.CurrentLanguage));
+            Badge(L.Text(installed is null ? "Games.ModHeader" : "Games.ModHeaderInstalled", mod.Name), installed is null && mod.Installable ? Hot : installed is null ? Paper : Acid);
+            Kicker(L.Text("Games.ModBy", mod.Author, mod.License ?? L.Text("Games.NoLicense"), string.Join(", ", mod.Features.Select(f => L.Text("Games.Feature." + f)))), Muted);
+            Body(mod.Note(L.CurrentLanguage), muted: false);
             if (installed is not null)
             {
-                Block(L.Text("Games.InstalledDetail", installed.Version, installed.Installed.ToString("d", L.Culture), installed.Root), 9);
-                if (installed.Exe is not null) Block(L.Text(service.Runner.IsRunning(mod.Id, game.Key) ? "Games.HelperRunning" : "Games.HelperIdle"), 9, color: Ink);
+                Body(L.Text("Games.InstalledDetail", installed.Version, installed.Installed.ToString("d", L.Culture), installed.Root));
+                if (installed.Exe is not null) Body(L.Text(service.Runner.IsRunning(mod.Id, game.Key) ? "Games.HelperRunning" : "Games.HelperIdle"), muted: false);
             }
-            else if (mod.Installable) Block(L.Text(mod.Kind switch { ModKind.Helper => "Games.InstallHelperHint", ModKind.GameFolder => "Games.InstallGameFolderHint", _ => "Games.InstallBeamNgHint" }, service.Installer.ModsRoot), 9);
-            else Block(L.Text("Games.ManualHint"), 9);
+            else if (mod.Installable) Body(L.Text(mod.Kind switch { ModKind.Helper => "Games.InstallHelperHint", ModKind.GameFolder => "Games.InstallGameFolderHint", _ => "Games.InstallBeamNgHint" }, service.Installer.ModsRoot));
+            else Body(L.Text("Games.ManualHint"));
             if (selectedMod is null) { selectedMod = mod; pageUri = mod.PageUri; }
         }
         if (selectedMod is { } selected)
@@ -280,7 +304,7 @@ internal sealed class GamesWindow : Form
             run.Visible = record?.Exe is not null && !installing;
             run.Text = L.Text(service.Runner.IsRunning(selected.Id, game.Key) ? "Games.StopNow" : "Games.RunNow");
         }
-        if (standing.Mods.Count == 0 && standing.Status != GameStatus.Native) Block(L.Text("Games.NoModKnown"), 9);
+        if (standing.Mods.Count == 0 && standing.Status != GameStatus.Native) Body(L.Text("Games.NoModKnown"));
     }
 
     static string Trim(string wikitext)
@@ -289,6 +313,7 @@ internal sealed class GamesWindow : Form
         return text.Length > 360 ? text[..357] + "…" : text;
     }
 
+    // ── actions ───────────────────────────────────────────────────────────────────────────────
     async Task InstallAsync()
     {
         if (installing || entries.SelectedItem is not Entry entry || selectedMod is not { } mod) return;
@@ -305,7 +330,7 @@ internal sealed class GamesWindow : Form
         {
             footer.Text = L.Text("Games.InstallFailed", mod.Name, e.Message);
         }
-        finally { installing = false; progress.Visible = false; progress.Style = ProgressBarStyle.Continuous; if (!IsDisposed) { Populate(); } }
+        finally { installing = false; progress.Visible = false; progress.Style = ProgressBarStyle.Continuous; if (!IsDisposed) Populate(); }
     }
 
     void Remove()
@@ -347,7 +372,129 @@ internal sealed class GamesWindow : Form
         base.Dispose(disposing);
     }
 
-    /// <summary>Owner-drawn rows: name, source line and the status tag in the strip's own colours.</summary>
+    // ── drawn pieces, the main window's visual language ───────────────────────────────────────
+    /// <summary>The ink band of the hero: orange plate with the dot screen, mono kicker, Impact headline, slanted badge.</summary>
+    sealed class BandPanel : Panel
+    {
+        public string Kicker = "", Headline = "", Tagline = "", Badge = "";
+        public BandPanel() { DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw, true); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e); var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = DeviceDpi / 96f; g.ScaleTransform(s, s);
+            float w = Width / s, h = Height / s;
+            if (w < 20 || h < 20) return;
+            using var ink = new SolidBrush(Ink); using var paper = new SolidBrush(Paper); using var orange = new SolidBrush(Hot); using var acid = new SolidBrush(Acid);
+            g.FillRectangle(ink, 0, 0, w, h);
+            var save = g.Save(); g.SetClip(new RectangleF(2, 2, w - 4, h - 4));
+            g.FillPolygon(orange, new PointF[] { new(w * .66f, -5), new(w, -5), new(w, h + 2), new(w * .56f, h + 2) });
+            using var dots = new SolidBrush(Color.FromArgb(75, Ink));
+            for (float y = 9; y < h; y += 11)
+                for (float x = w * .66f; x < w; x += 11)
+                    g.FillEllipse(dots, x + ((int)y % 2 == 0 ? 3 : 0), y, 3, 3);
+            // A stack of three cards on the plate: the library, drawn in the same ink and paper.
+            for (int i = 2; i >= 0; i--)
+            {
+                var card = new RectangleF(w * .78f - i * 12, 26 + i * 14, 150, 62);
+                g.FillRectangle(ink, card.X + 5, card.Y + 5, card.Width, card.Height);
+                g.FillRectangle(paper, card);
+                using var outline = new Pen(Ink, 2.5f); g.DrawRectangle(outline, card.X, card.Y, card.Width, card.Height);
+                g.FillRectangle(i == 0 ? acid : ink, card.X + 12, card.Y + 14, 9, 9);
+                g.FillRectangle(ink, card.X + 30, card.Y + 15, 70, 6);
+                g.FillRectangle(ink, card.X + 12, card.Y + 36, 100, 5);
+            }
+            g.Restore(save);
+            using var tiny = new Font("Consolas", 10.5f, FontStyle.Bold, GraphicsUnit.Pixel);
+            float textWidth = w * .56f - 40;
+            MainWindow.DrawFitted(g, Kicker, "Consolas", 10.5f, 9, FontStyle.Bold, paper, new RectangleF(23, 18, textWidth, 18));
+            MainWindow.DrawFitted(g, Headline.ToUpper(L.Culture), "Impact", 54, 28, FontStyle.Regular, paper, new RectangleF(20, 36, textWidth, 60));
+            MainWindow.DrawFitted(g, Tagline, "Impact", 22, 16, FontStyle.Regular, paper, new RectangleF(23, 98, textWidth, 28));
+            float badgeWidth = Math.Min(textWidth - 12, Math.Max(180, g.MeasureString(Badge, tiny).Width + 40));
+            var badge = new RectangleF(25, h - 40, badgeWidth, 26);
+            g.FillPolygon(acid, new PointF[] { new(badge.X, badge.Y), new(badge.Right + 6, badge.Y - 3), new(badge.Right, badge.Bottom), new(badge.X - 3, badge.Bottom + 2) });
+            MainWindow.DrawFitted(g, Badge, "Consolas", 10.5f, 9, FontStyle.Bold, ink, new RectangleF(badge.X + 12, badge.Y + 6, badge.Width - 24, 18));
+            using var frame = new Pen(Ink, 3); g.DrawRectangle(frame, 1.5f, 1.5f, w - 3, h - 3);
+        }
+    }
+
+    /// <summary>A paper plate with the ink outline and hard offset shadow the buttons use; children sit inside the padding.</summary>
+    sealed class PlatePanel : Panel
+    {
+        public PlatePanel() { DoubleBuffered = true; BackColor = Paper; SetStyle(ControlStyles.ResizeRedraw, true); Padding = new(3); }
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            var g = e.Graphics; float s = DeviceDpi / 96f; g.SmoothingMode = SmoothingMode.AntiAlias;
+            using var paper = new SolidBrush(Paper); g.FillRectangle(paper, ClientRectangle);
+            var r = new RectangleF(1, 1, Width - 6 * s, Height - 6 * s);
+            using var ink = new SolidBrush(Ink); g.FillRectangle(ink, r.X + 4 * s, r.Y + 4 * s, r.Width, r.Height);
+            g.FillRectangle(paper, r);
+            using var outline = new Pen(Ink, 2 * s); g.DrawRectangle(outline, r.X, r.Y, r.Width, r.Height);
+        }
+        public override Rectangle DisplayRectangle
+        {
+            get
+            {
+                float s = DeviceDpi / 96f;
+                return new Rectangle((int)(2 * s) + Padding.Left, (int)(2 * s) + Padding.Top, Width - (int)(8 * s) - Padding.Horizontal, Height - (int)(8 * s) - Padding.Vertical);
+            }
+        }
+    }
+
+    sealed class FittedTitle : Control
+    {
+        public FittedTitle() { DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true); BackColor = Paper; }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            float s = DeviceDpi / 96f; var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.ScaleTransform(s, s);
+            using var ink = new SolidBrush(Ink);
+            MainWindow.DrawFitted(g, Text.ToUpper(L.Culture), "Impact", 36, 20, FontStyle.Regular, ink, new RectangleF(0, 0, Width / s, Height / s));
+        }
+    }
+
+    sealed class SlantBadge : Control
+    {
+        public Color Fill = Acid;
+        public SlantBadge() { DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true); BackColor = Paper; }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            float s = DeviceDpi / 96f; var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.ScaleTransform(s, s);
+            using var tiny = new Font("Consolas", 10.5f, FontStyle.Bold, GraphicsUnit.Pixel);
+            float width = Math.Min(Width / s - 10, g.MeasureString(Text, tiny).Width + 36);
+            var badge = new RectangleF(3, 3, width, Height / s - 8);
+            using var fill = new SolidBrush(Fill); using var ink = new SolidBrush(Ink); using var paper = new SolidBrush(Paper);
+            var shape = new PointF[] { new(badge.X, badge.Y), new(badge.Right + 6, badge.Y - 3), new(badge.Right, badge.Bottom), new(badge.X - 3, badge.Bottom + 2) };
+            if (Fill == Paper) { using var outline = new Pen(Ink, 1.5f); g.FillPolygon(paper, shape); g.DrawPolygon(outline, shape); }
+            else g.FillPolygon(fill, shape);
+            MainWindow.DrawFitted(g, Text, "Consolas", 10.5f, 9, FontStyle.Bold, Fill == Hot ? paper : ink, new RectangleF(badge.X + 12, badge.Y + (badge.Height - 12) / 2, badge.Width - 20, 16));
+        }
+    }
+
+    /// <summary>Lamp rows: a square lit in acid when the wiki says yes, outlined otherwise, with the mono label and value.</summary>
+    sealed class LampRows : Control
+    {
+        public IReadOnlyList<(string Label, WikiValue Value)> Items = [];
+        public LampRows() { DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true); BackColor = Paper; }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            float s = DeviceDpi / 96f; var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.ScaleTransform(s, s);
+            using var tiny = new Font("Consolas", 10.5f, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var ink = new SolidBrush(Ink); using var muted = new SolidBrush(Muted); using var acid = new SolidBrush(Acid); using var hot = new SolidBrush(Hot);
+            using var outline = new Pen(Ink, 1.5f);
+            float y = 4;
+            foreach (var (label, value) in Items)
+            {
+                var box = new RectangleF(2, y + 2, 9, 9);
+                if (value == WikiValue.Yes) g.FillRectangle(acid, box);
+                else if (value is WikiValue.Limited or WikiValue.ModRequired) g.FillRectangle(hot, box);
+                g.DrawRectangle(outline, box.X, box.Y, box.Width, box.Height);
+                string line = label.ToUpper(L.Culture) + "  /  " + L.Text("Games.Value." + value).ToUpper(L.Culture);
+                g.DrawString(line, tiny, value == WikiValue.Yes ? ink : muted, 20, y);
+                y += 22;
+            }
+        }
+    }
+
+    /// <summary>Owner-drawn rows: name, mono source line and the status tag in the strip's own colours.</summary>
     sealed class EntryList : ListBox
     {
         public EntryList() { DrawMode = DrawMode.OwnerDrawFixed; IntegralHeight = false; }
@@ -357,21 +504,22 @@ internal sealed class GamesWindow : Form
             float s = DeviceDpi / 96f; bool selected = (e.State & DrawItemState.Selected) != 0;
             var bg = selected ? Ink : Paper; var fg = selected ? Paper : Ink;
             using var brush = new SolidBrush(bg); e.Graphics.FillRectangle(brush, e.Bounds);
-            using var stripe = new SolidBrush(StatusColor(item.Standing.Status) == Paper ? (selected ? Acid : Muted) : StatusColor(item.Standing.Status));
+            var stripeColor = StatusColor(item.Standing.Status);
+            using var stripe = new SolidBrush(stripeColor == Paper ? (selected ? Acid : Muted) : stripeColor);
             e.Graphics.FillRectangle(stripe, e.Bounds.X, e.Bounds.Y, 6 * s, e.Bounds.Height);
-            var bounds = new Rectangle(e.Bounds.X + (int)(20 * s), e.Bounds.Y + (int)(11 * s), e.Bounds.Width - (int)(32 * s), (int)(24 * s));
-            using var title = new Font("Segoe UI", 11f, FontStyle.Bold); using var small = new Font("Consolas", 8.5f, FontStyle.Bold);
+            var bounds = new Rectangle(e.Bounds.X + (int)(20 * s), e.Bounds.Y + (int)(12 * s), e.Bounds.Width - (int)(32 * s), (int)(22 * s));
+            using var title = new Font("Segoe UI", 11.5f); using var small = new Font("Consolas", 8.5f, FontStyle.Bold);
             const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
             TextRenderer.DrawText(e.Graphics, item.Game.Name, title, bounds, fg, flags);
             bounds.Y += (int)(26 * s); bounds.Height = (int)(18 * s);
-            TextRenderer.DrawText(e.Graphics, item.Game.Source.ToUpper(L.Culture) + (item.Game.SteamAppId is { } id ? " / " + id : ""), small, bounds, selected ? Acid : Muted, flags);
-            bounds.Y += (int)(19 * s);
             var tag = StatusText(item.Standing.Status, item.Pending);
-            var tagColor = StatusColor(item.Standing.Status);
-            var size = TextRenderer.MeasureText(tag, small);
-            var tagRect = new Rectangle(bounds.X, bounds.Y, size.Width + (int)(12 * s), size.Height + (int)(2 * s));
-            if (tagColor != Paper) { using var fill = new SolidBrush(tagColor); e.Graphics.FillRectangle(fill, tagRect); }
-            TextRenderer.DrawText(e.Graphics, tag, small, tagRect, tagColor == Paper ? (selected ? Paper : Muted) : (tagColor == Hot ? Paper : Ink), flags | TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            var tagSize = TextRenderer.MeasureText(tag, small);
+            var tagRect = new Rectangle(bounds.X, bounds.Y, tagSize.Width + (int)(12 * s), tagSize.Height + (int)(2 * s));
+            if (stripeColor != Paper) { using var fill = new SolidBrush(stripeColor); e.Graphics.FillRectangle(fill, tagRect); }
+            else { using var pen = new Pen(selected ? Paper : Muted, 1 * s); e.Graphics.DrawRectangle(pen, tagRect); }
+            TextRenderer.DrawText(e.Graphics, tag, small, tagRect, stripeColor == Paper ? (selected ? Paper : Muted) : (stripeColor == Hot ? Paper : Ink), flags | TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            var sourceRect = new Rectangle(tagRect.Right + (int)(10 * s), bounds.Y, bounds.Width - tagRect.Width - (int)(10 * s), tagRect.Height);
+            TextRenderer.DrawText(e.Graphics, item.Game.Source.ToUpper(L.Culture) + (item.Game.SteamAppId is { } id ? " / " + id : ""), small, sourceRect, selected ? Acid : Muted, flags | TextFormatFlags.VerticalCenter);
             using var line = new Pen(Ink); e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
             if ((e.State & DrawItemState.Focus) != 0) e.DrawFocusRectangle();
         }

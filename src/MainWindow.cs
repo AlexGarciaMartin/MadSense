@@ -603,7 +603,7 @@ sealed class MainWindow : Form
     }
 
     // Use a bounded font fit for translated artwork; the full text also remains accessible.
-    static void DrawFitted(Graphics graphics, string text, string family, float largest, float smallest, FontStyle style, Brush brush, RectangleF bounds, bool wrap = false)
+    internal static void DrawFitted(Graphics graphics, string text, string family, float largest, float smallest, FontStyle style, Brush brush, RectangleF bounds, bool wrap = false)
     {
         using var format = new StringFormat(StringFormat.GenericDefault)
         {
