@@ -186,7 +186,7 @@ internal sealed class GamesWindow : Form
         entries.BeginUpdate(); entries.Items.Clear(); foreach (var row in rows) entries.Items.Add(row); entries.EndUpdate();
         count.Text = L.Text("Games.GameCount", games.Count);
         var all = games.Select(g => service.Standing(g, support.GetValueOrDefault(g.Key))).ToList();
-        band.Badge = L.Text("Games.Badge", all.Count(s => s.Status == GameStatus.Native), all.Count(s => s.Status is GameStatus.ModAvailable or GameStatus.ModInstalled));
+        band.Badge = L.Text("Games.Badge", all.Count(s => s.Status == GameStatus.Native), all.Count(s => s.Mods.Count > 0));
         band.Invalidate();
         empty.Text = L.Text(games.Count == 0 ? "Games.NoGames" : "Games.NoMatches"); empty.Visible = rows.Count == 0;
         footer.Text = scanning ? L.Text("Games.Scanning") : pending.Count > 0 ? L.Text("Games.Consulting", pending.Count) : L.Text("Games.Footer", ModCatalog.Version);
@@ -243,8 +243,9 @@ internal sealed class GamesWindow : Form
         }
     }
 
-    static string StatusText(GameStatus status, bool pending) => L.Text(status switch
+    static string StatusText(GameStanding standing, bool pending) => L.Text(standing.Status switch
     {
+        GameStatus.Native when standing.Mods.Count > 0 => "Games.Status.NativeWithMod",
         GameStatus.Native => "Games.Status.Native",
         GameStatus.ModInstalled => "Games.Status.ModInstalled",
         GameStatus.ModAvailable => "Games.Status.ModAvailable",
@@ -267,7 +268,7 @@ internal sealed class GamesWindow : Form
         var game = entry.Game; var standing = entry.Standing; var info = standing.Wiki;
         Kicker(game.Source + (game.SteamAppId is { } id ? "  /  STEAM " + id : ""), Muted);
         Headline(game.Name);
-        Badge(StatusText(standing.Status, entry.Pending), StatusColor(standing.Status));
+        Badge(StatusText(standing, entry.Pending), StatusColor(standing.Status));
         if (info is not null)
         {
             Lamps([
@@ -279,7 +280,7 @@ internal sealed class GamesWindow : Form
             wikiUri = info.Source; wiki.Visible = true;
         }
         else Body(L.Text(entry.Pending ? "Games.LoadingWiki" : service.Wiki.Blocked ? "Games.WikiBlocked" : "Games.NoWikiData"));
-        if (standing.Status == GameStatus.Native) Body(L.Text("Games.NativeHint"), muted: false);
+        if (standing.Status == GameStatus.Native) Body(L.Text(standing.Mods.Count > 0 ? "Games.NativeModHint" : "Games.NativeHint"), muted: false);
         foreach (var mod in standing.Mods)
         {
             var installed = service.Installer.Find(mod.Id, game.Key);
@@ -512,7 +513,7 @@ internal sealed class GamesWindow : Form
             const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
             TextRenderer.DrawText(e.Graphics, item.Game.Name, title, bounds, fg, flags);
             bounds.Y += (int)(26 * s); bounds.Height = (int)(18 * s);
-            var tag = StatusText(item.Standing.Status, item.Pending);
+            var tag = StatusText(item.Standing, item.Pending);
             var tagSize = TextRenderer.MeasureText(tag, small);
             var tagRect = new Rectangle(bounds.X, bounds.Y, tagSize.Width + (int)(12 * s), tagSize.Height + (int)(2 * s));
             if (stripeColor != Paper) { using var fill = new SolidBrush(stripeColor); e.Graphics.FillRectangle(fill, tagRect); }

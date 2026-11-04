@@ -51,7 +51,7 @@ sealed class GamesService : IDisposable
         var installed = mods.Where(m => Installer.IsInstalled(m.Id, game.Key)).ToList();
         if (installed.Count > 0) return new GameStanding(GameStatus.ModInstalled, wiki, mods, installed);
         // A game that drives the pad itself needs no mod: only one MadSense can install is still worth listing.
-        if (wiki?.NativeDualSense == true) return new GameStanding(GameStatus.Native, wiki, mods.Where(m => m.Installable).ToList(), installed);
+        if (wiki?.NativeDualSense == true) return new GameStanding(GameStatus.Native, wiki, mods, installed);
         if (mods.Any(m => m.Installable)) return new GameStanding(GameStatus.ModAvailable, wiki, mods, installed);
         if (mods.Count > 0) return new GameStanding(GameStatus.ModManual, wiki, mods, installed);
         if (wiki is null) return new GameStanding(GameStatus.Unknown, null, mods, installed);
