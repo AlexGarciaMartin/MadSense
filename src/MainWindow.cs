@@ -39,7 +39,7 @@ sealed class MainWindow : Form
     readonly HeaderPanel header = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
     readonly Label section = CreateSection(), speakerSection = CreateSection();
     readonly HeroPanel hero = new() { Dock = DockStyle.Fill };
-    readonly RoundedButton pause = new() { Accent = true, Width = 144, Height = 40 };
+    readonly PauseIconButton pause = new() { Width = 40, Height = 40 };
     readonly Label modeHint = new() { Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
     readonly Label activity = new SingleLineLabel { Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
     readonly Dictionary<string, RoundedButton> modeButtons = new();
@@ -159,7 +159,7 @@ sealed class MainWindow : Form
         AddSpeaker("Alto", 0); AddSpeaker("Bajo", 1); AddSpeaker("Off", 2);
         layout.Controls.Add(speaker, 0, 5);
         var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 40));
         activity.Font = new Font(Font.FontFamily, 8);
         footer.Controls.Add(activity, 0, 0);
         pause.Dock = DockStyle.Fill; pause.Margin = Padding.Empty;
@@ -337,7 +337,7 @@ sealed class MainWindow : Form
         header.Navigation.Text = L.Text("Games.Title").ToUpper(culture) + "  →";
         header.Navigation.AccessibleName = L.Text("Games.Title");
         RefreshConnectionSummary();
-        pause.Text = L.Text(paused ? "Ui.Resume" : "Ui.Pause");
+        pause.SetPaused(paused);
         modeButtons["Auto"].Text = L.Text("Ui.NativeMode"); modeButtons["Xbox"].Text = L.Text("Ui.XboxMode");
         modeButtons["Auto"].AccessibleDescription = L.Text("Ui.NativeDescription");
         modeButtons["Xbox"].AccessibleDescription = L.Text("Ui.XboxDescription");
@@ -535,7 +535,7 @@ sealed class MainWindow : Form
     void TogglePause()
     {
         if (quitting) return;
-        paused = !paused; pause.Text = L.Text(paused ? "Ui.Resume" : "Ui.Pause");
+        paused = !paused; pause.SetPaused(paused);
         RefreshConnectionSummary();
         if (previewOnly) { hero.Paused = paused; RefreshStatusText(); hero.Invalidate(); return; }
         var shouldPause = paused;
@@ -698,6 +698,7 @@ sealed class MainWindow : Form
     // All artwork is native vector drawing: no textures, browser or animation framework.
     sealed class HeaderPanel : Panel
     {
+        const float PlateTop = 7;
         public readonly HeaderNavigationButton Navigation = new() { TabIndex = 0 };
         readonly UpdateBadgeButton download = new() { Visible = false, TabIndex = 1 };
         readonly ToolTip tip = new();
@@ -725,10 +726,10 @@ sealed class MainWindow : Form
         void PositionBadge()
         {
             float s = DeviceDpi / 96f;
-            Navigation.SetBounds(Width - (int)Math.Round(146 * s), (int)Math.Round(12 * s),
+            Navigation.SetBounds(Width - (int)Math.Round(146 * s), (int)Math.Round(PlateTop * s),
                 (int)Math.Round(146 * s), (int)Math.Round(30 * s));
             download.Visible = update is not null && Width / s > 650;
-            download.SetBounds(Width - (int)Math.Round(136 * s), (int)Math.Round(42 * s),
+            download.SetBounds(Width - (int)Math.Round(136 * s), (int)Math.Round((PlateTop + 30) * s),
                 (int)Math.Round(126 * s), (int)Math.Round(25 * s));
         }
         protected override void OnLayout(LayoutEventArgs e) { base.OnLayout(e); PositionBadge(); }
@@ -756,13 +757,13 @@ sealed class MainWindow : Form
             if (w > 650)
             {
                 float x = w - 146;
-                g.FillRectangle(ink, x, 12, 146, 63);
+                g.FillRectangle(ink, x, PlateTop, 146, 63);
                 using var paper = new SolidBrush(Paper);
 
                 if (update is null)
                 {
-                    using var acid = new SolidBrush(Acid); g.FillRectangle(acid, x + 10, 42, 126, 25);
-                    DrawFitted(g, L.Text("Ui.Version", DisplayVersion), "Consolas", 13, 10, FontStyle.Bold, ink, new RectangleF(x + 16, 45, 114, 22));
+                    using var acid = new SolidBrush(Acid); g.FillRectangle(acid, x + 10, PlateTop + 30, 126, 25);
+                    DrawFitted(g, L.Text("Ui.Version", DisplayVersion), "Consolas", 13, 10, FontStyle.Bold, ink, new RectangleF(x + 16, PlateTop + 33, 114, 22));
                 }
                 for (int i = 0; i < 12; i++)
                     g.FillRectangle(ink, w - 145 + i * 12, 84, i % 3 == 0 ? 6 : 2, 6);
@@ -974,6 +975,49 @@ sealed class MainWindow : Form
                 TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter |
                 TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.PreserveGraphicsClipping);
         }
+    }
+
+    // Small native control: vector icons stay sharp at any DPI and retain keyboard/accessibility support.
+    sealed class PauseIconButton : Button
+    {
+        readonly ToolTip tip = new();
+        bool resume, hovered;
+        public PauseIconButton()
+        {
+            FlatStyle = FlatStyle.Flat; FlatAppearance.BorderSize = 0;
+            BackColor = Paper; Cursor = Cursors.Hand;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw, true);
+        }
+        public void SetPaused(bool value)
+        {
+            resume = value;
+            Text = AccessibleName = L.Text(value ? "Ui.Resume" : "Ui.Pause");
+            tip.SetToolTip(this, Text);
+            Invalidate();
+        }
+        protected override void OnMouseEnter(EventArgs e) { hovered = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hovered = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; float s = DeviceDpi / 96f;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(Paper);
+            var plate = new RectangleF(2 * s, 2 * s, Width - 4 * s, Height - 4 * s);
+            if (Enabled && (hovered || resume))
+            {
+                using var fill = new SolidBrush(Acid); g.FillRectangle(fill, plate);
+            }
+            float x = Width / 2f, y = Height / 2f;
+            using var ink = new SolidBrush(Enabled ? Ink : Muted);
+            if (resume) g.FillPolygon(ink, new PointF[] { new(x - 5 * s, y - 8 * s), new(x + 8 * s, y), new(x - 5 * s, y + 8 * s) });
+            else
+            {
+                g.FillRectangle(ink, x - 6 * s, y - 7 * s, 4 * s, 14 * s);
+                g.FillRectangle(ink, x + 2 * s, y - 7 * s, 4 * s, 14 * s);
+            }
+            if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(g, Rectangle.Round(plate), Ink, Paper);
+        }
+        protected override void Dispose(bool disposing) { if (disposing) tip.Dispose(); base.Dispose(disposing); }
     }
 
     // Kept as native Button controls for keyboard focus, UI Automation and accessibility.
