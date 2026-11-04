@@ -1,4 +1,5 @@
 {
+  "Ui.Mod": "MOD",
   "Ui.UpdateRehearsal": "Test update…",
   "Ui.UpdateConfirm": "MadSense will download and verify the update, release the controller, close to install it, then reopen. Do this outside a game. Continue?",
   "Ui.UpdateDownloading": "Downloading update · {0}%",

@@ -79,11 +79,45 @@ static class Program
 }
 
 /// <summary>Live feedback the physical pad is receiving, sampled for the UI.</summary>
-sealed record BridgeSignals(bool Haptics, bool Triggers, bool Audio, bool Rumble, int Battery, bool Charging, bool Headset);
+sealed record BridgeSignals(bool Haptics, bool Triggers, bool Audio, bool Rumble, int Battery, bool Charging, bool Headset, bool Mod = false);
 
 sealed class Bridge : IDisposable
 {
     readonly HidDeviceEnumerator enumerator = new();
+    // Game mods (the DSX UDP protocol) drive the pad through this overlay; the receiver listens for
+    // the whole life of the bridge so a mod started before the pad connects still finds its port.
+    readonly MadSense.Mods.ModOverlay modOverlay = new();
+    readonly MadSense.Mods.ModReceiver mods;
+    bool modFilterInstalled;
+    public Bridge()
+    {
+        mods = new MadSense.Mods.ModReceiver(modOverlay, PadStatusForMods);
+        modOverlay.Changed += OnModChanged;
+        mods.Connected += () => Log(L.Message("Bridge.ModConnected"));
+        if (!mods.Start()) Log(L.Message(mods.PortBusy ? "Bridge.ModPortBusy" : "Bridge.ModListenFailed", mods.Port));
+    }
+    /// <summary>Whether a game mod is talking to MadSense right now (a packet in the last ten seconds).</summary>
+    public bool ModActive => mods.Active;
+    public bool ModPortBusy => mods.PortBusy;
+    MadSense.Mods.ModPadStatus PadStatusForMods()
+    {
+        var pad = controller;
+        var battery = pad?.InputReport?.Battery;
+        return new MadSense.Mods.ModPadStatus(pad != null && Running, battery?.DisplayPercentage ?? 0, pad?.PairingInfo?.ClientMac, true);
+    }
+    /// <summary>
+    /// A mod changed what it owns: push it to the pad now. While the audio lane is streaming the
+    /// combined reports already carry the overlay (through the outputs filter) and the pad ignores
+    /// standalone reports, so the push is skipped; otherwise a standalone 0x31 applies it at once.
+    /// </summary>
+    void OnModChanged()
+    {
+        var pad = controller;
+        if (pad == null || pad.IsDisposed) return;
+        if (metered != null && Environment.TickCount64 - metered.LastAudioTicks < 100) return;
+        try { pad.SendOutputState(modOverlay.OwnsAnything ? modOverlay.Standalone() : MadSense.Mods.ModOverlay.Release()); }
+        catch (Exception e) when (e is HidException or ObjectDisposedException or InvalidOperationException) { }
+    }
     readonly ControllerTracker tracker = new();
     readonly HidHideService hiding = new();
     readonly SpecialActionEngineRegistry actions = new();
@@ -180,7 +214,8 @@ sealed class Bridge : IDisposable
                 metered?.RumbleActive == true,
                 battery?.DisplayPercentage ?? -1,
                 battery?.PowerState is BatteryPowerState.Charging or BatteryPowerState.ChargingComplete,
-                report?.Connection.Headphone ?? false);
+                report?.Connection.Headphone ?? false,
+                mods.Active);
         }
     }
     public UiMessage DisplayStatus => controller == null ? (reconnect ? (lastConnectionError ?? L.Message("Bridge.Waiting")) : L.Message("Bridge.Paused")) :
@@ -288,6 +323,9 @@ sealed class Bridge : IDisposable
             Log(L.Message("Bridge.CreationFailed"));
             try { Stop(); } finally { reconnect = true; nextRetry = Environment.TickCount64 + 10000; } return;
         }
+        // Mods own their channels through the outputs adapter's state filter, in every mode; the
+        // adapter exists once the emulation tracks the pad, so install on the first pass that has it.
+        if (Running && !modFilterInstalled) modFilterInstalled = emulation!.SetOutputStateFilter(controller, modOverlay.Apply);
         var headset = controller.InputReport?.Connection.Headphone ?? false;
         if (Running && Mode != "Xbox" && headphones != headset)
         {
@@ -339,6 +377,9 @@ sealed class Bridge : IDisposable
         reconnect = false;
         hideVerified = false;
         readyAnnounced = false;
+        modFilterInstalled = false;
+        // Whatever a mod owned is released with the pad: ResetOutputs below turns the triggers off.
+        modOverlay.Clear();
         try
         {
             emulation?.Dispose();
@@ -380,7 +421,7 @@ sealed class Bridge : IDisposable
     public void Dispose()
     {
         try { Stop(); }
-        finally { try { actions.Dispose(); } finally { try { tracker.Dispose(); } finally { enumerator.Dispose(); } } }
+        finally { try { mods.Dispose(); } finally { try { actions.Dispose(); } finally { try { tracker.Dispose(); } finally { enumerator.Dispose(); } } } }
     }
 }
 

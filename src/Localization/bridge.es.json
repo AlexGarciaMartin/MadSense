@@ -1,4 +1,7 @@
 {
+  "Bridge.ModListenFailed": "No se pudo abrir el puerto {0} para los mods de los juegos.",
+  "Bridge.ModPortBusy": "El puerto {0} de los mods está ocupado, seguramente por otra aplicación de mando. Ciérrala y reinicia MadSense para que los mods hablen con MadSense.",
+  "Bridge.ModConnected": "Un mod del juego está enviando efectos al mando.",
   "Bridge.Charging": "DualSense · Bluetooth · Cargando",
   "Bridge.Charged": "DualSense · Bluetooth · Carga completa",
   "Bridge.ConnectionDetails": "{0}{1}\n{2}",

@@ -1,4 +1,5 @@
 {
+  "Ui.Mod": "MOD",
   "Ui.UpdateRehearsal": "Tester une mise à jour…",
   "Ui.UpdateConfirm": "MadSense téléchargera et vérifiera la mise à jour, libérera la manette, se fermera pour l’installer puis se rouvrira. Faites-le hors d’une partie. Continuer ?",
   "Ui.UpdateDownloading": "Téléchargement · {0} %",

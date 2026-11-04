@@ -1,4 +1,7 @@
 {
+  "Bridge.ModListenFailed": "Could not open port {0} for game mods.",
+  "Bridge.ModPortBusy": "Mod port {0} is in use, probably by another controller app. Close it and restart MadSense so mods talk to MadSense.",
+  "Bridge.ModConnected": "A game mod is sending effects to the controller.",
   "Bridge.Charging": "DualSense · Bluetooth · Charging",
   "Bridge.Charged": "DualSense · Bluetooth · Fully charged",
   "Bridge.ConnectionDetails": "{0}{1}\n{2}",

@@ -1,4 +1,5 @@
 {
+  "Ui.Mod": "MOD",
   "Ui.UpdateRehearsal": "Update testen…",
   "Ui.UpdateConfirm": "MadSense lädt und prüft das Update, gibt den Controller frei, beendet sich zur Installation und startet erneut. Bitte außerhalb eines Spiels. Fortfahren?",
   "Ui.UpdateDownloading": "Update wird geladen · {0} %",

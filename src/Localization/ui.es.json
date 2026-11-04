@@ -1,4 +1,5 @@
 {
+  "Ui.Mod": "MOD",
   "Ui.UpdateRehearsal": "Probar actualización…",
   "Ui.UpdateConfirm": "MadSense descargará y verificará la actualización. Después liberará el mando, se cerrará para instalarla y volverá a abrirse. Hazlo fuera de una partida. ¿Continuar?",
   "Ui.UpdateDownloading": "Descargando actualización · {0} %",

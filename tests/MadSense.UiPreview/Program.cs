@@ -17,7 +17,8 @@ internal static class Program
         L.Use(options.Language);
         if (options.View != "main")
         {
-            using var library = new MadSenseApp::MadSense.Games.GamesWindow(options.View == "mods");
+            using var games = new MadSenseApp::MadSense.Games.GamesService(Path.Combine(options.DataDirectory, "games"));
+            using var library = new MadSenseApp::MadSense.Games.GamesWindow(games);
             Application.Run(library);
             return;
         }

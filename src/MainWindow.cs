@@ -248,10 +248,17 @@ sealed class MainWindow : Form
         catch (Exception e) { ShowActivity(L.Message("Ui.LanguageError", UiMessage.FromException(e))); }
     }
 
+    /// <summary>
+    /// Created with the window so installed mod helpers follow their games even while the games
+    /// screen is closed; the preview harness keeps it isolated under its own data folder.
+    /// </summary>
+    Games.GamesService Games => games ??= new Games.GamesService(previewOnly ? Path.Combine(Directory.GetCurrentDirectory(), "games") : null);
+    Games.GamesService? games;
+
     void OpenGames()
     {
         if (gamesWindow is { IsDisposed: false }) { gamesWindow.Show(); gamesWindow.Activate(); return; }
-        gamesWindow = new Games.GamesWindow();
+        gamesWindow = new Games.GamesWindow(Games);
         gamesWindow.Show(this);
     }
 
@@ -570,6 +577,8 @@ sealed class MainWindow : Form
         animation.Stop(); commands.Writer.TryComplete(); lifetime.Cancel();
         try { await Task.WhenAll(worker, updateWorker); } catch (Exception e) { Debug.WriteLine(e); }
         tray.Visible = false; tray.Dispose(); animation.Dispose();
+        // Helpers MadSense started for games stop with MadSense.
+        try { gamesWindow?.Close(); games?.Dispose(); } catch (Exception e) { Debug.WriteLine(e); }
         showSignal?.Dispose(); stopSignal?.Dispose(); installerStopSignal?.Dispose();
         if (!previewOnly) { lifetime.Dispose(); wake.Dispose(); }
         Close();
@@ -585,6 +594,7 @@ sealed class MainWindow : Form
             {
                 animation.Dispose(); tray?.ContextMenuStrip?.Dispose(); tray?.Dispose();
                 lifetime.Dispose(); wake.Dispose();
+                games?.Dispose();
             }
             foreach (var font in fittedFonts.Values) font.Dispose();
             fittedFonts.Clear();
@@ -785,9 +795,11 @@ sealed class MainWindow : Form
         {
             var sig = Signals!;
             // Xbox mode has no native haptics or trigger lane: show what that persona can carry.
+            // The MOD lamp appears only while a game mod is actually talking to MadSense.
             (string Label, bool On)[] lamps = Xbox
                 ? [(L.Text("Ui.Rumble"), sig.Rumble)]
                 : [(L.Text("Ui.Haptics"), sig.Haptics || sig.Rumble), (L.Text("Ui.Triggers"), sig.Triggers), (L.Text("Ui.Audio"), sig.Audio)];
+            if (sig.Mod) lamps = [.. lamps, (L.Text("Ui.Mod"), true)];
             const float gap = 14, box = 9;
             float x = right;
             using var outline = new Pen(Ink, 1.5f);

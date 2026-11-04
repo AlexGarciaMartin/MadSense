@@ -6,6 +6,13 @@ Abre MadSense, enciende tu DualSense y abre el juego. La app espera al mando, co
 
 **App e instalador en seis idiomas:** English · Español · Français · Deutsch · Italiano · Português Brasileiro. El instalador detecta el idioma de Windows y permite elegir otro. La app también permite cambiarlo desde el menú de la bandeja.
 
+## En pruebas: 0.5, juegos y mods
+
+Rama `feature/games-and-mods`; detalle en `docs/games-and-mods-plan.md`.
+
+- **JUEGOS**, una pantalla nueva desde el pie de la ventana y la bandeja: todos los juegos instalados (Steam, Epic, GOG, Ubisoft Connect, Xbox y los que dejan rastro en Windows) con lo que cada uno hace con el DualSense por sí mismo, según PCGamingWiki, y el mod comunitario que existe cuando no es nativo. Si MadSense puede instalarlo, un botón: descarga el release del autor desde GitHub, lo verifica (tamaño y SHA-256) y lo deja listo; los helpers se arrancan solos con el juego y se cierran al salir. Los mods tras un inicio de sesión (Nexus) o con cargador externo se muestran con su página y sus pasos.
+- **Mods DSX sin DSX.** MadSense escucha el protocolo UDP que los mods de la comunidad usan con DSX (puerto 6969) y aplica sus gatillos, barra de luz y LED al mando, con prioridad sobre el juego, en modo DualSense y en modo Xbox. La lámpara MOD se enciende mientras un mod envía efectos.
+
 ## Novedades de 0.4.9
 
 **Actualiza desde MadSense.** Al detectar una nueva versión, pulsa **Actualizar**: la app descarga el paquete en su caché, verifica su firma e integridad, libera el mando, se cierra, instala y vuelve a abrirse conservando tus ajustes. No abre el navegador ni deja instaladores en Descargas. Confirma fuera de una partida; no se instala sin tu permiso.

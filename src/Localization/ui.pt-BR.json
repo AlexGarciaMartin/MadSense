@@ -1,4 +1,5 @@
 {
+  "Ui.Mod": "MOD",
   "Ui.UpdateRehearsal": "Testar atualização…",
   "Ui.UpdateConfirm": "O MadSense baixará e verificará a atualização, liberará o controle, fechará para instalar e abrirá novamente. Faça isso fora de uma partida. Continuar?",
   "Ui.UpdateDownloading": "Baixando atualização · {0}%",

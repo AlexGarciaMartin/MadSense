@@ -2,7 +2,7 @@
 # accessible name through UI Automation first. Used for the UI evidence captures.
 #   tools\ui-check.ps1 -Out evidence\ui.png            capture only
 #   tools\ui-check.ps1 -Click MEDIO -Out evidence\ui.png  click, wait 1.5 s, capture
-param([string]$Out, [string]$Click = "")
+param([string]$Out, [string]$Click = "", [string]$ProcessName = "MadSense", [string]$WindowTitle = "")
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName UIAutomationClient
@@ -17,7 +17,7 @@ public static class Native {
 }
 "@
 [Native]::SetProcessDPIAware() | Out-Null
-$proc = Get-Process MadSense | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+$proc = Get-Process $ProcessName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and ($WindowTitle -eq "" -or $_.MainWindowTitle -like "*$WindowTitle*") } | Select-Object -First 1
 if (-not $proc) { throw "MadSense window not found" }
 $hwnd = $proc.MainWindowHandle
 if ($Click) {

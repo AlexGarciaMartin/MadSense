@@ -1,92 +1,106 @@
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
 
 namespace MadSense.Games;
 
-/// <summary>Opt-in exploration. No controller, Steam configuration or mod-install operations.</summary>
+/// <summary>
+/// The games screen: every installed game, what it does with the DualSense on its own, and the
+/// community mod MadSense can install with one click when it does not. Same paper, ink, orange
+/// and acid as the main window; reads only, until the user presses Install.
+/// </summary>
 internal sealed class GamesWindow : Form
 {
     static readonly Color Ink = Color.FromArgb(24, 24, 21), Paper = Color.FromArgb(240, 235, 220);
     static readonly Color Acid = Color.FromArgb(220, 241, 49), Hot = Color.FromArgb(249, 84, 40), Muted = Color.FromArgb(99, 96, 85);
+    readonly GamesService service;
     readonly CancellationTokenSource lifetime = new();
-    readonly PcGamingWikiClient wiki = new();
-    readonly ModDiscoveryClient discovery = new();
-    readonly Dictionary<(string Family, float Size, FontStyle Style), Font> fonts = [];
-    readonly MainWindow.RoundedButton gamesTab = new(), modsTab = new(), refresh = new(), source = new();
+    readonly Dictionary<(string, float, FontStyle), Font> fonts = [];
+    readonly MainWindow.RoundedButton refresh = new(), install = new() { Accent = true }, remove = new(), run = new(), page = new(), wiki = new();
     readonly Label heading = new(), subtitle = new(), footer = new(), count = new(), empty = new(), badge = new();
     readonly TextBox search = new();
-    readonly CheckBox installedOnly = new();
     readonly EntryList entries = new();
     readonly Panel detailScroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
     readonly FlowLayoutPanel detail = new() { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
     readonly Panel listHost = new() { Dock = DockStyle.Fill };
-    readonly TableLayoutPanel content = new() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
-    readonly List<InstalledSteamGame> games = [];
-    IReadOnlyList<DiscoveredMod> discovered = [];
-    readonly Dictionary<string, WikiSupport> support = new(StringComparer.Ordinal);
-    CancellationTokenSource? selection;
-    bool showMods, scanning, discovering, discoveryAttempted, discoveryFailed, resourcesDisposed, rebuilding;
-    string? selectedGameId;
-    int scanWarnings;
-    Uri? currentSource;
+    readonly ProgressBar progress = new() { Dock = DockStyle.Fill, Visible = false, Style = ProgressBarStyle.Continuous };
+    readonly TableLayoutPanel actions = new() { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, Margin = Padding.Empty };
+    readonly Dictionary<string, WikiSupport?> support = new(StringComparer.Ordinal);
+    readonly HashSet<string> pending = new(StringComparer.Ordinal);
+    List<LibraryGame> games = [];
+    CancellationTokenSource? lookups;
+    bool scanning, installing, disposedResources, rebuilding;
+    string? selectedKey;
+    ModEntry? selectedMod;
+    Uri? pageUri, wikiUri;
 
-    sealed record Entry(string Title, string Subtitle, string Tag, InstalledSteamGame? Game = null, ModReference? Mod = null, DiscoveredMod? Discovered = null)
-    { public override string ToString() => Title; }
+    sealed record Entry(LibraryGame Game, GameStanding Standing, bool Pending) { public override string ToString() => Game.Name; }
 
-    public GamesWindow(bool initialMods = false)
+    public GamesWindow(GamesService service)
     {
+        this.service = service;
         SuspendLayout();
-        showMods = initialMods;
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96, 96);
-        ClientSize = new(1060, 720); MinimumSize = new(880, 650);
+        ClientSize = new(1100, 740); MinimumSize = new(900, 660);
         StartPosition = FormStartPosition.CenterParent;
         BackColor = Paper; ForeColor = Ink; Font = MakeFont("Segoe UI", 10);
         Icon = MainWindow.Logo.CreateIcon(); Padding = new(28, 20, 28, 20);
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5, ColumnCount = 1, Margin = Padding.Empty };
-        root.RowStyles.Add(new(SizeType.Absolute, 106)); root.RowStyles.Add(new(SizeType.Absolute, 58));
-        root.RowStyles.Add(new(SizeType.Absolute, 56)); root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 38));
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1, Margin = Padding.Empty };
+        root.RowStyles.Add(new(SizeType.Absolute, 112)); root.RowStyles.Add(new(SizeType.Absolute, 56));
+        root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 34));
+        // Header: title, count badge, one-line explanation.
         var top = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Margin = Padding.Empty };
-        top.ColumnStyles.Add(new(SizeType.Percent, 100)); top.ColumnStyles.Add(new(SizeType.Absolute, 160));
-        top.RowStyles.Add(new(SizeType.Percent, 65)); top.RowStyles.Add(new(SizeType.Percent, 35));
+        top.ColumnStyles.Add(new(SizeType.Percent, 100)); top.ColumnStyles.Add(new(SizeType.Absolute, 190));
+        top.RowStyles.Add(new(SizeType.Percent, 62)); top.RowStyles.Add(new(SizeType.Percent, 38));
         heading.Dock = DockStyle.Fill; heading.Font = MakeFont("Impact", 30); heading.TextAlign = ContentAlignment.MiddleLeft;
         badge.Dock = DockStyle.Fill; badge.BackColor = Acid; badge.ForeColor = Ink; badge.TextAlign = ContentAlignment.MiddleCenter;
-        badge.Font = MakeFont("Consolas", 11, FontStyle.Bold); badge.Margin = new(0, 14, 0, 8);
-        subtitle.Dock = DockStyle.Fill; subtitle.ForeColor = Muted;
+        badge.Font = MakeFont("Consolas", 11, FontStyle.Bold); badge.Margin = new(0, 16, 0, 10);
+        subtitle.Dock = DockStyle.Fill; subtitle.ForeColor = Muted; subtitle.Font = MakeFont("Segoe UI", 10.5f);
         top.Controls.Add(heading, 0, 0); top.Controls.Add(badge, 1, 0); top.Controls.Add(subtitle, 0, 1); top.SetColumnSpan(subtitle, 2);
         root.Controls.Add(top, 0, 0);
-        var nav = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
-        nav.ColumnStyles.Add(new(SizeType.Percent, 50)); nav.ColumnStyles.Add(new(SizeType.Percent, 50)); nav.ColumnStyles.Add(new(SizeType.Absolute, 142));
-        foreach (var button in new[] { gamesTab, modsTab, refresh }) { button.Dock = DockStyle.Fill; button.Margin = new(0, 0, 12, 8); }
-        refresh.Margin = new(0, 0, 0, 8);
-        nav.Controls.Add(gamesTab, 0, 0); nav.Controls.Add(modsTab, 1, 0); nav.Controls.Add(refresh, 2, 0); root.Controls.Add(nav, 0, 1);
-        gamesTab.Click += (_, _) => SwitchTab(false); modsTab.Click += (_, _) => SwitchTab(true);
-        refresh.Click += async (_, _) => { await ScanAsync(); if (showMods) await DiscoverAsync(); };
-        var filters = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty, Padding = new(0, 6, 0, 10) };
-        filters.ColumnStyles.Add(new(SizeType.Percent, 50)); filters.ColumnStyles.Add(new(SizeType.Absolute, 212)); filters.ColumnStyles.Add(new(SizeType.Percent, 50));
+        // Search and refresh.
+        var filters = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty, Padding = new(0, 4, 0, 10) };
+        filters.ColumnStyles.Add(new(SizeType.Percent, 100)); filters.ColumnStyles.Add(new(SizeType.Absolute, 150)); filters.ColumnStyles.Add(new(SizeType.Absolute, 150));
         search.Anchor = AnchorStyles.Left | AnchorStyles.Right; search.BackColor = Paper; search.ForeColor = Ink; search.BorderStyle = BorderStyle.FixedSingle; search.Font = MakeFont("Segoe UI", 11);
         search.TextChanged += (_, _) => Populate();
-        installedOnly.AutoSize = true; installedOnly.Anchor = AnchorStyles.Left; installedOnly.Margin = new(16, 0, 0, 0); installedOnly.CheckedChanged += (_, _) => Populate();
-        count.Dock = DockStyle.Fill; count.TextAlign = ContentAlignment.MiddleRight; count.Font = MakeFont("Consolas", 9, FontStyle.Bold);
-        filters.Controls.Add(search, 0, 0); filters.Controls.Add(installedOnly, 1, 0); filters.Controls.Add(count, 2, 0); root.Controls.Add(filters, 0, 2);
-        content.ColumnStyles.Add(new(SizeType.Percent, 43)); content.ColumnStyles.Add(new(SizeType.Percent, 57));
+        count.Dock = DockStyle.Fill; count.TextAlign = ContentAlignment.MiddleRight; count.Font = MakeFont("Consolas", 9, FontStyle.Bold); count.Margin = new(0, 0, 12, 0);
+        refresh.Dock = DockStyle.Fill; refresh.Margin = new(0, 0, 0, 6); refresh.Click += async (_, _) => await ScanAsync();
+        filters.Controls.Add(search, 0, 0); filters.Controls.Add(count, 1, 0); filters.Controls.Add(refresh, 2, 0); root.Controls.Add(filters, 0, 1);
+        // List on the left, detail on the right.
+        var content = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+        content.ColumnStyles.Add(new(SizeType.Percent, 42)); content.ColumnStyles.Add(new(SizeType.Percent, 58));
         listHost.Padding = new(1); listHost.Margin = new(0, 0, 20, 0); listHost.BackColor = Ink;
         entries.Dock = DockStyle.Fill; entries.BackColor = Paper; entries.ForeColor = Ink; entries.BorderStyle = BorderStyle.None;
-        entries.SelectedIndexChanged += async (_, _) => await SelectedAsync();
-        entries.ItemHeight = (int)Math.Round(82 * DeviceDpi / 96f);
+        entries.SelectedIndexChanged += (_, _) => Selected();
+        entries.ItemHeight = (int)Math.Round(84 * DeviceDpi / 96f);
         empty.Dock = DockStyle.Fill; empty.BackColor = Paper; empty.ForeColor = Muted; empty.TextAlign = ContentAlignment.MiddleCenter; empty.Padding = new(24);
         listHost.Controls.Add(entries); listHost.Controls.Add(empty);
-        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty, Padding = new(0) };
-        right.RowStyles.Add(new(SizeType.Percent, 100)); right.RowStyles.Add(new(SizeType.Absolute, 52));
+        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Margin = Padding.Empty };
+        right.RowStyles.Add(new(SizeType.Percent, 100)); right.RowStyles.Add(new(SizeType.Absolute, 14)); right.RowStyles.Add(new(SizeType.Absolute, 52));
         detailScroll.Controls.Add(detail); detailScroll.SizeChanged += (_, _) => FitDetail();
-        source.Dock = DockStyle.Fill; source.Margin = new(0, 8, 0, 0); source.Click += (_, _) => OpenSource();
-        right.Controls.Add(detailScroll, 0, 0); right.Controls.Add(source, 0, 1);
-        content.Controls.Add(listHost, 0, 0); content.Controls.Add(right, 1, 0); root.Controls.Add(content, 0, 3);
-        footer.Dock = DockStyle.Fill; footer.TextAlign = ContentAlignment.BottomLeft; footer.ForeColor = Muted; footer.Font = MakeFont("Segoe UI", 8.5f); root.Controls.Add(footer, 0, 4);
+        for (int i = 0; i < 5; i++) actions.ColumnStyles.Add(new(SizeType.Percent, 20));
+        foreach (var (button, column) in new[] { (install, 0), (run, 1), (remove, 2), (page, 3), (wiki, 4) })
+        {
+            button.Dock = DockStyle.Fill; button.Margin = new(column == 0 ? 0 : 6, 8, column == 4 ? 0 : 6, 0); button.Visible = false; actions.Controls.Add(button, column, 0);
+        }
+        install.Click += async (_, _) => await InstallAsync();
+        remove.Click += (_, _) => Remove();
+        run.Click += (_, _) => RunHelper();
+        page.Click += (_, _) => { if (pageUri is { } uri) OpenUrl(uri); };
+        wiki.Click += (_, _) => { if (wikiUri is { } uri) OpenUrl(uri); };
+        progress.Margin = new(0, 4, 0, 0);
+        right.Controls.Add(detailScroll, 0, 0); right.Controls.Add(progress, 0, 1); right.Controls.Add(actions, 0, 2);
+        content.Controls.Add(listHost, 0, 0); content.Controls.Add(right, 1, 0); root.Controls.Add(content, 0, 2);
+        footer.Dock = DockStyle.Fill; footer.TextAlign = ContentAlignment.BottomLeft; footer.ForeColor = Muted; footer.Font = MakeFont("Segoe UI", 8.5f); footer.AutoEllipsis = true;
+        root.Controls.Add(footer, 0, 3);
         Controls.Add(root);
         ApplyText();
-        Shown += async (_, _) => { await ScanAsync(); if (showMods) await DiscoverAsync(); };
+        service.LibraryChanged += LibraryChanged;
+        service.Runner.HelperStarted += (_, _) => Post(Populate);
+        service.Runner.HelperStopped += (_, _) => Post(Populate);
+        Shown += async (_, _) => await ScanAsync();
         L.Changed += LanguageChanged;
-        FormClosed += (_, _) => { if (!resourcesDisposed) { lifetime.Cancel(); selection?.Cancel(); } L.Changed -= LanguageChanged; };
+        FormClosed += (_, _) => { if (!disposedResources) { lifetime.Cancel(); lookups?.Cancel(); } };
         ResumeLayout(true);
     }
 
@@ -96,192 +110,244 @@ internal sealed class GamesWindow : Form
         if (!fonts.TryGetValue(key, out var font)) { font = new Font(family, size, style); fonts.Add(key, font); }
         return font;
     }
-    void LanguageChanged() { if (IsDisposed || Disposing || resourcesDisposed) return; if (InvokeRequired) { BeginInvoke(new Action(LanguageChanged)); return; } ApplyText(); }
+
+    void Post(Action action) { if (IsDisposed || Disposing || disposedResources) return; if (InvokeRequired) BeginInvoke(action); else action(); }
+    void LanguageChanged() => Post(ApplyText);
+    void LibraryChanged() => Post(() => { games = service.Library.ToList(); Populate(); _ = LookupAllAsync(); });
+
     void ApplyText()
     {
-        Text = "MadSense · " + L.Text("Games.Title"); heading.Text = L.Text("Games.Title").ToUpper(L.Culture);
-        badge.Text = L.Text("Games.Preview"); selectedGameId = null;
-        subtitle.Text = L.Text("Games.Subtitle"); gamesTab.Text = L.Text("Games.GamesTab"); modsTab.Text = L.Text("Games.ModsTab");
-        refresh.Text = L.Text("Games.Refresh"); search.PlaceholderText = L.Text("Games.Search"); search.AccessibleName = L.Text("Games.Search");
-        installedOnly.Text = L.Text("Games.InstalledOnly"); entries.AccessibleName = L.Text("Games.Title");
+        Text = "MadSense · " + L.Text("Games.Title"); heading.Text = L.Text("Games.Heading").ToUpper(L.Culture);
+        subtitle.Text = L.Text("Games.Subtitle"); refresh.Text = L.Text("Games.Refresh");
+        search.PlaceholderText = L.Text("Games.Search"); search.AccessibleName = L.Text("Games.Search"); entries.AccessibleName = L.Text("Games.Title");
+        install.Text = L.Text("Games.Install"); remove.Text = L.Text("Games.Remove"); run.Text = L.Text("Games.RunNow");
+        page.Text = L.Text("Games.ModPage"); wiki.Text = L.Text("Games.WikiPage");
+        selectedKey = null;
         Populate();
     }
-    void SwitchTab(bool mods)
-    {
-        if (showMods == mods) return;
-        showMods = mods; search.Clear(); Populate();
-        if (mods && !discoveryAttempted) _ = DiscoverAsync();
-    }
+
     async Task ScanAsync()
     {
-        if (scanning || resourcesDisposed || lifetime.IsCancellationRequested) return;
-        var token = lifetime.Token;
+        if (scanning || disposedResources || lifetime.IsCancellationRequested) return;
         scanning = true; refresh.Enabled = false; footer.Text = L.Text("Games.Scanning");
-        try
-        {
-            var result = await Task.Run(() => new SteamLibraryScanner().Scan(token), token);
-            if (lifetime.IsCancellationRequested) return;
-            games.Clear(); games.AddRange(result.Games.Where(g => !GameCatalog.KnownUtilities.Contains(g.AppId))); scanWarnings = result.Warnings.Count;
-        }
+        try { games = (await service.ScanAsync(lifetime.Token)).ToList(); }
         catch (OperationCanceledException) { }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { scanWarnings++; }
-        finally { scanning = false; if (!IsDisposed) { refresh.Enabled = !discovering; Populate(); } }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { footer.Text = e.Message; }
+        finally { scanning = false; if (!IsDisposed) { refresh.Enabled = true; Populate(); _ = LookupAllAsync(); } }
     }
-    async Task DiscoverAsync()
+
+    /// <summary>Resolves each game's wiki record in the background, one at a time, cached answers first.</summary>
+    async Task LookupAllAsync()
     {
-        if (discovering || lifetime.IsCancellationRequested) return;
-        discoveryAttempted = discovering = true; refresh.Enabled = false; footer.Text = L.Text("Games.LoadingSources");
-        try
+        lookups?.Cancel(); lookups?.Dispose();
+        lookups = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        var token = lookups.Token;
+        foreach (var game in games)
         {
-            var result = await discovery.GetAsync(lifetime.Token);
-            if (lifetime.IsCancellationRequested) return;
-            discoveryFailed = result is null;
-            if (result is not null) discovered = result;
+            if (service.Wiki.Cached(game) is { } cached && DateTimeOffset.UtcNow - cached.Fetched < TimeSpan.FromDays(30)) { support[game.Key] = cached; continue; }
+            pending.Add(game.Key);
         }
-        catch (OperationCanceledException) { }
-        finally { discovering = false; if (!IsDisposed) { refresh.Enabled = !scanning; Populate(); } }
+        Populate();
+        foreach (var game in games.Where(g => pending.Contains(g.Key)).ToList())
+        {
+            if (token.IsCancellationRequested) return;
+            WikiSupport? info = null;
+            try { info = await service.Wiki.GetAsync(game, token); }
+            catch (OperationCanceledException) { return; }
+            if (token.IsCancellationRequested) return;
+            support[game.Key] = info; pending.Remove(game.Key);
+            Populate();
+            if (service.Wiki.Blocked) { footer.Text = L.Text("Games.WikiBlocked"); return; }
+        }
     }
+
     void Populate()
     {
-        if (IsDisposed || Disposing || resourcesDisposed || lifetime.IsCancellationRequested) return;
-        var previous = (entries.SelectedItem as Entry)?.Title;
-        gamesTab.Selected = !showMods; modsTab.Selected = showMods; gamesTab.Invalidate(); modsTab.Invalidate(); installedOnly.Visible = showMods;
-        IEnumerable<Entry> rows;
-        if (!showMods)
-            rows = games.Select(g => new Entry(g.Name, "STEAM / " + g.AppId, GameCatalog.Native.Any(n => n.AppId == g.AppId) ? L.Text("Games.Documented") : L.Text("Games.CheckFeatures"), g));
-        else
-        {
-            var known = GameCatalog.Mods.Select(m => new Entry(m.Name, m.Games, L.Text("Games.Unverified"), Mod: m));
-            var other = discovered.Where(d => !GameCatalog.Mods.Any(m => GameCatalog.SamePage(m.Page, d.Page)))
-                .Select(d => new Entry(d.Name, L.Text("Games.ListedBy", d.SourceName), L.Text("Games.Unverified"), Discovered: d));
-            rows = known.Concat(other);
-            if (installedOnly.Checked) rows = rows.Where(r => r.Mod is { } m && games.Any(g => m.SteamIds.Contains(g.AppId)));
-        }
-        rows = rows.Where(r => (r.Title + " " + r.Subtitle).Contains(search.Text.Trim(), StringComparison.CurrentCultureIgnoreCase)).OrderBy(r => r.Title, StringComparer.CurrentCultureIgnoreCase);
+        if (IsDisposed || Disposing || disposedResources) return;
+        var previous = (entries.SelectedItem as Entry)?.Game.Key ?? selectedKey;
+        var rows = games.Select(g => new Entry(g, service.Standing(g, support.GetValueOrDefault(g.Key)), pending.Contains(g.Key)))
+            .Where(r => r.Game.Name.Contains(search.Text.Trim(), StringComparison.CurrentCultureIgnoreCase))
+            .OrderBy(r => r.Standing.Status switch { GameStatus.ModInstalled => 0, GameStatus.ModAvailable => 1, GameStatus.Native => 2, GameStatus.ModManual => 3, _ => 4 })
+            .ThenBy(r => r.Game.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         rebuilding = true;
         entries.BeginUpdate(); entries.Items.Clear(); foreach (var row in rows) entries.Items.Add(row); entries.EndUpdate();
-        count.Text = L.Text(showMods ? "Games.ModCount" : "Games.GameCount", entries.Items.Count);
-        empty.Text = L.Text(games.Count == 0 && !showMods ? "Games.NoSteamGames" : "Games.NoMatches"); empty.Visible = entries.Items.Count == 0;
-        footer.Text = scanning ? L.Text("Games.Scanning") : discovering ? L.Text("Games.LoadingSources") : discoveryFailed && showMods ? L.Text("Games.OfflineSources") : scanWarnings > 0 && !showMods ? L.Text("Games.ScanWarnings", scanWarnings) : L.Text("Games.ReadOnly");
-        if (entries.Items.Count > 0)
-        {
-            var index = entries.Items.Cast<Entry>().ToList().FindIndex(x => x.Title == previous);
-            entries.SelectedIndex = index < 0 ? 0 : index;
-            rebuilding = false;
-            _ = SelectedAsync();
-        }
-        else { rebuilding = false; selection?.Cancel(); selectedGameId = null; ResetDetail(); Block(L.Text("Games.EmptyTitle"), 24, true); Block(L.Text("Games.EmptyDescription")); }
+        count.Text = L.Text("Games.GameCount", games.Count);
+        badge.Text = L.Text("Games.Badge", rows.Count(r => r.Standing.Status is GameStatus.Native), rows.Count(r => r.Standing.Status is GameStatus.ModAvailable or GameStatus.ModInstalled));
+        empty.Text = L.Text(games.Count == 0 ? "Games.NoGames" : "Games.NoMatches"); empty.Visible = rows.Count == 0;
+        footer.Text = scanning ? L.Text("Games.Scanning") : pending.Count > 0 ? L.Text("Games.Consulting", pending.Count) : L.Text("Games.Footer", ModCatalog.Version);
+        var index = rows.FindIndex(r => r.Game.Key == previous);
+        if (rows.Count > 0) entries.SelectedIndex = index < 0 ? 0 : index;
+        rebuilding = false;
+        if (rows.Count > 0) Selected(force: true); else { selectedKey = null; ResetDetail(); Block(L.Text("Games.EmptyTitle"), 24, true); Block(L.Text("Games.EmptyDescription")); }
     }
-    async Task SelectedAsync()
+
+    void Selected(bool force = false)
     {
-        if (rebuilding || IsDisposed || Disposing || resourcesDisposed || lifetime.IsCancellationRequested) return;
-        if (entries.SelectedItem is not Entry entry) return;
-        if (entry.Game is { } same && same.AppId == selectedGameId) return;
-        selectedGameId = entry.Game?.AppId;
-        selection?.Cancel(); selection?.Dispose(); selection = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        var token = selection.Token;
-        if (entry.Game is not { } game) { ShowMod(entry); return; }
-        support.TryGetValue(game.AppId, out var cached);
-        ShowGame(game, cached, cached is null);
-        if (cached is not null) return;
-        try
-        {
-            var info = await wiki.GetAsync(game.AppId, token);
-            if (token.IsCancellationRequested || IsDisposed) return;
-            if (info is not null) support[game.AppId] = info;
-            ShowGame(game, info, false);
-        }
-        catch (OperationCanceledException) { }
+        if (rebuilding || entries.SelectedItem is not Entry entry) return;
+        if (!force && entry.Game.Key == selectedKey && !installing) return;
+        selectedKey = entry.Game.Key;
+        ShowGame(entry);
     }
+
     void ResetDetail()
     {
         detail.SuspendLayout();
         foreach (var control in detail.Controls.Cast<Control>().ToArray()) control.Dispose();
-        detail.Controls.Clear(); currentSource = null; source.Enabled = false; detailScroll.AutoScrollPosition = Point.Empty;
+        detail.Controls.Clear(); detailScroll.AutoScrollPosition = Point.Empty;
         detail.ResumeLayout();
+        pageUri = wikiUri = null; selectedMod = null;
+        foreach (var button in new[] { install, run, remove, page, wiki }) button.Visible = false;
     }
-    void Block(string text, float size = 10, bool title = false, bool band = false)
+
+    Label Block(string text, float size = 10, bool title = false, bool band = false, Color? color = null)
     {
-        var label = new Label { AutoSize = true, Text = text, ForeColor = title ? Ink : Muted, Font = MakeFont(title ? "Impact" : "Segoe UI", size), Margin = new(0, 0, 0, title ? 16 : 12), Padding = band ? new(12) : Padding.Empty, BackColor = band ? Acid : Paper, UseMnemonic = false };
+        var label = new Label
+        {
+            AutoSize = true, Text = text, ForeColor = color ?? (title ? Ink : Muted), Font = MakeFont(title ? "Impact" : band ? "Consolas" : "Segoe UI", size, band ? FontStyle.Bold : FontStyle.Regular),
+            Margin = new(0, 0, 0, title ? 14 : band ? 14 : 10), Padding = band ? new(12, 8, 12, 8) : Padding.Empty, BackColor = band ? (color is null ? Acid : Paper) : Paper, UseMnemonic = false,
+        };
+        if (band && color is not null) { label.BackColor = color.Value; label.ForeColor = color == Hot ? Paper : Ink; }
         detail.Controls.Add(label); FitDetail();
+        return label;
     }
+
     void FitDetail()
     {
         int width = Math.Max(120, detailScroll.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 4);
         detail.Width = width;
         foreach (Control label in detail.Controls) label.MaximumSize = new(width, 0);
     }
-    void SetSource(Uri uri, string text) { currentSource = uri; source.Text = text; source.Enabled = true; }
-    void ShowGame(InstalledSteamGame game, WikiSupport? info, bool loading)
+
+    static string StatusText(GameStatus status, bool pending) => L.Text(status switch
+    {
+        GameStatus.Native => "Games.Status.Native",
+        GameStatus.ModInstalled => "Games.Status.ModInstalled",
+        GameStatus.ModAvailable => "Games.Status.ModAvailable",
+        GameStatus.ModManual => "Games.Status.ModManual",
+        GameStatus.PlayStationOnly => "Games.Status.PlayStationOnly",
+        GameStatus.None => "Games.Status.None",
+        _ => pending ? "Games.Status.Pending" : "Games.Status.Unknown",
+    });
+
+    static Color StatusColor(GameStatus status) => status switch
+    {
+        GameStatus.Native or GameStatus.ModInstalled => Acid,
+        GameStatus.ModAvailable => Hot,
+        _ => Paper,
+    };
+
+    void ShowGame(Entry entry)
     {
         ResetDetail();
-        Block("STEAM / " + game.AppId, 9); Block(game.Name, 25, true);
-        var native = GameCatalog.Native.FirstOrDefault(n => n.AppId == game.AppId);
+        var game = entry.Game; var standing = entry.Standing; var info = standing.Wiki;
+        Block((game.Source + (game.SteamAppId is { } id ? " / " + id : "")).ToUpper(L.Culture), 9);
+        Block(game.Name, 25, true);
+        Block(StatusText(standing.Status, entry.Pending), 11, band: true, color: StatusColor(standing.Status));
+        // What the game itself does with the pad, from the wiki.
         if (info is not null)
         {
-            Block(L.Text("Games.WikiFeatures"), 11, band: true);
-            foreach (var feature in new[] { "haptics", "triggers", "speaker", "gyro", "touchpad", "lightbar" })
-            {
-                var value = info.Features.TryGetValue(feature, out var state) ? state : WikiValue.Unknown;
-                Block(L.Text("Games.Feature." + feature) + "  /  " + L.Text("Games.Value." + value), 10);
-            }
+            foreach (var (field, key) in new[] { ("haptics", info.Haptics), ("triggers", info.Triggers), ("speaker", info.Speaker), ("lightbar", info.Lightbar), ("gyro", info.Motion), ("prompts", info.Prompts) })
+                Block(L.Text("Games.Feature." + field) + "  /  " + L.Text("Games.Value." + key), 10, color: key == WikiValue.Yes ? Ink : Muted);
+            if (info.ConnectionModes.Length > 0) Block(L.Text("Games.ConnectionModes", info.ConnectionModes), 9);
+            if (info.Note("dualsense adaptive trigger support") is { } note) Block(Trim(note), 9);
             Block(L.Text("Games.WikiAttribution"), 9);
-            var license = new LinkLabel { AutoSize = true, Text = L.Text("Games.WikiLicense"), LinkColor = Muted, ActiveLinkColor = Ink, Margin = new(0, 0, 0, 14) };
-            license.LinkClicked += (_, _) => OpenUrl(new("https://www.pcgamingwiki.com/wiki/PCGamingWiki:Copyrights")); detail.Controls.Add(license);
-            SetSource(info.Source, L.Text("Games.ViewWiki"));
+            wikiUri = info.Source; wiki.Visible = true;
         }
-        else
+        else Block(L.Text(entry.Pending ? "Games.LoadingWiki" : service.Wiki.Blocked ? "Games.WikiBlocked" : "Games.NoWikiData"));
+        if (standing.Status == GameStatus.Native) Block(L.Text("Games.NativeHint"));
+        // Community mods for this game.
+        foreach (var mod in standing.Mods)
         {
-            Block(L.Text(native is null ? "Games.UnknownSupport" : "Games.PublisherSupport"), 11, band: true);
-            Block(L.Text(loading ? "Games.LoadingWiki" : "Games.NoWikiData"));
-            if (native is not null) SetSource(native.Source, L.Text("Games.ViewSource"));
-            else SetSource(new("https://store.steampowered.com/app/" + game.AppId + "/"), L.Text("Games.ViewSteam"));
+            var installed = service.Installer.Find(mod.Id, game.Key);
+            Block(L.Text(installed is null ? "Games.ModHeader" : "Games.ModHeaderInstalled", mod.Name), 11, band: true, color: installed is null && mod.Installable ? Hot : installed is null ? Paper : Acid);
+            Block(L.Text("Games.ModBy", mod.Author, mod.License ?? L.Text("Games.NoLicense"), string.Join(", ", mod.Features.Select(f => L.Text("Games.Feature." + f)))), 9);
+            Block(mod.Note(L.CurrentLanguage));
+            if (installed is not null)
+            {
+                Block(L.Text("Games.InstalledDetail", installed.Version, installed.Installed.ToString("d", L.Culture), installed.Root), 9);
+                if (installed.Exe is not null) Block(L.Text(service.Runner.IsRunning(mod.Id, game.Key) ? "Games.HelperRunning" : "Games.HelperIdle"), 9, color: Ink);
+            }
+            else if (mod.Installable) Block(L.Text(mod.Kind switch { ModKind.Helper => "Games.InstallHelperHint", ModKind.GameFolder => "Games.InstallGameFolderHint", _ => "Games.InstallBeamNgHint" }, service.Installer.ModsRoot), 9);
+            else Block(L.Text("Games.ManualHint"), 9);
+            if (selectedMod is null) { selectedMod = mod; pageUri = mod.PageUri; }
         }
-        var mods = GameCatalog.Mods.Where(m => m.SteamIds.Contains(game.AppId)).ToArray();
-        if (mods.Length > 0) Block(L.Text("Games.RelatedMods", string.Join(", ", mods.Select(m => m.Name))));
-        Block(L.Text("Games.SteamUnchanged"), 9);
+        if (selectedMod is { } selected)
+        {
+            var record = service.Installer.Find(selected.Id, game.Key);
+            page.Visible = true;
+            install.Visible = record is null && selected.Installable && !installing;
+            remove.Visible = record is not null && !installing;
+            run.Visible = record?.Exe is not null && !installing;
+            run.Text = L.Text(service.Runner.IsRunning(selected.Id, game.Key) ? "Games.StopNow" : "Games.RunNow");
+        }
+        if (standing.Mods.Count == 0 && standing.Status != GameStatus.Native) Block(L.Text("Games.NoModKnown"), 9);
     }
-    void ShowMod(Entry entry)
+
+    static string Trim(string wikitext)
     {
-        ResetDetail();
-        Block(L.Text("Games.CommunityMod"), 9); Block(entry.Title, 25, true);
-        Block(entry.Subtitle, 11);
-        if (entry.Mod is { } mod)
-        {
-            Block(L.Text("Games.Author", mod.Author), 9);
-            Block(L.Text(mod.DescriptionKey));
-            Block(L.Text(games.Any(g => mod.SteamIds.Contains(g.AppId)) ? "Games.MatchingGame" : "Games.NoMatchingGame"), 10, band: true);
-            SetSource(mod.Page, L.Text("Games.ViewMod"));
-        }
-        else if (entry.Discovered is { } found)
-        {
-            Block(L.Text("Games.DiscoveredDescription", found.SourceName));
-            SetSource(found.Page, L.Text("Games.ViewMod"));
-        }
-        Block(L.Text("Games.NotReadyToInstall"));
-        Block(L.Text("Games.CatalogExplanation"), 9);
+        var text = System.Text.RegularExpressions.Regex.Replace(wikitext, @"\[\[(?:[^|\]]*\|)?([^\]]+)\]\]|'''?|\{\{[^}]*\}\}|<[^>]+>", "$1").Trim();
+        return text.Length > 360 ? text[..357] + "…" : text;
     }
-    void OpenSource() { if (currentSource is { } uri) OpenUrl(uri); }
+
+    async Task InstallAsync()
+    {
+        if (installing || entries.SelectedItem is not Entry entry || selectedMod is not { } mod) return;
+        installing = true; install.Visible = false; progress.Visible = true; progress.Value = 0;
+        footer.Text = L.Text("Games.Downloading", mod.Name);
+        var reporter = new Progress<InstallProgress>(p => { if (p.Total > 0 && p.Stage == "download") progress.Value = (int)Math.Clamp(p.Done * 100 / p.Total, 0, 100); if (p.Stage == "install") { progress.Style = ProgressBarStyle.Marquee; footer.Text = L.Text("Games.Installing", mod.Name); } });
+        try
+        {
+            await service.Installer.InstallAsync(mod, entry.Game, reporter, lifetime.Token);
+            footer.Text = L.Text("Games.Installed", mod.Name);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception e) when (e is InvalidOperationException or IOException or UnauthorizedAccessException or System.Net.Http.HttpRequestException or FormatException)
+        {
+            footer.Text = L.Text("Games.InstallFailed", mod.Name, e.Message);
+        }
+        finally { installing = false; progress.Visible = false; progress.Style = ProgressBarStyle.Continuous; if (!IsDisposed) { Populate(); } }
+    }
+
+    void Remove()
+    {
+        if (installing || entries.SelectedItem is not Entry entry || selectedMod is not { } mod) return;
+        service.Runner.Stop(mod.Id, entry.Game.Key);
+        service.Installer.Uninstall(mod.Id, entry.Game.Key);
+        footer.Text = L.Text("Games.Removed", mod.Name);
+        Populate();
+    }
+
+    void RunHelper()
+    {
+        if (entries.SelectedItem is not Entry entry || selectedMod is not { } mod) return;
+        if (service.Runner.IsRunning(mod.Id, entry.Game.Key)) service.Runner.Stop(mod.Id, entry.Game.Key);
+        else if (!service.Runner.Start(mod.Id, entry.Game.Key)) footer.Text = L.Text("Games.HelperFailed", mod.Name);
+        Populate();
+    }
+
     void OpenUrl(Uri uri)
     {
         if (uri.Scheme != Uri.UriSchemeHttps) return;
         try { Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { footer.Text = L.Text("Games.OpenFailed"); }
     }
+
     protected override void Dispose(bool disposing)
     {
-        if (disposing && !resourcesDisposed)
+        if (disposing && !disposedResources)
         {
-            resourcesDisposed = true;
-            lifetime.Cancel(); selection?.Cancel(); L.Changed -= LanguageChanged;
-            wiki.Dispose(); discovery.Dispose(); selection?.Dispose(); lifetime.Dispose();
+            disposedResources = true;
+            lifetime.Cancel(); lookups?.Cancel();
+            service.LibraryChanged -= LibraryChanged; L.Changed -= LanguageChanged;
             base.Dispose(true);
+            lookups?.Dispose(); lifetime.Dispose();
             foreach (var font in fonts.Values) font.Dispose();
             return;
         }
         base.Dispose(disposing);
     }
 
+    /// <summary>Owner-drawn rows: name, source line and the status tag in the strip's own colours.</summary>
     sealed class EntryList : ListBox
     {
         public EntryList() { DrawMode = DrawMode.OwnerDrawFixed; IntegralHeight = false; }
@@ -291,15 +357,21 @@ internal sealed class GamesWindow : Form
             float s = DeviceDpi / 96f; bool selected = (e.State & DrawItemState.Selected) != 0;
             var bg = selected ? Ink : Paper; var fg = selected ? Paper : Ink;
             using var brush = new SolidBrush(bg); e.Graphics.FillRectangle(brush, e.Bounds);
-            using var stripe = new SolidBrush(selected ? Acid : Hot); e.Graphics.FillRectangle(stripe, e.Bounds.X, e.Bounds.Y, 5 * s, e.Bounds.Height);
-            var bounds = new Rectangle(e.Bounds.X + (int)(18 * s), e.Bounds.Y + (int)(12 * s), e.Bounds.Width - (int)(30 * s), (int)(23 * s));
-            using var title = new Font("Segoe UI", 10.5f, FontStyle.Bold); using var small = new Font("Consolas", 8);
+            using var stripe = new SolidBrush(StatusColor(item.Standing.Status) == Paper ? (selected ? Acid : Muted) : StatusColor(item.Standing.Status));
+            e.Graphics.FillRectangle(stripe, e.Bounds.X, e.Bounds.Y, 6 * s, e.Bounds.Height);
+            var bounds = new Rectangle(e.Bounds.X + (int)(20 * s), e.Bounds.Y + (int)(11 * s), e.Bounds.Width - (int)(32 * s), (int)(24 * s));
+            using var title = new Font("Segoe UI", 11f, FontStyle.Bold); using var small = new Font("Consolas", 8.5f, FontStyle.Bold);
             const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
-            TextRenderer.DrawText(e.Graphics, item.Title, title, bounds, fg, flags);
-            bounds.Y += (int)(25 * s); bounds.Height = (int)(19 * s);
-            TextRenderer.DrawText(e.Graphics, item.Subtitle, small, bounds, selected ? Acid : Muted, flags);
-            bounds.Y += (int)(18 * s);
-            TextRenderer.DrawText(e.Graphics, item.Tag, small, bounds, selected ? Paper : Muted, flags);
+            TextRenderer.DrawText(e.Graphics, item.Game.Name, title, bounds, fg, flags);
+            bounds.Y += (int)(26 * s); bounds.Height = (int)(18 * s);
+            TextRenderer.DrawText(e.Graphics, item.Game.Source.ToUpper(L.Culture) + (item.Game.SteamAppId is { } id ? " / " + id : ""), small, bounds, selected ? Acid : Muted, flags);
+            bounds.Y += (int)(19 * s);
+            var tag = StatusText(item.Standing.Status, item.Pending);
+            var tagColor = StatusColor(item.Standing.Status);
+            var size = TextRenderer.MeasureText(tag, small);
+            var tagRect = new Rectangle(bounds.X, bounds.Y, size.Width + (int)(12 * s), size.Height + (int)(2 * s));
+            if (tagColor != Paper) { using var fill = new SolidBrush(tagColor); e.Graphics.FillRectangle(fill, tagRect); }
+            TextRenderer.DrawText(e.Graphics, tag, small, tagRect, tagColor == Paper ? (selected ? Paper : Muted) : (tagColor == Hot ? Paper : Ink), flags | TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             using var line = new Pen(Ink); e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
             if ((e.State & DrawItemState.Focus) != 0) e.DrawFocusRectangle();
         }

@@ -113,6 +113,20 @@ public sealed class DualSenseDeviceOutputs : IDualSenseAudioOutputs
         _specialActions = specialActions;
     }
 
+    /// <summary>
+    /// MadSense: an optional rewrite applied to every output state on its way to the physical pad,
+    /// on the standalone 0x31 path, the Bluetooth audio-lane prime and every combined 0x36 report.
+    /// Game mods (the DSX UDP protocol) use it to own a trigger, the lightbar or the player LEDs
+    /// ahead of the game. The filter runs under the adapter's write lock and must not block.
+    /// </summary>
+    public Func<SetStateData, SetStateData>? StateFilter { get; set; }
+
+    private SetStateData Filter(SetStateData payload)
+    {
+        Func<SetStateData, SetStateData>? filter = StateFilter;
+        return filter is null ? payload : filter(payload);
+    }
+
     /// <inheritdoc/>
     public ConnectionType ConnectionType
     {
@@ -153,7 +167,7 @@ public sealed class DualSenseDeviceOutputs : IDualSenseAudioOutputs
         {
             try
             {
-                _device.SendOutputState(ApplyOutputOverride(payload));
+                _device.SendOutputState(ApplyOutputOverride(Filter(payload)));
             }
             catch (HidException ex)
             {
@@ -248,7 +262,7 @@ public sealed class DualSenseDeviceOutputs : IDualSenseAudioOutputs
     {
         lock (_writeLock)
         {
-            _device.SendBluetoothAudioPrime(ApplyOutputOverride(state));
+            _device.SendBluetoothAudioPrime(ApplyOutputOverride(Filter(state)));
         }
     }
 
@@ -257,7 +271,7 @@ public sealed class DualSenseDeviceOutputs : IDualSenseAudioOutputs
     {
         lock (_writeLock)
         {
-            _device.SendBluetoothAudioAndHaptics(ApplyOutputOverride(state), opusFrame, hapticsPcm, route);
+            _device.SendBluetoothAudioAndHaptics(ApplyOutputOverride(Filter(state)), opusFrame, hapticsPcm, route);
         }
     }
 

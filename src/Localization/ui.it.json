@@ -1,4 +1,5 @@
 {
+  "Ui.Mod": "MOD",
   "Ui.UpdateRehearsal": "Prova aggiornamento…",
   "Ui.UpdateConfirm": "MadSense scaricherà e verificherà l’aggiornamento, rilascerà il controller, si chiuderà per installarlo e si riaprirà. Fallo fuori da una partita. Continuare?",
   "Ui.UpdateDownloading": "Download aggiornamento · {0}%",

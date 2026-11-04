@@ -1,4 +1,7 @@
 {
+  "Bridge.ModListenFailed": "Impossible d’ouvrir le port {0} pour les mods de jeux.",
+  "Bridge.ModPortBusy": "Le port {0} des mods est occupé, sans doute par une autre application de manette. Fermez-la et relancez MadSense pour que les mods parlent à MadSense.",
+  "Bridge.ModConnected": "Un mod du jeu envoie des effets à la manette.",
   "Bridge.Charging": "DualSense · Bluetooth · En charge",
   "Bridge.Charged": "DualSense · Bluetooth · Charge complète",
   "Bridge.ConnectionDetails": "{0}{1}\n{2}",

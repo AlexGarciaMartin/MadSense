@@ -127,3 +127,22 @@ Windows installer branch, 2 November 2026:
   Setup.exe. Exact URLs, versions and hashes: setup/dependencies.json.
   Full upstream licenses and source references: setup/licenses/.
   Vendor installers retain their own component notices and redistributables.
+
+MadSense games and mods (feature/games-and-mods, 4 November 2026):
+- src/Mods: receiver for the UDP protocol DualSense game mods use with DSX
+  (JSON instructions on 127.0.0.1:6969). Protocol facts taken from the DSX v3
+  mod-system README (Paliverse), the UDP servers of DualSenseY v2 (MIT) and DSZ
+  (MIT) and DsxServer.cs of Zerk Sense 5 (MIT, florinp93). No code copied.
+- DualSenseDeviceOutputs.StateFilter and EmulationService.SetOutputStateFilter
+  (vendored core, GPL-3.0): an output-state rewrite hook so a mod can own a
+  trigger, the lightbar or the player LEDs ahead of the game.
+- src/Games/GameLibrary.cs: launcher detection (Steam, Epic, GOG, Ubisoft,
+  Xbox, Windows uninstall list) following the approach of Zerk Sense 5's
+  GameLibrary.cs (MIT); reimplemented.
+- src/Games/catalog.json: a list of community mods. Each mod belongs to its
+  author under its own license (stated per entry); MadSense downloads them
+  from the authors' GitHub releases and redistributes nothing. Discovery
+  sources: Awesome Adaptive Triggers (CC0, eVenent), the DualSenseX README,
+  the DSZ compatibility table.
+- PCGamingWiki data is fetched live, cached per user and shown with
+  attribution (CC BY-NC-SA); it is not redistributed inside MadSense.

@@ -406,6 +406,23 @@ public sealed class EmulationService : IEmulationService
         }
     }
 
+    /// <summary>
+    /// MadSense: installs (or removes, with null) the output-state rewrite applied to everything the
+    /// given controller's outputs adapter sends to the physical pad. Works in every emulation mode and
+    /// survives virtual-controller recreation because the adapter is kept per entry. Returns false
+    /// when the controller is not tracked.
+    /// </summary>
+    public bool SetOutputStateFilter(DualSenseDevice device, Func<DualSenseClient.Controllers.DualSense.Output.SetStateData, DualSenseClient.Controllers.DualSense.Output.SetStateData>? filter)
+    {
+        lock (_sync)
+        {
+            if (!_entries.TryGetValue(device, out VirtualControllerEntry? entry)) return false;
+            entry.Outputs ??= new DualSenseDeviceOutputs(entry.Device, _specialActions.GetOrCreate(entry.Device));
+            entry.Outputs.StateFilter = filter;
+            return true;
+        }
+    }
+
     /// <inheritdoc/>
     public void SetForwardingSpeaker(DualSenseDevice device, byte speakerVolume, byte speakerPreGain)
     {
