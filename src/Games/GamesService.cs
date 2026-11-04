@@ -12,17 +12,19 @@ sealed class GamesService : IDisposable
     readonly object gate = new();
     readonly Lazy<PcGamingWikiClient> wiki;
     readonly string foldersPath;
+    readonly ModPreferences preferences;
     List<string>? folders;
     IReadOnlyList<LibraryGame> library = [];
     Task<IReadOnlyList<LibraryGame>>? scan;
 
-    public GamesService(string? dataRoot = null)
+    public GamesService(string? dataRoot = null, bool watchHelpers = true)
     {
         DataRoot = dataRoot ?? DefaultDataRoot;
         wiki = new(() => new PcGamingWikiClient(Path.Combine(DataRoot, "cache", "pcgw.json")));
         foldersPath = Path.Combine(DataRoot, "games-folders.json");
+        preferences = new ModPreferences(Path.Combine(DataRoot, "mod-preferences.json"));
         Installer = new ModInstaller(Path.Combine(DataRoot, "mods"));
-        Runner = new ModRunner(Installer, () => Library);
+        Runner = new ModRunner(Installer, () => Library, watch: watchHelpers, autoStartEnabled: preferences.IsAutoStartEnabled);
     }
 
     public static string DefaultDataRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MadSense");
@@ -37,6 +39,15 @@ sealed class GamesService : IDisposable
     public IReadOnlyList<LibraryGame> Library { get { lock (gate) return library; } }
     public DateTimeOffset? Scanned { get; private set; }
     public event Action? LibraryChanged;
+
+    public bool IsAutoStartEnabled(string modId, string gameKey) => preferences.IsAutoStartEnabled(modId, gameKey);
+    public void SetAutoStartEnabled(string modId, string gameKey, bool enabled)
+    {
+        preferences.SetAutoStartEnabled(modId, gameKey, enabled);
+        Runner.RefreshPreferences();
+    }
+    public bool IsSetupComplete(string modId, string gameKey) => preferences.IsSetupComplete(modId, gameKey);
+    public void SetSetupComplete(string modId, string gameKey, bool complete) => preferences.SetSetupComplete(modId, gameKey, complete);
 
     /// <summary>Folders the user added by hand; read with every scan, kept in a small JSON file.</summary>
     public IReadOnlyList<string> CustomFolders { get { lock (gate) return Folders().ToList(); } }

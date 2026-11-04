@@ -1,5 +1,7 @@
 extern alias MadSenseApp;
 using MadSenseApp::MadSense;
+using MadSenseApp::MadSense.Games;
+using System.Text.Json;
 
 namespace MadSense.UiPreview;
 
@@ -15,7 +17,7 @@ internal static class Program
         Directory.SetCurrentDirectory(options.DataDirectory);
         ApplicationConfiguration.Initialize();
         L.Use(options.Language);
-        if (options.View != "main")
+        if (options.View == "games")
         {
             using var games = new MadSenseApp::MadSense.Games.GamesService(Path.Combine(options.DataDirectory, "games"));
             using var library = new MadSenseApp::MadSense.Games.GamesWindow(games);
@@ -40,11 +42,41 @@ internal static class Program
             xbox: options.State == "xbox",
             signals: signals,
             status: status);
+        if (options.View == "mods") ConfigureModFixture(window, options.DataDirectory);
         if (options.UpdateVersion is { } version)
             window.SetPreviewUpdate(new AppUpdate(version,
                 new Uri($"https://github.com/AlexGarciaMartin/MadSense/releases/download/v{version}/MadSense-{version}-Setup.exe"),
                 new Uri($"https://github.com/AlexGarciaMartin/MadSense/releases/tag/v{version}")));
         Application.Run(window);
+    }
+
+    // Deliberately synthetic fixture. No installed game paths, executables, sockets or web calls.
+    static void ConfigureModFixture(MainWindow window, string directory)
+    {
+        var fixtureRoot = Path.Combine(directory, "mod-fixture");
+        var modsRoot = Path.Combine(fixtureRoot, "mods");
+        Directory.CreateDirectory(modsRoot);
+        var dirt = new LibraryGame("fixture:dirt", "DiRT Rally 2.0", "Steam · PREVIEW", "690790", Path.Combine(fixtureRoot, "DiRT"), null);
+        var beam = new LibraryGame("fixture:beam", "BeamNG.drive", "Steam · PREVIEW", "284160", Path.Combine(fixtureRoot, "BeamNG"), null);
+        var cyberpunk = new LibraryGame("fixture:cyberpunk", "Cyberpunk 2077", "Steam · PREVIEW", "1091500", Path.Combine(fixtureRoot, "Cyberpunk"), null);
+        var native = new LibraryGame("fixture:native", "Native support · PREVIEW", "PREVIEW", null, Path.Combine(fixtureRoot, "Native"), null);
+        var unknown = new LibraryGame("fixture:unknown", "Unknown support · PREVIEW", "PREVIEW", null, Path.Combine(fixtureRoot, "Unknown"), null);
+        var installed = new InstalledMod
+        {
+            Id = "racing-dsx", GameKey = dirt.Key, Version = "V0.6.6", Installed = new DateTimeOffset(2026, 11, 4, 12, 0, 0, TimeSpan.Zero),
+            Root = Path.Combine(modsRoot, "preview-only"), Exe = "nonexistent-preview.exe", GameDir = dirt.InstallDir,
+        };
+        File.WriteAllText(Path.Combine(modsRoot, "installed.json"), JsonSerializer.Serialize(new[] { installed }));
+        var service = new GamesService(fixtureRoot, watchHelpers: false);
+        var wiki = new Dictionary<string, WikiSupport?>
+        {
+            [dirt.Key] = new WikiSupport { Title = dirt.Name, Page = "DiRT Rally 2.0", Fetched = DateTimeOffset.UtcNow,
+                Fields = new() { ["playstation controllers"] = "true", ["dualsense haptics support"] = "false", ["dualsense adaptive trigger support"] = "false" } },
+            [native.Key] = new WikiSupport { Title = native.Name, Page = "PREVIEW", Fetched = DateTimeOffset.UtcNow,
+                Fields = new() { ["dualsense haptics support"] = "true", ["dualsense adaptive trigger support"] = "true", ["light bar support"] = "true", ["playstation speaker"] = "false" } },
+        };
+        window.ShowPreviewGames(service, new[] { dirt, beam, cyberpunk, native, unknown }, wiki,
+            new ModDiagnostics(true, true, false, false, 0, 0));
     }
 
     static Options ParseOptions(string[] args)

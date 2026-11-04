@@ -1,6 +1,6 @@
 # Preparar y publicar el instalador de MadSense
 
-El repositorio es [AlexGarciaMartin/MadSense](https://github.com/AlexGarciaMartin/MadSense), GPL-3.0. La distribución actual es el instalador `MadSense-0.4.9-Setup.exe` de la release `v0.4.9`; `v0.4` conserva el ZIP histórico. **Compilar no publica una release ni modifica la descarga de la web**: esos pasos se realizan por separado.
+El repositorio es [AlexGarciaMartin/MadSense](https://github.com/AlexGarciaMartin/MadSense), GPL-3.0. La distribución actual es el instalador `MadSense-0.5.5-Setup.exe` de la release `v0.5.5`; `v0.4` conserva el ZIP histórico. **Compilar no publica una release ni modifica la descarga de la web**: esos pasos se realizan por separado.
 
 ## Preparar el artefacto
 

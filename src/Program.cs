@@ -99,6 +99,13 @@ sealed class Bridge : IDisposable
     /// <summary>Whether a game mod is talking to MadSense right now (a packet in the last ten seconds).</summary>
     public bool ModActive => mods.Active;
     public bool ModPortBusy => mods.PortBusy;
+    public Games.ModDiagnostics ModDiagnostics => new(Ready, mods.Listening, mods.PortBusy, mods.Active, mods.ValidPackets, mods.Rejected);
+    /// <summary>Explicit retry, serialized by the UI's existing bridge worker.</summary>
+    public void RecheckMods()
+    {
+        if (!mods.Start()) Log(L.Message(mods.PortBusy ? "Bridge.ModPortBusy" : "Bridge.ModListenFailed", mods.Port));
+        RequestRetry();
+    }
     MadSense.Mods.ModPadStatus PadStatusForMods()
     {
         var pad = controller;

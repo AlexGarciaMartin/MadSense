@@ -25,7 +25,7 @@ sealed class ModReceiver : IDisposable
     readonly object gate = new();
     UdpClient? socket;
     Thread? thread;
-    long lastPacket, packets, rejected;
+    long lastPacket, packets, validPackets, rejected;
     string? lastError;
 
     public ModReceiver(ModOverlay overlay, Func<ModPadStatus> status, int port = DefaultPort)
@@ -43,6 +43,7 @@ sealed class ModReceiver : IDisposable
     /// <summary>A mod has sent something in the last ten seconds.</summary>
     public bool Active => Interlocked.Read(ref lastPacket) is var t && t != 0 && Environment.TickCount64 - t < 10000;
     public long Packets => Interlocked.Read(ref packets);
+    public long ValidPackets => Interlocked.Read(ref validPackets);
     public long Rejected => Interlocked.Read(ref rejected);
     /// <summary>Raised once when the first packet of a session arrives and once when activity resumes after a pause.</summary>
     public event Action? Connected;
@@ -55,7 +56,7 @@ sealed class ModReceiver : IDisposable
         lock (gate)
         {
             if (socket != null) return true;
-            UdpClient client;
+            UdpClient? client = null;
             try
             {
                 client = new UdpClient(AddressFamily.InterNetwork);
@@ -64,6 +65,7 @@ sealed class ModReceiver : IDisposable
             }
             catch (SocketException e)
             {
+                client?.Dispose();
                 PortBusy = e.SocketErrorCode is SocketError.AddressAlreadyInUse or SocketError.AccessDenied;
                 lastError = e.Message;
                 return false;
@@ -120,21 +122,33 @@ sealed class ModReceiver : IDisposable
             catch (Exception e) when (e is SocketException or ObjectDisposedException) { return; }
             // Only this machine: a datagram from elsewhere is dropped without a reply.
             if (!IPAddress.IsLoopback(from.Address)) continue;
-            var previous = Interlocked.Exchange(ref lastPacket, Environment.TickCount64);
-            if (previous == 0 || Environment.TickCount64 - previous >= 10000) { try { Connected?.Invoke(); } catch { } }
-            Interlocked.Increment(ref packets);
-            try { Handle(data); }
-            catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException or IndexOutOfRangeException or ArgumentException)
-            {
-                Interlocked.Increment(ref rejected);
-                try { Warning?.Invoke(e.Message); } catch { }
-            }
+            Accept(data);
             try
             {
                 var reply = Reply();
                 client.Send(reply, reply.Length, from);
             }
             catch (Exception e) when (e is SocketException or ObjectDisposedException) { }
+        }
+    }
+
+    /// <summary>Counts activity only after a supported, complete instruction was accepted.</summary>
+    internal bool Accept(byte[] data)
+    {
+        Interlocked.Increment(ref packets);
+        try
+        {
+            if (!Handle(data)) return false;
+            Interlocked.Increment(ref validPackets);
+            var previous = Interlocked.Exchange(ref lastPacket, Environment.TickCount64);
+            if (previous == 0 || Environment.TickCount64 - previous >= 10000) { try { Connected?.Invoke(); } catch { } }
+            return true;
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException or IndexOutOfRangeException or ArgumentException)
+        {
+            Interlocked.Increment(ref rejected);
+            try { Warning?.Invoke(e.Message); } catch { }
+            return false;
         }
     }
 
@@ -169,19 +183,31 @@ sealed class ModReceiver : IDisposable
     }
 
     /// <summary>Applies one packet; throws on malformed input so the caller counts and reports it.</summary>
-    internal void Handle(byte[] data)
+    internal bool Handle(byte[] data)
     {
         if (data.Length > MaximumPacketBytes) throw new FormatException("packet too large");
         using var document = JsonDocument.Parse(data);
         if (document.RootElement.ValueKind != JsonValueKind.Object || !TryProperty(document.RootElement, "instructions", out var list) || list.ValueKind != JsonValueKind.Array)
             throw new FormatException("no instructions array");
+        bool accepted = false;
         foreach (var instruction in list.EnumerateArray())
         {
             if (instruction.ValueKind != JsonValueKind.Object || !TryProperty(instruction, "type", out var typeValue)) continue;
             var parameters = TryProperty(instruction, "parameters", out var raw) && raw.ValueKind == JsonValueKind.Array
                 ? raw.EnumerateArray().Select(Int).ToArray() : [];
-            Apply(Enum(typeValue, out int typeNumber), typeNumber, parameters);
+            var type = Enum(typeValue, out int typeNumber);
+            Apply(type, typeNumber, parameters);
+            accepted |= type switch
+            {
+                DsxProtocol.Instruction.TriggerUpdate => parameters.Length >= 3 && parameters[1] is 1 or 2,
+                DsxProtocol.Instruction.RgbUpdate => parameters.Length >= 4,
+                DsxProtocol.Instruction.PlayerLed => parameters.Length >= 6,
+                DsxProtocol.Instruction.PlayerLedNewRevision or DsxProtocol.Instruction.MicLed => parameters.Length >= 2,
+                DsxProtocol.Instruction.ResetToUserSettings or DsxProtocol.Instruction.TriggerThreshold => true,
+                _ => DsxProtocol.IsStatusQuery(typeNumber),
+            };
         }
+        return accepted;
     }
 
     void Apply(DsxProtocol.Instruction type, int typeNumber, int[] p)
@@ -240,8 +266,8 @@ sealed class ModReceiver : IDisposable
     static DsxProtocol.Instruction Enum(JsonElement value, out int number)
     {
         if (value.ValueKind == JsonValueKind.String && System.Enum.TryParse<DsxProtocol.Instruction>(value.GetString(), true, out var named)) { number = (int)named; return named; }
-        number = Int(value);
-        return (DsxProtocol.Instruction)number;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out number)) return (DsxProtocol.Instruction)number;
+        throw new FormatException("invalid instruction type");
     }
 
     static int Int(JsonElement value) => value.ValueKind switch

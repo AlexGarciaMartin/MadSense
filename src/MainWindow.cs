@@ -30,7 +30,10 @@ sealed class MainWindow : Form
     readonly ToolStripMenuItem openItem = new(), pauseItem = new(), speakerMenu = new(), languageMenu = new(), quitItem = new();
     readonly ToolStripMenuItem checkUpdatesItem = new(), downloadUpdateItem = new();
     readonly ToolStripMenuItem gamesItem = new(), logsItem = new();
-    readonly RoundedButton gamesButton = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 10, 0) };
+    readonly Panel viewHost = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
+    readonly Panel controllerPage = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
+    Games.ModDiagnostics modDiagnostics = global::MadSense.Games.ModDiagnostics.Unavailable;
+    bool showingGames;
     Games.GamesWindow? gamesWindow;
     readonly Dictionary<string, ToolStripMenuItem> languageItems = new();
     readonly HeaderPanel header = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
@@ -71,6 +74,17 @@ sealed class MainWindow : Form
         base.OnHandleCreated(e);
         int enabled = 1;
         DwmSetWindowAttribute(Handle, 20, ref enabled, sizeof(int));
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        // The initial logical size is generous, but must fit the actual desktop after DPI scaling.
+        // Windows can move a large form onto a small display without shrinking its bottom edge.
+        var area = Screen.FromControl(this).WorkingArea;
+        MinimumSize = new Size(Math.Min(MinimumSize.Width, area.Width), Math.Min(MinimumSize.Height, area.Height));
+        Size = new Size(Math.Min(Width, area.Width), Math.Min(Height, area.Height));
+        Location = new Point(Math.Clamp(Left, area.Left, area.Right - Width), Math.Clamp(Top, area.Top, area.Bottom - Height));
+        base.OnShown(e);
     }
 
     /// <summary>Started with --tray (autostart): the window stays hidden until the tray icon opens it.</summary>
@@ -114,7 +128,7 @@ sealed class MainWindow : Form
         AutoScaleDimensions = new SizeF(96, 96);
         Text = "MadSense";
         ClientSize = new Size(900, 730);
-        MinimumSize = new Size(800, 730);
+        MinimumSize = new Size(800, 700);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Paper; ForeColor = Ink;
         Font = new Font("Segoe UI", 10);
@@ -144,17 +158,18 @@ sealed class MainWindow : Form
         for (int i = 0; i < 3; i++) speaker.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 3));
         AddSpeaker("Alto", 0); AddSpeaker("Bajo", 1); AddSpeaker("Off", 2);
         layout.Controls.Add(speaker, 0, 5);
-        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(0, 6, 0, 0) };
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
         activity.Font = new Font(Font.FontFamily, 8);
         footer.Controls.Add(activity, 0, 0);
-        gamesButton.Click += (_, _) => OpenGames();
-        footer.Controls.Add(gamesButton, 1, 0);
         pause.Dock = DockStyle.Fill; pause.Margin = Padding.Empty;
         pause.Click += (_, _) => TogglePause();
-        footer.Controls.Add(pause, 2, 0);
+        footer.Controls.Add(pause, 1, 0);
         layout.Controls.Add(footer, 0, 6);
-        Controls.Add(layout);
+        controllerPage.Controls.Add(layout);
+        viewHost.Controls.Add(controllerPage);
+        Controls.Add(viewHost);
+        header.Navigation.Click += (_, _) => OpenGames();
         header.DownloadRequested += (_, _) => OpenUpdateDownload();
         // Only a helper already installed justifies the games service before the screen opens: one small file read decides.
         if (!previewOnly && MadSense.Games.GamesService.HelpersInstalled()) _ = Games;
@@ -202,7 +217,7 @@ sealed class MainWindow : Form
             if (stopSignal?.WaitOne(0) == true || installerStopSignal?.WaitOne(0) == true) { await QuitAsync(); return; }
             if (showSignal?.WaitOne(0) == true) RestoreWindow();
             // No drawing or high-frequency timer wakeups when the window is hidden.
-            if (Visible && WindowState != FormWindowState.Minimized) { phase += .2f; hero.Phase = phase; hero.Invalidate(); }
+            if (!showingGames && Visible && WindowState != FormWindowState.Minimized) { phase += .2f; hero.Phase = phase; hero.Invalidate(); }
         };
         VisibleChanged += (_, _) => AdjustAnimation();
         Resize += (_, _) => { if (WindowState == FormWindowState.Minimized && !previewOnly) Hide(); AdjustAnimation(); FitLabels(); };
@@ -253,14 +268,56 @@ sealed class MainWindow : Form
     /// Created with the window so installed mod helpers follow their games even while the games
     /// screen is closed; the preview harness keeps it isolated under its own data folder.
     /// </summary>
-    Games.GamesService Games => games ??= new Games.GamesService(previewOnly ? Path.Combine(Directory.GetCurrentDirectory(), "games") : null);
+    Games.GamesService Games => games ??= new Games.GamesService(previewOnly ? Path.Combine(Directory.GetCurrentDirectory(), "games") : null, watchHelpers: !previewOnly);
     Games.GamesService? games;
 
     void OpenGames()
     {
-        if (gamesWindow is { IsDisposed: false }) { gamesWindow.Show(); gamesWindow.Activate(); return; }
-        gamesWindow = new Games.GamesWindow(Games);
-        gamesWindow.Show(this);
+        if (gamesWindow is null || gamesWindow.IsDisposed)
+        {
+            gamesWindow = new Games.GamesWindow(Games, previewOnly)
+            {
+                TopLevel = false, FormBorderStyle = FormBorderStyle.None,
+                Dock = DockStyle.Fill, MinimumSize = Size.Empty, Padding = Padding.Empty,
+            };
+            gamesWindow.RecheckRequested += () => Send(b => b.RecheckMods());
+            gamesWindow.ReturnRequested += ShowController;
+            viewHost.Controls.Add(gamesWindow);
+        }
+        showingGames = true;
+        controllerPage.Hide();
+        gamesWindow.SetDiagnostics(modDiagnostics);
+        gamesWindow.Show(); gamesWindow.BringToFront();
+        RefreshConnectionSummary();
+        AdjustAnimation();
+        if (!Visible) RestoreWindow();
+    }
+
+    void ShowController()
+    {
+        showingGames = false;
+        gamesWindow?.Hide();
+        controllerPage.Show(); controllerPage.BringToFront();
+        header.Navigation.Focus();
+        AdjustAnimation();
+    }
+
+    internal void ShowPreviewGames(Games.GamesService service, IReadOnlyList<Games.LibraryGame> library,
+        IReadOnlyDictionary<string, Games.WikiSupport?> wiki, Games.ModDiagnostics diagnostics)
+    {
+        if (!previewOnly) throw new InvalidOperationException("Preview data requires previewOnly.");
+        if (gamesWindow is not null) throw new InvalidOperationException("Preview library must be supplied before opening Games.");
+        games = service; modDiagnostics = diagnostics;
+        OpenGames();
+        gamesWindow!.SetPreviewLibrary(library, wiki);
+    }
+
+    void RefreshConnectionSummary()
+    {
+        var summary = L.Text(paused ? "Games.ConnectionPaused" : hero.Connected ? "Games.ConnectionReady" : "Games.ConnectionWaiting");
+        if (hero.Connected && hero.Signals is { Battery: >= 0 } signal)
+            summary += " · " + signal.Battery.ToString(L.Culture) + " %";
+        gamesWindow?.SetConnectionSummary(summary);
     }
 
     void LanguageChanged()
@@ -276,7 +333,10 @@ sealed class MainWindow : Form
         var culture = CultureInfo.GetCultureInfo(L.CurrentLanguage);
         section.Text = L.Text("Ui.ModeSection"); speakerSection.Text = L.Text("Ui.SpeakerSection");
         logsItem.Text = L.Text("Ui.Logs"); logsItem.ToolTipText = L.Text("Ui.LogsDescription");
-        gamesButton.Text = gamesItem.Text = L.Text("Games.Title");
+        gamesItem.Text = L.Text("Games.Title");
+        header.Navigation.Text = L.Text("Games.Title").ToUpper(culture) + "  →";
+        header.Navigation.AccessibleName = L.Text("Games.Title");
+        RefreshConnectionSummary();
         pause.Text = L.Text(paused ? "Ui.Resume" : "Ui.Pause");
         modeButtons["Auto"].Text = L.Text("Ui.NativeMode"); modeButtons["Xbox"].Text = L.Text("Ui.XboxMode");
         modeButtons["Auto"].AccessibleDescription = L.Text("Ui.NativeDescription");
@@ -462,18 +522,21 @@ sealed class MainWindow : Form
         if (!previewOnly) throw new InvalidOperationException("Preview state requires previewOnly.");
         this.paused = paused; hero.Connected = connected; hero.Paused = paused; hero.Xbox = xbox;
         hero.Signals = signals; hero.Status = status ?? L.Message("Ui.WaitingInstructions");
+        modDiagnostics = global::MadSense.Games.ModDiagnostics.Unavailable with { ControllerConnected = connected };
+        gamesWindow?.SetDiagnostics(modDiagnostics);
         foreach (var pair in modeButtons) pair.Value.Selected = xbox ? pair.Key == "Xbox" : pair.Key == "Auto";
         foreach (var pair in speakerButtons) pair.Value.Enabled = !xbox;
         foreach (var pair in speakerItems) pair.Value.Enabled = !xbox;
         ApplyLanguage();
     }
 
-    void AdjustAnimation() => animation.Interval = Visible && WindowState != FormWindowState.Minimized ? 250 : 1000;
+    void AdjustAnimation() => animation.Interval = !showingGames && Visible && WindowState != FormWindowState.Minimized ? 250 : 1000;
     void RestoreWindow() { if (quitting) return; allowVisible = true; Show(); WindowState = FormWindowState.Normal; Activate(); }
     void TogglePause()
     {
         if (quitting) return;
         paused = !paused; pause.Text = L.Text(paused ? "Ui.Resume" : "Ui.Pause");
+        RefreshConnectionSummary();
         if (previewOnly) { hero.Paused = paused; RefreshStatusText(); hero.Invalidate(); return; }
         var shouldPause = paused;
         Send(b => { if (shouldPause) { b.Stop(); b.Log(L.Message("Ui.PausedMessage")); } else b.Start(); });
@@ -498,7 +561,14 @@ sealed class MainWindow : Form
         try { await RunBridge().ConfigureAwait(false); }
         catch (Exception e)
         {
-            Post(() => { ShowActivity(L.Message("Ui.BridgeStartError", UiMessage.FromException(e))); hero.Status = L.Message("Ui.BridgeStartFailed"); hero.Connected = false; hero.Invalidate(); });
+            Post(() =>
+            {
+                ShowActivity(L.Message("Ui.BridgeStartError", UiMessage.FromException(e)));
+                hero.Status = L.Message("Ui.BridgeStartFailed"); hero.Connected = false; hero.Invalidate();
+                modDiagnostics = global::MadSense.Games.ModDiagnostics.Unavailable;
+                gamesWindow?.SetDiagnostics(modDiagnostics);
+                RefreshConnectionSummary();
+            });
             try { File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "ui-error.log"), $"{DateTimeOffset.Now:O} {e}\n"); } catch { }
         }
     }
@@ -522,6 +592,7 @@ sealed class MainWindow : Form
                 var speakerLevel = bridge.Speaker;
                 var message = Volatile.Read(ref lastMessage);
                 var signals = bridge.Signals;
+                var diagnostics = bridge.ModDiagnostics;
                 var notifyLowBattery = CheckLowBattery(signals);
                 Post(() =>
                 {
@@ -530,7 +601,10 @@ sealed class MainWindow : Form
                     hero.Status = status;
                     hero.Signals = running ? signals : null;
                     hero.Xbox = mode == "Xbox";
-                    hero.Invalidate();
+                    if (!showingGames) hero.Invalidate();
+                    modDiagnostics = diagnostics;
+                    RefreshConnectionSummary();
+                    if (showingGames) gamesWindow?.SetDiagnostics(diagnostics);
                     foreach (var pair in modeButtons) { pair.Value.Selected = pair.Key == mode || pair.Key == "Auto" && mode == "Native"; pair.Value.Invalidate(); }
                     // The speaker only exists for the DualSense persona; an Xbox pad has none.
                     foreach (var pair in speakerButtons) { pair.Value.Selected = pair.Key == speakerLevel; pair.Value.Enabled = mode != "Xbox"; pair.Value.Invalidate(); }
@@ -615,7 +689,7 @@ sealed class MainWindow : Form
         for (float size = largest; size >= smallest; size -= .5f)
         {
             using var font = new Font(family, size, style, GraphicsUnit.Pixel);
-            var measured = graphics.MeasureString(text, font, wrap ? new SizeF(bounds.Width, 1000) : new SizeF(10000, bounds.Height), format);
+            var measured = graphics.MeasureString(text, font, wrap ? new SizeF(bounds.Width, 1000) : new SizeF(10000, 10000), format);
             if ((measured.Width <= bounds.Width + .5f && measured.Height <= bounds.Height + .5f) || size <= smallest)
             { graphics.DrawString(text, font, brush, bounds, format); return; }
         }
@@ -624,7 +698,8 @@ sealed class MainWindow : Form
     // All artwork is native vector drawing: no textures, browser or animation framework.
     sealed class HeaderPanel : Panel
     {
-        readonly UpdateBadgeButton download = new() { Visible = false, TabIndex = 0 };
+        public readonly HeaderNavigationButton Navigation = new() { TabIndex = 0 };
+        readonly UpdateBadgeButton download = new() { Visible = false, TabIndex = 1 };
         readonly ToolTip tip = new();
         AppUpdate? update;
         public event EventHandler? DownloadRequested;
@@ -633,6 +708,7 @@ sealed class MainWindow : Form
             DoubleBuffered = true;
             // Right-aligned artwork moves on resize; invalidate its old position too.
             SetStyle(ControlStyles.ResizeRedraw, true);
+            Controls.Add(Navigation);
             Controls.Add(download);
             download.Click += (_, e) => DownloadRequested?.Invoke(this, e);
         }
@@ -649,6 +725,8 @@ sealed class MainWindow : Form
         void PositionBadge()
         {
             float s = DeviceDpi / 96f;
+            Navigation.SetBounds(Width - (int)Math.Round(146 * s), (int)Math.Round(12 * s),
+                (int)Math.Round(146 * s), (int)Math.Round(30 * s));
             download.Visible = update is not null && Width / s > 650;
             download.SetBounds(Width - (int)Math.Round(136 * s), (int)Math.Round(42 * s),
                 (int)Math.Round(126 * s), (int)Math.Round(25 * s));
@@ -680,7 +758,7 @@ sealed class MainWindow : Form
                 float x = w - 146;
                 g.FillRectangle(ink, x, 12, 146, 63);
                 using var paper = new SolidBrush(Paper);
-                g.DrawString("BLUETOOTH / PC", small, paper, x + 11, 20);
+
                 if (update is null)
                 {
                     using var acid = new SolidBrush(Acid); g.FillRectangle(acid, x + 10, 42, 126, 25);
@@ -689,6 +767,33 @@ sealed class MainWindow : Form
                 for (int i = 0; i < 12; i++)
                     g.FillRectangle(ink, w - 145 + i * 12, 84, i % 3 == 0 ? 6 : 2, 6);
             }
+        }
+    }
+
+    // A navigation label printed into the existing header plate, with native focus and input.
+    internal sealed class HeaderNavigationButton : Button
+    {
+        bool hovered;
+        public HeaderNavigationButton()
+        {
+            FlatStyle = FlatStyle.Flat; FlatAppearance.BorderSize = 0; Cursor = Cursors.Hand;
+            BackColor = Ink; ForeColor = Paper; Margin = Padding.Empty;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw, true);
+        }
+        protected override void OnMouseEnter(EventArgs e) { hovered = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hovered = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; float s = DeviceDpi / 96f;
+            g.Clear(Ink);
+            var save = g.Save(); g.ScaleTransform(s, s);
+            using var text = new SolidBrush(hovered ? Acid : Paper);
+            DrawFitted(g, Text, "Consolas", 13, 9, FontStyle.Bold, text,
+                new RectangleF(11, 6, Width / s - 22, Height / s - 10));
+            g.Restore(save);
+            if (Focused && ShowFocusCues)
+                ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(ClientRectangle, -(int)(3 * s), -(int)(3 * s)), ForeColor, BackColor);
         }
     }
 
@@ -755,22 +860,32 @@ sealed class MainWindow : Form
                 float y = 45 + i * 22;
                 g.DrawLine(streak, w * .65f + i * 5, y, w * .9f + i * 5, y - 15);
             }
-            float cw = Math.Clamp(w * .34f, 220, 290);
+            float cw = Math.Min(Math.Clamp(w * .34f, 220, 290), Math.Max(90, baseY * 1.4f));
             var tilted = g.Save(); g.TranslateTransform(w * .76f, baseY * .51f); g.RotateTransform(-11);
             DrawController(g, new RectangleF(-cw / 2, -cw * .3f, cw, cw * .6f), Connected);
             g.Restore(tilted);
             // Sharp speech-label, distinct state text even without color perception.
             using var tiny = new Font("Consolas", 10.5f, FontStyle.Bold, GraphicsUnit.Pixel);
             float headlineWidth = w * .51f - 34;
-            DrawFitted(g, L.Text(Xbox ? "Ui.HeroXbox" : "Ui.HeroDualSense"), "Consolas", 10.5f, 9, FontStyle.Bold, paper, new RectangleF(23, 20, headlineWidth, 20));
+            // Reserve the badge first, then fit both headlines into the available height.
+            // Cap the line advance at the 0.5.0 spacing: extra window height belongs below the title,
+            // never between its two lines. Small windows can still shrink the pair together.
+            float inset = baseY < 210 ? 10 : 20;
+            float labelY = Math.Max(inset + 52, baseY - 39);
+            float titleY = inset + 25;
+            float textHeight = Math.Max(34, labelY - titleY - 7);
+            float lineAdvance = Math.Min(67, textHeight * .6f);
+            float firstHeight = Math.Min(68, lineAdvance + 1);
+            float secondHeight = Math.Min(45, textHeight - lineAdvance);
+            DrawFitted(g, L.Text(Xbox ? "Ui.HeroXbox" : "Ui.HeroDualSense"), "Consolas", 10.5f, 8, FontStyle.Bold, paper, new RectangleF(23, inset, headlineWidth, 18));
             string top = L.Text(Paused ? "Ui.HeroPaused" : Connected ? "Ui.HeroReady" : "Ui.HeroPressPs");
             string bottom = L.Text(Paused ? "Ui.HeroReleased" : Connected ? "Ui.HeroPlay" : "Ui.HeroOnController");
-            DrawFitted(g, top, "Impact", 55, 28, FontStyle.Regular, paper, new RectangleF(20, 45, headlineWidth, 68));
-            DrawFitted(g, bottom, "Impact", 35, 22, FontStyle.Regular, paper, new RectangleF(23, 112, headlineWidth, 45));
-            float labelY = Math.Max(164, baseY - 45);
+            DrawFitted(g, top, "Impact", 55 * lineAdvance / 67, 16, FontStyle.Regular, paper, new RectangleF(20, titleY, headlineWidth, firstHeight + 16));
+            DrawFitted(g, bottom, "Impact", 35 * lineAdvance / 67, 12, FontStyle.Regular, paper, new RectangleF(23, titleY + lineAdvance, headlineWidth, secondHeight + 10));
             string state = L.Text(Paused ? "Ui.BadgePaused" : Connected ? "Ui.BadgeReady" : "Ui.BadgeWaiting");
             float badgeWidth = Math.Min(headlineWidth - 12, Math.Max(212, g.MeasureString(state, tiny).Width + 40));
-            var badge = new RectangleF(25, labelY, badgeWidth, 28);
+            // Restore the 0.5.0 badge gap without changing the fitted headline sizes.
+            var badge = new RectangleF(25, labelY - 6, badgeWidth, 28);
             g.FillPolygon(Connected ? acid : paper, new PointF[] { new(badge.X, badge.Y), new(badge.Right + 6, badge.Y - 3), new(badge.Right, badge.Bottom), new(badge.X - 3, badge.Bottom + 2) });
             DrawFitted(g, state, "Consolas", 10.5f, 9, FontStyle.Bold, ink, new RectangleF(badge.X + 12, badge.Y + 7, badge.Width - 38, 18));
             if (!Paused && (int)(Phase * 2) % 2 == 0)
@@ -864,7 +979,14 @@ sealed class MainWindow : Form
     // Kept as native Button controls for keyboard focus, UI Automation and accessibility.
     internal sealed class RoundedButton : Button
     {
-        public bool Selected, Accent;
+        bool selected;
+        [System.ComponentModel.DefaultValue(false)]
+        public bool Selected
+        {
+            get => selected;
+            set { if (selected == value) return; selected = value; Invalidate(); }
+        }
+        public bool Accent;
         bool hovered;
         public RoundedButton()
         {

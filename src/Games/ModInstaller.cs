@@ -29,7 +29,7 @@ sealed record InstallProgress(string Stage, long Done, long Total);
 /// (no path may leave the destination), and record every file written. Helpers live under
 /// MadSense's own mods folder; game-folder mods go next to the game and never overwrite a file the
 /// game already has; BeamNG mods are dropped unextracted into the player's mods folder. Removal
-/// deletes only recorded files whose content is still what MadSense wrote.
+/// deletes only recorded files, preserving untracked files and other installed games' files.
 /// </summary>
 sealed class ModInstaller
 {
@@ -95,7 +95,9 @@ sealed class ModInstaller
         try
         {
             var sha256 = await DownloadAsync(mod.Package, temp, progress, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             progress?.Report(new InstallProgress("install", 0, 1));
+            cancellationToken.ThrowIfCancellationRequested();
             var record = mod.Kind switch
             {
                 ModKind.Helper => InstallHelper(mod, game, temp, sha256),
@@ -129,34 +131,40 @@ sealed class ModInstaller
         }
     }
 
-    /// <summary>Removes what MadSense wrote for this mod and game. Files changed since are left alone.</summary>
+    /// <summary>Removes recorded files, preserving legacy shared installations and untracked files.
+    /// A failed deletion keeps the record so the user can retry after closing the helper/game.</summary>
     public void Uninstall(string modId, string gameKey)
     {
-        InstalledMod? record;
-        lock (gate) record = installed.FirstOrDefault(m => m.Id == modId && m.GameKey == gameKey);
-        if (record is null) return;
-        foreach (var file in record.Files.OrderByDescending(f => f.Length))
+        lock (gate)
         {
-            var path = Path.Combine(record.Root, file);
-            if (!IsInside(path, record.Root)) continue;
-            try
+            var record = installed.FirstOrDefault(m => m.Id == modId && m.GameKey == gameKey);
+            if (record is null) return;
+            var remaining = installed.Where(m => !ReferenceEquals(m, record)).ToList();
+            var sharedFiles = remaining.SelectMany(m => m.Files.Select(file => Path.GetFullPath(Path.Combine(m.Root, file))))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var file in record.Files.OrderByDescending(f => f.Length))
             {
-                if (File.Exists(path)) File.Delete(path);
+                var path = Path.GetFullPath(Path.Combine(record.Root, file));
+                if (!IsInside(path, record.Root)) throw new InvalidOperationException(L.Text("Games.UnsafePackage"));
+                if (sharedFiles.Contains(path)) continue;
+                // Do not swallow locked-file/permission failures: the registration remains for retry.
+                try { File.Delete(path); } // Missing files are harmless; access failures must propagate.
+                catch (DirectoryNotFoundException) { } // A previous partial removal may have removed its parent.
                 var directory = Path.GetDirectoryName(path);
-                while (directory is not null && IsInside(directory, record.Root) && !string.Equals(Path.GetFullPath(directory), Path.GetFullPath(record.Root), StringComparison.OrdinalIgnoreCase)
-                       && Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+                while (directory is not null && IsInside(directory, record.Root) && Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
                 {
                     Directory.Delete(directory);
                     directory = Path.GetDirectoryName(directory);
                 }
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            // Only remove an empty helper directory. Never recurse through user-created settings,
+            // game folders, or a legacy root still referenced by another game's installation.
+            if (IsInside(record.Root, modsRoot) && !remaining.Any(m => string.Equals(Path.GetFullPath(m.Root), Path.GetFullPath(record.Root), StringComparison.OrdinalIgnoreCase))
+                && Directory.Exists(record.Root) && !Directory.EnumerateFileSystemEntries(record.Root).Any())
+                Directory.Delete(record.Root);
+            Save(remaining);
+            installed = remaining;
         }
-        if (record.Root.StartsWith(modsRoot, StringComparison.OrdinalIgnoreCase))
-        {
-            try { if (Directory.Exists(record.Root)) Directory.Delete(record.Root, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
-        }
-        lock (gate) { installed.Remove(record); Save(); }
         Changed?.Invoke();
     }
 
@@ -189,8 +197,8 @@ sealed class ModInstaller
 
     InstalledMod InstallHelper(ModEntry mod, LibraryGame game, string package, string sha256)
     {
-        var root = Path.Combine(modsRoot, mod.Id);
-        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var gameFolder = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(game.Key))).ToLowerInvariant()[..32];
+        var root = Path.Combine(modsRoot, mod.Id, gameFolder);
         Directory.CreateDirectory(root);
         var files = mod.Package!.Type == "zip" ? Extract(package, root, overwrite: true) : [CopyFile(package, root, mod.Run?.Exe ?? Path.GetFileName(mod.Package.Url))];
         var exe = files.FirstOrDefault(f => string.Equals(Path.GetFileName(f), mod.Run?.Exe, StringComparison.OrdinalIgnoreCase))
@@ -279,10 +287,10 @@ sealed class ModInstaller
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { installed = []; }
     }
 
-    void Save()
+    void Save(List<InstalledMod>? records = null)
     {
         Directory.CreateDirectory(modsRoot);
-        File.WriteAllText(registryPath + ".tmp", JsonSerializer.Serialize(installed, Json));
+        File.WriteAllText(registryPath + ".tmp", JsonSerializer.Serialize(records ?? installed, Json));
         File.Move(registryPath + ".tmp", registryPath, true);
     }
 }

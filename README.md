@@ -1,23 +1,26 @@
-# MadSense 0.4.9
+# MadSense 0.5.5
 
 Abre MadSense, enciende tu DualSense y abre el juego. La app espera al mando, conecta por Bluetooth y recupera la conexión automáticamente. Debe estar emparejado previamente en Windows. Esta versión controla un mando y es 100 % Bluetooth: por cable el juego usa el DualSense en nativo sin necesitar MadSense.
 
-**[Descargar el instalador de Windows](https://github.com/AlexGarciaMartin/MadSense/releases/download/v0.4.9/MadSense-0.4.9-Setup.exe)** · [Notas y SHA-256](https://github.com/AlexGarciaMartin/MadSense/releases/tag/v0.4.9)
+**[Descargar el instalador de Windows](https://github.com/AlexGarciaMartin/MadSense/releases/download/v0.5.5/MadSense-0.5.5-Setup.exe)** · [Notas y SHA-256](https://github.com/AlexGarciaMartin/MadSense/releases/tag/v0.5.5)
 
 **App e instalador en seis idiomas:** English · Español · Français · Deutsch · Italiano · Português Brasileiro. El instalador detecta el idioma de Windows y permite elegir otro. La app también permite cambiarlo desde el menú de la bandeja.
 
-## En pruebas: 0.5, juegos y mods
+## Novedades de 0.5.5: juegos y mods
 
-Rama `feature/games-and-mods`; detalle en `docs/games-and-mods-plan.md`.
+Biblioteca y mods integrados en la app. Detalle técnico en `docs/games-and-mods-plan.md`.
 
-- **JUEGOS**, una pantalla nueva desde el pie de la ventana y la bandeja: todos los juegos instalados (Steam, Epic, GOG, Ubisoft Connect, Xbox, los que dejan rastro en Windows y los que viven sueltos: en una carpeta `Games` o `Juegos` de un disco, al lado de lo que ya instaló un launcher, o en la carpeta que tú añadas con un botón) con lo que cada uno hace con el DualSense por sí mismo, según PCGamingWiki, y el mod comunitario que existe cuando no es nativo. Si MadSense puede instalarlo, un botón: descarga el release del autor desde GitHub, lo verifica (tamaño y SHA-256) y lo deja listo; los helpers se arrancan solos con el juego y se cierran al salir. Los mods tras un inicio de sesión (Nexus) o con cargador externo se muestran con su página y sus pasos.
+- **JUEGOS**, una pantalla nueva integrada en la misma ventana, desde la cabecera y la bandeja: todos los juegos instalados (Steam, Epic, GOG, Ubisoft Connect, Xbox, los que dejan rastro en Windows y los que viven sueltos: en una carpeta `Games` o `Juegos` de un disco, al lado de lo que ya instaló un launcher, o en la carpeta que tú añadas con un botón) con lo que cada uno hace con el DualSense por sí mismo, según PCGamingWiki, y el mod comunitario que existe cuando no es nativo. Si MadSense puede instalarlo, un botón: descarga el release del autor desde GitHub, lo verifica (tamaño y SHA-256) y lo deja listo; los helpers se arrancan solos con el juego y se cierran al salir. Los mods tras un inicio de sesión (Nexus) o con cargador externo se muestran con su página y sus pasos.
 - **Mods DSX sin DSX.** MadSense escucha el protocolo UDP que los mods de la comunidad usan con DSX (puerto 6969) y aplica sus gatillos, barra de luz y LED al mando, con prioridad sobre el juego, en modo DualSense y en modo Xbox. La lámpara MOD se enciende mientras un mod envía efectos.
+
+- **Una interfaz más coherente:** navegación Mando/Juegos en la misma ventana, filtros con selección única, títulos de lista en seminegrita y más aire entre controles.
+- **Preparación de mods:** selector cuando hay varias opciones, preferencias por juego, comprobación del receptor y auxiliares aislados por instalación.
 
 ## Novedades de 0.4.9
 
 **Actualiza desde MadSense.** Al detectar una nueva versión, pulsa **Actualizar**: la app descarga el paquete en su caché, verifica su firma e integridad, libera el mando, se cierra, instala y vuelve a abrirse conservando tus ajustes. No abre el navegador ni deja instaladores en Descargas. Confirma fuera de una partida; no se instala sin tu permiso.
 
-La versión 0.4.7 y anteriores necesitan instalar esta versión una vez para incorporar el nuevo actualizador. Si vienes de las pruebas 0.4.8.x, sal de la app e instala la 0.4.9 encima, sin desinstalar ni borrar preferencias o controladores. La versión estable deja de consultar el canal preview.
+La versión 0.4.7 y anteriores necesitan instalar esta versión una vez para incorporar el nuevo actualizador. Si vienes de las pruebas 0.4.8.x, sal de la app e instala la 0.5.5 encima, sin desinstalar ni borrar preferencias o controladores. La versión estable deja de consultar el canal preview.
 
 ## Novedades de 0.4.7
 
