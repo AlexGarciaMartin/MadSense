@@ -60,7 +60,7 @@ def attribute_slot_gaps(events, traces, sequences):
                    for sequence, stages in traces.items() if 2 in stages)
     times = [ticks for ticks, _ in slots]
     labels = Counter({label: 0 for label in GAP_LABELS})
-    details = {}
+    details = []  # JSON-stable: the guest's saved result must equal an independent re-analysis.
     for sequence in sequences:
         start = min(row["ticks"] for row in traces[sequence][2])
         index = bisect_right(times, start)
@@ -81,11 +81,11 @@ def attribute_slot_gaps(events, traces, sequences):
         else:
             label = GAP_LABELS[4]
         labels[label] += 1
-        details[sequence] = dict(label=label, windowNs=None if end is None else end - start,
-                                 replacedBySequence=replacement,
-                                 events={name: counts[value] for name, value in EVENTS.items()},
-                                 workersQueued=sum(1 for row in window if row["kind"] == 6 and row["extra"] == 1),
-                                 gateEntries=gate)
+        details.append(dict(sequence=sequence, label=label, windowNs=None if end is None else end - start,
+                            replacedBySequence=replacement,
+                            events={name: counts[value] for name, value in EVENTS.items()},
+                            workersQueued=sum(1 for row in window if row["kind"] == 6 and row["extra"] == 1),
+                            gateEntries=gate))
     return dict(labels=dict(labels), sequences=details)
 
 

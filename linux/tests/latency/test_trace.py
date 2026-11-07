@@ -1,6 +1,7 @@
 import copy
 import csv
 import io
+import json
 import unittest
 
 from analyze import FIELDS as SAMPLE_FIELDS
@@ -148,7 +149,9 @@ class EventAttributionTests(AttributionTests):
         result = self.run_events()
         attribution = result["slotToInterruptAttribution"]
         self.assertEqual(attribution["labels"]["gate-entry-without-pending-urb"], 1)
-        detail = attribution["sequences"][2]
+        [detail] = attribution["sequences"]
+        self.assertEqual(detail["sequence"], 2)
+        self.assertEqual(json.loads(json.dumps(attribution)), attribution)
         self.assertEqual(detail["replacedBySequence"], 3)
         self.assertEqual(detail["windowNs"], self.slot3 - self.slot2)
         self.assertEqual(detail["workersQueued"], 1)
@@ -162,7 +165,7 @@ class EventAttributionTests(AttributionTests):
         self.add(8, self.slot3 + 50, generation=4, extra=2, origin=1)
         result = self.run_events()
         self.assertEqual(result["slotToInterruptAttribution"]["labels"]["slot-replaced-before-gate-entry"], 1)
-        self.assertEqual(result["slotToInterruptAttribution"]["sequences"][2]["workersQueued"], 0)
+        self.assertEqual(result["slotToInterruptAttribution"]["sequences"][0]["workersQueued"], 0)
 
     def test_event_evidence_and_recording_must_match(self):
         with self.assertRaises(ValueError):
