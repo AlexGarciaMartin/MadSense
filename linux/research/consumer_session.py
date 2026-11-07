@@ -24,6 +24,24 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
+def granted_acl(original, uid, access):
+    """Exact getfacl text expected after one narrow named grant on a base ACL."""
+    require(access in ("rw-", "r--"), "Consumer grants are read/write or read-only")
+    entries = dict(line.split("::") for line in original.splitlines())
+    mask = "rwx" if "x" in entries["group"] else "rw-"
+    return (f"user::{entries['user']}\nuser:{uid}:{access}\ngroup::{entries['group']}\n"
+            f"mask::{mask}\nother::{entries['other']}\n"), mask
+
+
+def expected_access(allowed, read_only=()):
+    """Access the audited account may have: read/write grants, read-only grants, nothing else."""
+    expected = {str(path): [True, True] for path in allowed}
+    for path in read_only:
+        require(str(path) not in expected, "A node cannot be granted read/write and read-only")
+        expected[str(path)] = [True, False]
+    return expected
+
+
 def base_acl(text):
     """Accept base ACLs only, so adding a mask cannot activate latent grants."""
     rows = [line.strip() for line in text.splitlines() if line.strip() and not line.startswith("#")]
@@ -190,6 +208,7 @@ class ConsumerSession:
                 if (candidate / "device").resolve().is_relative_to(parent):
                     require(self.card is None, "Multiple ALSA cards under the owned virtual USB parent")
                     self.card = int(candidate.name[4:])
+            read_only = []
             if self.card is not None:
                 for candidate in Path("/sys/class/sound").glob("*"):
                     if (candidate.name.startswith((f"controlC{self.card}", f"pcmC{self.card}D"))
@@ -197,36 +216,42 @@ class ConsumerSession:
                         node = Path("/dev/snd", candidate.name)
                         if node.exists():
                             nodes.append(node)
+                # alsa-lib opens the global timer read-only when a PCM enables
+                # period events (PulseAudio tsched=0); no write access is granted.
+                timer = Path("/dev/snd/timer")
+                if timer.exists():
+                    read_only.append(timer)
             for node in nodes:
                 self.grant(node)
-            self.audit_access(nodes)
+            for node in read_only:
+                self.grant(node, "r--")
+            self.audit_access(nodes, read_only)
             self.result["account"] = dict(uid=self.uid, gid=self.gid, supplementaryGroups=[])
             self.result["grantedNodes"] = [str(node) for node in nodes]
+            self.result["readOnlyGrantedNodes"] = [str(node) for node in read_only]
             self.save()
             return self
         except BaseException:
             self.close()
             raise
 
-    def grant(self, node):
+    def grant(self, node, access="rw-"):
         value = node.lstat()
         require(stat.S_ISCHR(value.st_mode), "Only exact character device grants are allowed")
         original = base_acl(self.root_command(["getfacl", "--absolute-names", "--omit-header", "--numeric", "--physical", node]).stdout)
         record = dict(path=str(node), dev=value.st_dev, inode=value.st_ino, rdev=value.st_rdev,
-                      uid=value.st_uid, gid=value.st_gid, mode=stat.S_IMODE(value.st_mode), acl=original)
-        entries = dict(line.split("::") for line in original.splitlines())
-        mask = "rwx" if "x" in entries["group"] else "rw-"
-        record["grantedAcl"] = (f"user::{entries['user']}\nuser:{self.uid}:rw-\ngroup::{entries['group']}\n"
-                                f"mask::{mask}\nother::{entries['other']}\n")
+                      uid=value.st_uid, gid=value.st_gid, mode=stat.S_IMODE(value.st_mode), acl=original, access=access)
+        record["grantedAcl"], mask = granted_acl(original, self.uid, access)
         self.grants.append(record)  # Restore even if setfacl reports a partial failure.
         self.save()
-        self.root_command(["setfacl", "--no-mask", "--modify", f"u:{self.uid}:rw-,m::{mask}", node])
+        self.root_command(["setfacl", "--no-mask", "--modify", f"u:{self.uid}:{access},m::{mask}", node])
         observed = self.root_command(["getfacl", "--absolute-names", "--omit-header", "--numeric", "--physical", node]).stdout.strip() + "\n"
         record["observedAfterGrant"] = observed; self.save()
         require(observed == record["grantedAcl"], "Consumer grant differs from the expected narrow ACL")
 
-    def audit_access(self, allowed):
-        sensitive = sorted({str(path) for pattern in ("/dev/hidraw*", "/dev/input/event*", "/dev/snd/controlC*", "/dev/snd/pcm*")
+    def audit_access(self, allowed, read_only=()):
+        sensitive = sorted({str(path) for pattern in ("/dev/hidraw*", "/dev/input/event*", "/dev/snd/controlC*", "/dev/snd/pcm*",
+                                                      "/dev/snd/timer")
                             for path in Path("/").glob(pattern.lstrip("/"))})
         program = "import json,os,sys; print(json.dumps({p:[os.access(p,os.R_OK),os.access(p,os.W_OK)] for p in json.load(sys.stdin)}))"
         completed = subprocess.run(["python3", "-c", program], input=json.dumps(sensitive), text=True,
@@ -234,10 +259,9 @@ class ConsumerSession:
                                    extra_groups=[], env=self.env)
         require(completed.returncode == 0, "Consumer access audit failed")
         observed = json.loads(completed.stdout)
-        permitted = {str(path) for path in allowed}
+        expected = expected_access(allowed, read_only)
         for path, access in observed.items():
-            require(access == [True, True] if path in permitted else not any(access),
-                    f"Consumer has unexpected access to {path}: {access}")
+            require(access == expected.get(path, [False, False]), f"Consumer has unexpected access to {path}: {access}")
         (self.output / "access-audit.json").write_text(json.dumps(observed, indent=2) + "\n")
 
     def check_device(self):

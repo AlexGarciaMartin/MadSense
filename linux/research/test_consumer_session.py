@@ -2,13 +2,14 @@
 import binascii
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import struct
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from consumer_session import base_acl, bounded_bytes, bt_state, expected_motors, output_window, run_audio_defaults_observer
+from consumer_session import (base_acl, bounded_bytes, bt_state, expected_access, expected_motors, granted_acl, output_window,
+                              run_audio_defaults_observer)
 from qemu_consumers import verify_build, verify_consumer_result
 from run_wine_consumer import matching_container, parse_pe_output, select_audio_endpoint, xauthority
 
@@ -186,6 +187,26 @@ class WineEvidenceTests(unittest.TestCase):
             fields.append(data[offset:offset + count]); offset += count
         self.assertEqual(fields, [b"", b"37", b"MIT-MAGIC-COOKIE-1", cookie])
         self.assertEqual(offset, len(data))
+
+
+class GrantAclTests(unittest.TestCase):
+    def test_read_only_timer_grant_keeps_write_out_of_the_named_entry(self):
+        text, mask = granted_acl("user::rw-\ngroup::rw-\nother::---\n", 1001, "r--")
+        self.assertEqual(text, "user::rw-\nuser:1001:r--\ngroup::rw-\nmask::rw-\nother::---\n")
+        self.assertEqual(mask, "rw-")
+        text, mask = granted_acl("user::rw-\ngroup::rwx\nother::---\n", 7, "rw-")
+        self.assertEqual(text, "user::rw-\nuser:7:rw-\ngroup::rwx\nmask::rwx\nother::---\n")
+        self.assertEqual(mask, "rwx")
+        for access in ("rwx", "-w-", "", "r-x"):
+            with self.subTest(access=access), self.assertRaises(RuntimeError):
+                granted_acl("user::rw-\ngroup::rw-\nother::---\n", 1001, access)
+
+    def test_audit_expects_read_only_nodes_to_be_unwritable_and_others_inaccessible(self):
+        expected = expected_access([PurePosixPath("/dev/snd/pcmC0D0p")], [PurePosixPath("/dev/snd/timer")])
+        self.assertEqual(expected, {"/dev/snd/pcmC0D0p": [True, True], "/dev/snd/timer": [True, False]})
+        self.assertEqual(expected.get("/dev/snd/controlC1", [False, False]), [False, False])
+        with self.assertRaises(RuntimeError):
+            expected_access([PurePosixPath("/dev/snd/timer")], [PurePosixPath("/dev/snd/timer")])
 
 
 if __name__ == "__main__":

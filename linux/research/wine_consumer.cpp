@@ -260,21 +260,45 @@ static bool expected_sony_input(const unsigned char *bytes, size_t size, bool so
     return size == 64 && bytes[0] == 1 && bytes[1] == 128 && bytes[2] == 128 && bytes[3] == 128 && bytes[4] == 128
         && bytes[5] == 0 && bytes[6] == 0 && bytes[8] == (south ? 0x28 : 0x08) && bytes[9] == 0 && (bytes[10] & 7) == 0;
 }
-static void raw_input_read(HANDLE selected, bool south)
+static const char *boolean_text(bool value) { return value ? "true" : "false"; }
+struct RawInputVariant { const char *name; bool visible; bool input_sink; };
+// Wine's server queues a HID WM_INPUT only when the desktop has a foreground
+// thread (server/queue.c, queue_custom_hardware_message -> get_foreground_thread);
+// RIDEV_INPUTSINK only relaxes the foreground *process* check afterwards. Each
+// variant keeps the same registration, deadline and expected report so that
+// the window kind is the only difference between them.
+static bool raw_input_wait(HANDLE selected, bool south, const RawInputVariant &variant, unsigned timeout_ms)
 {
-    WNDCLASSW cls{}; cls.lpfnWndProc = DefWindowProcW; cls.hInstance = GetModuleHandleW(nullptr); cls.lpszClassName = L"MadSenseWineConsumer";
-    require(RegisterClassW(&cls), "Register Raw Input message window class");
-    HWND window = CreateWindowW(cls.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, cls.hInstance, nullptr);
-    require(window != nullptr, "Create Raw Input message window (headless Wine may need Xvfb)");
-    RAWINPUTDEVICE device{1, 5, RIDEV_INPUTSINK, window};
-    bool matched = false;
+    WNDCLASSW cls{}; cls.lpfnWndProc = DefWindowProcW; cls.hInstance = GetModuleHandleW(nullptr);
+    cls.lpszClassName = variant.visible ? L"MadSenseWineConsumerVisible" : L"MadSenseWineConsumer";
+    WNDCLASSW existing{};
+    if (!GetClassInfoW(cls.hInstance, cls.lpszClassName, &existing)) require(RegisterClassW(&cls), "Register Raw Input window class");
+    HWND window = variant.visible
+        ? CreateWindowExW(0, cls.lpszClassName, L"MadSense Raw Input probe", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                          CW_USEDEFAULT, CW_USEDEFAULT, 320, 200, nullptr, nullptr, cls.hInstance, nullptr)
+        : CreateWindowW(cls.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, cls.hInstance, nullptr);
+    require(window != nullptr, "Create Raw Input window (headless Wine may need Xvfb)");
+    bool foreground_requested = false;
+    if (variant.visible) {
+        ShowWindow(window, SW_SHOWNORMAL); UpdateWindow(window);
+        foreground_requested = SetForegroundWindow(window) != FALSE;
+        SetActiveWindow(window); SetFocus(window);
+        MSG pending;
+        while (PeekMessageW(&pending, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&pending); DispatchMessageW(&pending); }
+    }
+    HWND foreground = GetForegroundWindow();
+    bool foreground_present = foreground != nullptr, foreground_is_probe = foreground == window;
+    bool active_is_probe = GetActiveWindow() == window;
+    RAWINPUTDEVICE device{1, 5, variant.input_sink ? RIDEV_INPUTSINK : 0u, window};
+    bool matched = false; unsigned long input_messages = 0, device_reports = 0;
     try {
         require(RegisterRawInputDevices(&device, 1, sizeof(device)), "RegisterRawInputDevices");
-        ULONGLONG deadline = GetTickCount64() + 5000;
+        ULONGLONG deadline = GetTickCount64() + timeout_ms;
         while (!matched && GetTickCount64() < deadline) {
             MSG message;
             while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
                 if (message.message == WM_INPUT) {
+                    ++input_messages;
                     UINT size = 0;
                     if (GetRawInputData(reinterpret_cast<HRAWINPUT>(message.lParam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER)) == 0
                         && size >= sizeof(RAWINPUTHEADER) && size <= 65536) {
@@ -286,10 +310,12 @@ static void raw_input_read(HANDLE selected, bool south)
                                 uint64_t bytes = static_cast<uint64_t>(raw->data.hid.dwSizeHid) * raw->data.hid.dwCount;
                                 if (offset <= size && bytes <= size - offset)
                                     for (DWORD i = 0; i < raw->data.hid.dwCount; ++i) {
+                                        ++device_reports;
                                         const auto *report = raw->data.hid.bRawData + i * raw->data.hid.dwSizeHid;
                                         if (expected_sony_input(report, raw->data.hid.dwSizeHid, south)) {
                                             matched = true;
-                                            std::cout << "{\"kind\":\"raw-input-report\",\"hex\":" << json(hex(report, 64)) << "}\n";
+                                            std::cout << "{\"kind\":\"raw-input-report\",\"variant\":" << json(std::string(variant.name))
+                                                      << ",\"hex\":" << json(hex(report, 64)) << "}\n";
                                             break;
                                         }
                                     }
@@ -304,7 +330,29 @@ static void raw_input_read(HANDLE selected, bool south)
     } catch (...) { DestroyWindow(window); throw; }
     device.dwFlags = RIDEV_REMOVE; device.hwndTarget = nullptr;
     RegisterRawInputDevices(&device, 1, sizeof(device)); DestroyWindow(window);
-    require(matched, "No matching Raw Input report within five seconds");
+    std::cout << "{\"kind\":\"raw-input-variant\",\"variant\":" << json(std::string(variant.name))
+              << ",\"visible\":" << boolean_text(variant.visible) << ",\"inputSink\":" << boolean_text(variant.input_sink)
+              << ",\"foregroundRequested\":" << boolean_text(foreground_requested)
+              << ",\"foregroundWindowPresent\":" << boolean_text(foreground_present)
+              << ",\"foregroundIsProbe\":" << boolean_text(foreground_is_probe) << ",\"activeIsProbe\":" << boolean_text(active_is_probe)
+              << ",\"timeoutMs\":" << timeout_ms << ",\"inputMessages\":" << input_messages
+              << ",\"selectedDeviceReports\":" << device_reports << ",\"matched\":" << boolean_text(matched) << "}\n" << std::flush;
+    return matched;
+}
+static void raw_input_read(HANDLE selected, bool south)
+{
+    // The historical message-only registration runs first as the control; a
+    // visible activated window then separates "no foreground thread" from
+    // "Raw Input never delivers this device", with and without RIDEV_INPUTSINK.
+    const RawInputVariant variants[] = {{"message-only-inputsink", false, true},
+                                        {"visible-foreground-inputsink", true, true},
+                                        {"visible-foreground-plain", true, false}};
+    const char *matched_variant = nullptr;
+    for (const auto &variant : variants)
+        if (raw_input_wait(selected, south, variant, 5000)) { matched_variant = variant.name; break; }
+    std::cout << "{\"kind\":\"raw-input-summary\",\"matchedVariant\":"
+              << (matched_variant ? json(std::string(matched_variant)) : std::string("null")) << "}\n";
+    require(matched_variant != nullptr, "No matching Raw Input report in any window variant within five seconds each");
 }
 static void sony_probe(unsigned vendor, unsigned product, const std::array<unsigned char, 6> &mac, bool south)
 {
