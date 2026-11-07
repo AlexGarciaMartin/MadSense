@@ -19,7 +19,17 @@ public static class ReportTrace
     }
     private static readonly Entry[] Entries = new Entry[Capacity];
     private static readonly int[] Committed = new int[Capacity];
-    private static int _active, _writers, _next, _overflow, _badSequence;
+    // Delivery events carry no report payload: URB arrival, worker scheduling,
+    // completion-gate entry, stale skips and reportless/URB-less gate visits.
+    private const int EventCapacity = 262144;
+    private struct EventEntry
+    {
+        internal long Timestamp, Generation, Extra;
+        internal byte Kind, Origin;
+    }
+    private static readonly EventEntry[] Events = new EventEntry[EventCapacity];
+    private static readonly int[] EventCommitted = new int[EventCapacity];
+    private static int _active, _writers, _next, _overflow, _badSequence, _eventNext, _eventOverflow;
     private static ushort _nonce;
     private static string? _directory;
     private static long _minimumClockBracket, _maximumClockBracket;
@@ -40,6 +50,8 @@ public static class ReportTrace
         // Allocate/touch all recording storage before the actor connects.
         Array.Clear(Entries);
         Array.Clear(Committed);
+        Array.Clear(Events);
+        Array.Clear(EventCommitted);
         if (Stopwatch.Frequency != 1_000_000_000) throw new InvalidOperationException("Unexpected Stopwatch frequency.");
         _minimumClockBracket = long.MaxValue;
         for (int i = 0; i < 32; i++)
@@ -83,6 +95,26 @@ public static class ReportTrace
         finally { Interlocked.Decrement(ref _writers); }
     }
 
+    public static void Event(byte kind, long generation, long extra, byte origin = 0)
+    {
+        if (Volatile.Read(ref _active) == 0) return;
+        long timestamp = Stopwatch.GetTimestamp();
+        Interlocked.Increment(ref _writers);
+        try
+        {
+            if (Volatile.Read(ref _active) == 0) return;
+            int slot = Interlocked.Increment(ref _eventNext) - 1;
+            if (slot >= EventCapacity)
+            {
+                Interlocked.Increment(ref _eventOverflow);
+                return;
+            }
+            Events[slot] = new EventEntry { Timestamp = timestamp, Generation = generation, Extra = extra, Kind = kind, Origin = origin };
+            Volatile.Write(ref EventCommitted[slot], 1);
+        }
+        finally { Interlocked.Decrement(ref _writers); }
+    }
+
     public static void StopAndSave()
     {
         Volatile.Write(ref _active, 0);
@@ -104,6 +136,19 @@ public static class ReportTrace
                     $"{i},{row.Timestamp},{row.Stage},{row.Origin},{row.Generation},{row.Tag},{row.Sequence8}"));
             }
         }
+        int eventCount = Math.Min(Volatile.Read(ref _eventNext), EventCapacity);
+        using (var stream = new StreamWriter(Path.Combine(_directory, "event-trace.csv")))
+        {
+            stream.WriteLine("slot,ticks,kind,origin,generation,extra");
+            for (int i = 0; i < eventCount; i++)
+            {
+                if (Volatile.Read(ref EventCommitted[i]) != 1)
+                    throw new InvalidOperationException("Unpublished event slot after disposal.");
+                EventEntry row = Events[i];
+                stream.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"{i},{row.Timestamp},{row.Kind},{row.Origin},{row.Generation},{row.Extra}"));
+            }
+        }
         File.WriteAllText(Path.Combine(_directory, "report-trace.json"), JsonSerializer.Serialize(new
         {
             schema = 1, kind = "instrumented-research-copy", nonce = _nonce,
@@ -113,6 +158,10 @@ public static class ReportTrace
             dumpedAfterBridgeDispose = true, productionBinary = false,
             stages = new { parsedUsb = 1, rawSlot = 2, interruptPayload = 3, sendReturned = 4 },
             origins = new { none = 0, periodic = 1, freshWorker = 2 },
+            events = new { urbEnqueued = 5, scheduleRequested = 6, workerStarted = 7, gateEntered = 8,
+                skippedStale = 9, noUrbPending = 10, workerExit = 11, blockedNoReport = 12 },
+            eventCapacity = EventCapacity, eventsRecorded = eventCount,
+            eventsAttempted = Volatile.Read(ref _eventNext), eventOverflow = Volatile.Read(ref _eventOverflow),
             clockValidation = new { nativeClockId = 1, bracketedSamples = 32,
                 minimumBracketNs = _minimumClockBracket, maximumBracketNs = _maximumClockBracket },
             clock = "Stopwatch; Linux CLOCK_MONOTONIC; compare recorded frequency before joining C timestamps"

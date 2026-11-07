@@ -71,9 +71,40 @@ def overlays(trace_kind="stages"):
             ("            _rawInputReport = snapshot;",
              f"            _rawInputReport = snapshot;\n            {TRACE}.Record(2, snapshot);")],
         PREFIX + "DualSenseClient.Emulation/UsbIp/UsbIpServer.cs": [
-            ("CompleteInterruptLocked(endpoint, generation);", "CompleteInterruptLocked(endpoint, generation, onlyIfFresh);"),
-            ("private void CompleteInterruptLocked(InterruptEndpoint endpoint, long generation)",
-             "private void CompleteInterruptLocked(InterruptEndpoint endpoint, long generation, bool onlyIfFresh)"),
+            # Delivery events (no payload): host URB arrival, worker scheduling and
+            # start/exit, completion-gate entry, stale skip, URB-less and reportless visits.
+            ("                MaxTransferLength = transferLength\n            });\n",
+             "                MaxTransferLength = transferLength\n            });\n"
+             f"            {TRACE}.Event(5, Volatile.Read(ref _inputGeneration), Volatile.Read(ref endpoint.LastDeliveredGeneration));\n"),
+            ("            if (Interlocked.CompareExchange(ref _inputWorkerQueued, 1, 0) != 0) return;\n",
+             "            if (Interlocked.CompareExchange(ref _inputWorkerQueued, 1, 0) != 0)\n"
+             f"            {{ {TRACE}.Event(6, Volatile.Read(ref _inputGeneration), 0); return; }}\n"
+             f"            {TRACE}.Event(6, Volatile.Read(ref _inputGeneration), 1);\n"),
+            ("            long observed = Volatile.Read(ref _deliveryRequestVersion);\n            try\n",
+             "            long observed = Volatile.Read(ref _deliveryRequestVersion);\n"
+             f"            {TRACE}.Event(7, Volatile.Read(ref _inputGeneration), observed);\n            try\n"),
+            ("                Interlocked.Exchange(ref _inputWorkerQueued, 0);\n",
+             "                Interlocked.Exchange(ref _inputWorkerQueued, 0);\n"
+             f"                {TRACE}.Event(11, Volatile.Read(ref _inputGeneration), observed != Volatile.Read(ref _deliveryRequestVersion) ? 1 : 0);\n"),
+            ("                long generation = Volatile.Read(ref _inputGeneration);\n"
+             "                if (onlyIfFresh && generation == endpoint.LastDeliveredGeneration) return;\n"
+             "                CompleteInterruptLocked(endpoint, generation);\n",
+             "                long generation = Volatile.Read(ref _inputGeneration);\n"
+             f"                {TRACE}.Event(8, generation, endpoint.LastDeliveredGeneration, onlyIfFresh ? (byte)2 : (byte)1);\n"
+             "                if (onlyIfFresh && generation == endpoint.LastDeliveredGeneration)\n"
+             f"                {{ {TRACE}.Event(9, generation, endpoint.LastDeliveredGeneration, (byte)2); return; }}\n"
+             "                CompleteInterruptLocked(endpoint, generation, onlyIfFresh);\n"),
+            ("        private void CompleteInterruptLocked(InterruptEndpoint endpoint, long generation)\n        {\n\n"
+             "            if (!endpoint.TryTakeNext(out UsbTransfer transfer))\n            {\n                return;\n            }\n",
+             "        private void CompleteInterruptLocked(InterruptEndpoint endpoint, long generation, bool onlyIfFresh)\n        {\n\n"
+             "            if (!endpoint.TryTakeNext(out UsbTransfer transfer))\n            {\n"
+             f"                {TRACE}.Event(10, generation, endpoint.LastDeliveredGeneration, onlyIfFresh ? (byte)2 : (byte)1);\n"
+             "                return;\n            }\n"),
+            ("                if (count <= 0)\n                {\n"
+             "                    endpoint.Block(transfer); // no report yet: the URB stays pending\n",
+             "                if (count <= 0)\n                {\n"
+             f"                    {TRACE}.Event(12, generation, endpoint.LastDeliveredGeneration, onlyIfFresh ? (byte)2 : (byte)1);\n"
+             "                    endpoint.Block(transfer); // no report yet: the URB stays pending\n"),
             ("                int actualLength = Math.Min(count, payload.Length);\n"
              "                SendRetSubmit(transfer.SeqNum, UsbIpStatus.Success, payload.AsMemory(0, actualLength));\n"
              "                Volatile.Write(ref endpoint.LastDeliveredGeneration, generation);",

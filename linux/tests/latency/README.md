@@ -467,3 +467,35 @@ This establishes the boundary, not whether a pending URB, notification worker,
 timer or scheduler delay caused a particular overwrite. No observer-cost estimate
 or physical latency conclusion follows. The lost 100 Hz sequence is retained;
 prior successful 100 Hz runs do not erase it. The result remains `transport-limit`.
+
+## Delivery events inside the slot-to-interrupt interval
+
+The same `trace_stages` overlay now also records payload-free delivery events
+into a second preallocated array of 262,144 entries (`event-trace.csv`:
+`slot,ticks,kind,origin,generation,extra`), with the same `Stopwatch`
+clock, writer accounting and post-disposal dump as the report records. The
+hooks are exact, unique anchors in the research copy of `UsbIpServer.cs`:
+
+| Kind | Event | `generation` | `extra` |
+|---|---|---|---|
+| 5 | Interrupt IN URB enqueued by the host | current input generation | endpoint's last delivered generation |
+| 6 | Input delivery requested | current input generation | 1 when a worker was queued, 0 when an existing worker absorbs it |
+| 7 | Delivery worker started | current input generation | delivery request version observed |
+| 8 | Completion gate entered (origin 1 periodic tick, 2 fresh worker) | generation read under the gate | last delivered generation |
+| 9 | Gate left because the generation was already delivered | as 8 | as 8 |
+| 10 | Gate found no pending URB | as 8 | as 8 |
+| 11 | Delivery worker exited | current input generation | 1 when it rescheduled itself |
+| 12 | URB kept because the device reported nothing | as 8 | as 8 |
+
+For every sequence absent after raw-slot publication, the analyzer takes the
+window from its raw-slot record to the next raw-slot record of any sequence
+and reports the events inside it: `slot-replaced-before-gate-entry` when no
+gate entry occurred before the slot was overwritten, `gate-entry-without-pending-urb`
+when a gate visit found no host URB, `gate-entry-skipped-stale`,
+`gate-entry-blocked-no-report`, or `gate-entry-other`. Each window keeps its
+length, the replacing sequence, per-kind counts, the number of workers queued
+and each gate entry's origin, delay after the slot and how many generations
+the endpoint was behind. The labels describe what the instrumented actor did
+inside the window; `schedulingCauseEstablished` stays `false` until a native
+run has been read with its control sessions, and no thread-pool, priority or
+buffer change is derived from this instrumentation.

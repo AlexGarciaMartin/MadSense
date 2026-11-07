@@ -21,6 +21,8 @@ try
             BinaryPrimitives.WriteUInt32LittleEndian(report.AsSpan(28), (33059u << 16) | (uint)sequence);
             for (byte stage = 1; stage <= 4; stage++)
                 ReportTrace.Record(stage, report, stage >= 3 ? sequence + 1 : 0, stage >= 3 ? (byte)2 : (byte)0);
+            ReportTrace.Event(8, sequence + 1, sequence, 2);
+            ReportTrace.Event(5, sequence + 1, sequence);
         });
     }
     else
@@ -37,6 +39,20 @@ try
         value.GetProperty("badSequence").GetInt32() != 0 ||
         !value.GetProperty("writersFinished").GetBoolean())
         throw new Exception("Bounded concurrent recording counters differ.");
+    int expectedEvents = args[0] == "concurrent" ? 2000 : 0;
+    if (value.GetProperty("eventsRecorded").GetInt32() != expectedEvents ||
+        value.GetProperty("eventsAttempted").GetInt32() != expectedEvents ||
+        value.GetProperty("eventOverflow").GetInt32() != 0)
+        throw new Exception("Bounded event recording counters differ.");
+    string[] eventRows = File.ReadAllLines(Path.Combine(directory, "event-trace.csv"));
+    if (eventRows.Length != expectedEvents + 1) throw new Exception("Lost event publication.");
+    for (int i = 1; i < eventRows.Length; i++)
+    {
+        string[] columns = eventRows[i].Split(',');
+        if (int.Parse(columns[0]) != i - 1 || long.Parse(columns[1]) <= 0 || columns[2] is not ("8" or "5")
+            || long.Parse(columns[4]) != long.Parse(columns[5]) + 1)
+            throw new Exception("Unpublished or inconsistent event slot.");
+    }
     string[] rows = File.ReadAllLines(Path.Combine(directory, "report-trace.csv"));
     if (rows.Length != expected + 1) throw new Exception("Lost publication.");
     var tags = new Dictionary<uint, HashSet<int>>();

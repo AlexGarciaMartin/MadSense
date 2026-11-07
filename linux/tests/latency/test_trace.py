@@ -5,7 +5,7 @@ import unittest
 
 from analyze import FIELDS as SAMPLE_FIELDS
 from stage_trace import overlays, replace_once
-from trace_analysis import FIELDS, STAGES, ORIGINS, analyze
+from trace_analysis import EVENTS, EVENT_CAPACITY, EVENT_FIELDS, FIELDS, STAGES, ORIGINS, analyze
 from trace_schedule import schedule
 
 
@@ -115,6 +115,68 @@ class AttributionTests(unittest.TestCase):
         self.assertEqual(len({name for name, _, _ in cases}), 8)
         self.assertEqual([flag for _, rate, flag in cases if rate == 100], [False, True, True, False])
         self.assertEqual([flag for _, rate, flag in cases if rate == 1000], [True, False, False, True])
+
+
+class EventAttributionTests(AttributionTests):
+    """Sequence 2 is lost after raw-slot publication; events describe that window."""
+    def setUp(self):
+        super().setUp()
+        self.slot2 = 1_000_000_000 + 2 * 10_000_000 + 5
+        self.slot3 = 1_000_000_000 + 3 * 10_000_000 + 5
+        self.events = []
+        self.meta.update(events=EVENTS, eventCapacity=EVENT_CAPACITY, eventsRecorded=0, eventsAttempted=0, eventOverflow=0)
+
+    def add(self, kind, ticks, generation=0, extra=0, origin=0):
+        self.events.append(dict(slot=len(self.events), ticks=ticks, kind=kind, origin=origin,
+                                generation=generation, extra=extra))
+        self.meta.update(eventsRecorded=len(self.events), eventsAttempted=len(self.events))
+
+    def run_analysis(self):
+        # The inherited attribution cases must hold unchanged with event evidence present.
+        return analyze(stream(FIELDS, self.rows), self.meta, stream(SAMPLE_FIELDS, self.samples), self.probe,
+                       stream(EVENT_FIELDS, self.events))
+
+    run_events = run_analysis
+
+    def test_gate_visit_without_pending_urb_is_described_not_explained(self):
+        self.add(6, self.slot2 + 10, generation=3, extra=1)
+        self.add(7, self.slot2 + 20, generation=3)
+        self.add(8, self.slot2 + 30, generation=3, extra=2, origin=2)
+        self.add(10, self.slot2 + 31, generation=3, extra=2, origin=2)
+        self.add(11, self.slot2 + 40, generation=3)
+        self.add(5, self.slot3 + 1, generation=3, extra=2)
+        result = self.run_events()
+        attribution = result["slotToInterruptAttribution"]
+        self.assertEqual(attribution["labels"]["gate-entry-without-pending-urb"], 1)
+        detail = attribution["sequences"][2]
+        self.assertEqual(detail["replacedBySequence"], 3)
+        self.assertEqual(detail["windowNs"], self.slot3 - self.slot2)
+        self.assertEqual(detail["workersQueued"], 1)
+        self.assertEqual(detail["gateEntries"], [dict(origin=2, afterSlotNs=30, generationsBehind=1)])
+        self.assertEqual(detail["events"]["urbEnqueued"], 0)
+        self.assertEqual(result["eventCounts"]["urbEnqueued"], 1)
+        self.assertFalse(result["schedulingCauseEstablished"])
+
+    def test_replacement_before_any_gate_visit_is_separate_from_urb_absence(self):
+        self.add(6, self.slot2 + 10, generation=3, extra=0)
+        self.add(8, self.slot3 + 50, generation=4, extra=2, origin=1)
+        result = self.run_events()
+        self.assertEqual(result["slotToInterruptAttribution"]["labels"]["slot-replaced-before-gate-entry"], 1)
+        self.assertEqual(result["slotToInterruptAttribution"]["sequences"][2]["workersQueued"], 0)
+
+    def test_event_evidence_and_recording_must_match(self):
+        with self.assertRaises(ValueError):
+            analyze(stream(FIELDS, self.rows), self.meta, stream(SAMPLE_FIELDS, self.samples), self.probe)
+        self.add(8, self.slot2 + 30, generation=3, extra=2, origin=2)
+        for change in (dict(eventOverflow=1), dict(eventsAttempted=5), dict(eventCapacity=1),
+                       dict(events=dict(EVENTS, extra=13))):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                analyze(stream(FIELDS, self.rows), dict(self.meta, **change), stream(SAMPLE_FIELDS, self.samples),
+                        self.probe, stream(EVENT_FIELDS, self.events))
+        bad = copy.deepcopy(self.events); bad[0]["origin"] = 0
+        with self.assertRaises(ValueError):
+            analyze(stream(FIELDS, self.rows), self.meta, stream(SAMPLE_FIELDS, self.samples), self.probe,
+                    stream(EVENT_FIELDS, bad))
 
 
 class OverlayTests(unittest.TestCase):

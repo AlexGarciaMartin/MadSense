@@ -19,8 +19,15 @@ def analyze_directory(directory, overlay, samples, probe):
         stem, other = "report-trace", "input-trace"
     if any((directory / (other + suffix)).exists() for suffix in (".csv", ".json")):
         raise ValueError("Mixed instrumentation variants")
+    metadata = json.loads((directory / (stem + ".json")).read_text())
+    events = directory / "event-trace.csv"
+    if selected == "input" and events.exists():
+        raise ValueError("Mixed instrumentation variants")
     with (directory / (stem + ".csv")).open(newline="") as stream:
-        return analyze(stream, json.loads((directory / (stem + ".json")).read_text()), samples, probe)
+        if selected == "stages" and events.exists():
+            with events.open(newline="") as event_stream:
+                return analyze(stream, metadata, samples, probe, event_stream)
+        return analyze(stream, metadata, samples, probe)
 
 
 def require_control(directory):
